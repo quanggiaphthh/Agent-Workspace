@@ -1,0 +1,8 @@
+{
+  "name": "Agent Webapp",
+  "description": "Modular App Shell with independent domain modules, central Canvas, and coordinating AI Agent.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
