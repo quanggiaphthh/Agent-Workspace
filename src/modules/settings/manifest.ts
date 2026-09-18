@@ -28,5 +28,5 @@ export const settingsManifest: ModuleManifest = {
   ],
   capabilities: [],
   widgets: [],
-  permissions: ['admin.manage'],
+  permissions: ['settings.read'],
 };

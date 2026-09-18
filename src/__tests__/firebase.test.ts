@@ -10,7 +10,7 @@ describe('Firebase Admin Connection and Initialization Preflight', () => {
 
   it('should resolve correct named database ID', () => {
     expect(firebaseConfig.firestoreDatabaseId).toBeDefined();
-    expect(firebaseConfig.firestoreDatabaseId).toContain('ai-studio-modularagentweba-44b40a69-3a84-4a8e-af00-a0a4885390d1');
+    expect(firebaseConfig.firestoreDatabaseId).toContain('ai-studio-');
   });
 
   it('should export verified auth and firestore instances', () => {

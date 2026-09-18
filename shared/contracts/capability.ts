@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AIConfig } from './ai';
 
 export type CapabilityRisk = 'low' | 'medium' | 'high';
 
@@ -26,13 +27,14 @@ export interface AppContext {
   currentView?: string;
   currentFilters?: Record<string, unknown>;
   availableCapabilities: string[];
-  aiConfig?: any;
+  aiConfig?: AIConfig;
 }
 
 export interface ExecutionContext {
   user: UserContext;
   appContext?: AppContext;
   confirmed?: boolean;
+  abortSignal?: AbortSignal;
 }
 
 export interface CapabilityDescriptor<TInput = unknown, TOutput = unknown> {

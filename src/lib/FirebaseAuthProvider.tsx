@@ -1,13 +1,16 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  User, 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut 
+import {
+  User,
+  onAuthStateChanged,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
 } from 'firebase/auth';
 import { auth } from './firebase';
-import { useAIKeysStore } from '../modules/settings/aiKeysStore';
+import { moduleRegistry } from '../core/modules/moduleRegistry';
+import { AI_SETTINGS_RESET, useAIKeysStore } from '../modules/settings/aiKeysStore';
+import { DEFAULT_USER, useContextStore } from '../core/context/contextStore';
+import { resolveVerifiedPermissions, uniqueStrings } from '../../shared/security/permissions';
 
 interface FirebaseAuthContextValue {
   user: User | null;
@@ -24,27 +27,73 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-      try {
-        // Reset Zustand store to initial state BEFORE changing persist name and rehydrating
-        useAIKeysStore.setState({
-          keys: [],
-          autoRotate: false,
-          globalDefaultModel: null,
-          agentProvider: 'google',
-          agentModel: 'gemini-flash-lite-latest',
-          providerDefaultModels: {},
-          providerLoadedModels: {},
-        });
+    return onAuthStateChanged(auth, (nextUser) => {
+      void (async () => {
+        setLoading(true);
+        setUser(nextUser);
 
-        const storeKey = u ? `ai-keys-storage_${u.uid}` : 'ai-keys-storage';
+        // Reset all user-scoped AI settings before switching persistence namespace.
+        useAIKeysStore.setState({ ...AI_SETTINGS_RESET, aiSettingsHydrated: false });
+        const storeKey = nextUser ? `ai-keys-storage_${nextUser.uid}` : 'ai-keys-storage_guest';
         useAIKeysStore.persist.setOptions({ name: storeKey });
-        useAIKeysStore.persist.rehydrate();
-      } catch (e) {
-        console.warn('Failed to rehydrate useAIKeysStore with user-scoped key', e);
-      }
+
+        try {
+          if (nextUser) {
+            await useAIKeysStore.persist.rehydrate();
+          }
+        } catch (err) {
+          console.warn('Failed to rehydrate user-scoped AI settings', err);
+        } finally {
+          useAIKeysStore.getState().setAISettingsHydrated(true);
+        }
+
+        if (!nextUser) {
+          useContextStore.getState().setUser(DEFAULT_USER);
+          setLoading(false);
+          return;
+        }
+
+        try {
+          // Client claims are used only for UI affordances. Server-side authorization
+          // independently verifies the ID token and never trusts this client state.
+          const tokenResult = await nextUser.getIdTokenResult();
+          const claims = tokenResult.claims as Record<string, unknown>;
+          const claimRoles = Array.isArray(claims.roles)
+            ? claims.roles.filter((role): role is string => typeof role === 'string')
+            : [];
+          const admin = claims.admin === true;
+          const roles = uniqueStrings(admin
+            ? [...claimRoles, 'admin']
+            : (claimRoles.length > 0 ? claimRoles : ['user']));
+          const claimedPermissions = Array.isArray(claims.permissions)
+            ? claims.permissions.filter((permission): permission is string => typeof permission === 'string')
+            : null;
+
+          useContextStore.getState().setUser({
+            id: nextUser.uid,
+            email: nextUser.email || '',
+            name: nextUser.displayName || nextUser.email || 'User',
+            roles,
+            permissions: resolveVerifiedPermissions({ roles, claimedPermissions, admin }),
+          });
+
+          // Sync module settings with server after login
+          void moduleRegistry.syncWithServer().catch(err => {
+            console.warn('Failed to sync module state after login:', err);
+          });
+        } catch (err) {
+          console.warn('Failed to load Firebase claims for UI context', err);
+          useContextStore.getState().setUser({
+            id: nextUser.uid,
+            email: nextUser.email || '',
+            name: nextUser.displayName || nextUser.email || 'User',
+            roles: ['user'],
+            permissions: [],
+          });
+        } finally {
+          setLoading(false);
+        }
+      })();
     });
   }, []);
 

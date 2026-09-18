@@ -36,7 +36,7 @@ export const tasksManifest: ModuleManifest = {
       width: 'half',
     },
   ],
-  permissions: ['tasks.read', 'tasks.write', 'tasks.delete'],
+  permissions: ['tasks.read'],
   lifecycle: {
     onEnable: async () => {
       console.log('[Module Lifecycle] Tasks module enabled');

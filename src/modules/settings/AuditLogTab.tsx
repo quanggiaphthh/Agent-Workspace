@@ -10,14 +10,19 @@ export function AuditLogTab() {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (cursor?: string, append = false) => {
     try {
       setLoading(true);
-      const res = await authFetch('/api/audit?limit=100');
+      const params = new URLSearchParams({ limit: '100' });
+      if (cursor) params.set('cursor', cursor);
+      const res = await authFetch(`/api/audit?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setLogs(data);
+        const items: AuditLogEntry[] = Array.isArray(data) ? data : (data.items || []);
+        setLogs((prev) => append ? [...prev, ...items] : items);
+        setNextCursor(Array.isArray(data) ? undefined : data.nextCursor);
       }
     } catch (err) {
       console.error('Failed fetching audit logs', err);
@@ -48,7 +53,7 @@ export function AuditLogTab() {
         <Button
           variant="outline"
           size="sm"
-          onClick={fetchLogs}
+          onClick={() => fetchLogs()}
           disabled={loading}
           className="text-xs gap-1"
         >
@@ -117,18 +122,14 @@ export function AuditLogTab() {
                         {typeof log.confirmed === 'boolean' && <div><span className="text-neutral-500">Confirmed:</span> {log.confirmed ? 'Yes' : 'No'}</div>}
                         {log.source && <div><span className="text-neutral-500">Source:</span> {log.source}</div>}
                       </div>
-                      <div>
-                        <span className="text-neutral-400 font-bold block mb-0.5">// Dữ liệu đầu vào</span>
-                        <pre className="overflow-x-auto whitespace-pre-wrap">
-                          {JSON.stringify(log.input, null, 2)}
-                        </pre>
-                      </div>
-                      <div className="pt-2 border-t border-neutral-800">
-                        <span className="text-neutral-400 font-bold block mb-0.5">// Kết quả / Dữ liệu đầu ra</span>
-                        <pre className="overflow-x-auto whitespace-pre-wrap">
-                          {JSON.stringify(log.result, null, 2)}
-                        </pre>
-                      </div>
+                      {log.metadata && (
+                        <div>
+                          <span className="text-neutral-400 font-bold block mb-0.5">// Metadata đã lược bỏ dữ liệu nhạy cảm</span>
+                          <pre className="overflow-x-auto whitespace-pre-wrap">
+                            {JSON.stringify(log.metadata, null, 2)}
+                          </pre>
+                        </div>
+                      )}
                       {log.errorMessage && (
                         <div className="pt-2 border-t border-neutral-800 text-rose-400">
                           <span className="font-bold block mb-0.5">// Thông báo lỗi</span>
@@ -142,6 +143,19 @@ export function AuditLogTab() {
             })
           )}
         </div>
+        {nextCursor && (
+          <div className="p-3 border-t border-neutral-100 flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fetchLogs(nextCursor, true)}
+              disabled={loading}
+              className="text-xs"
+            >
+              Tải thêm nhật ký
+            </Button>
+          </div>
+        )}
       </Card>
     </div>
   );

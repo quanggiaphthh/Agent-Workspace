@@ -6,76 +6,210 @@ import express from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { RootAgent } from './server/agent/adk/RootAgent';
-import { InMemoryRunner } from '@google/adk';
+import { InMemoryRunner, InMemorySessionService } from '@google/adk';
 import { FirestoreSessionService } from './server/agent/adk/FirestoreSessionService';
 import { adkEventStream, parseAdkRequest, toAdkContent } from '@assistant-ui/react-google-adk/server';
 import { ServerCapabilityRegistry } from './server/core/capabilities/serverCapabilityRegistry';
+import { CapabilityExecutionService } from './server/core/capabilities/CapabilityExecutionService';
 import { Readable } from 'stream';
 import { AuditService } from './server/core/audit/auditService';
 import { storage } from './server/infrastructure/storage';
 import { ServerIdentityProvider } from './server/core/auth/identityProvider';
 import { PermissionResolver } from './server/core/permissions/permissionResolver';
-import { adminFirestore } from './server/lib/firebaseAdmin';
+import { adminFirestore, firebaseAdminConfig, probeFirestoreAdmin } from './server/lib/firebaseAdmin';
 import firebaseConfig from './firebase-applet-config.json';
+import { AIConfigSchema, type AIProviderId } from './shared/contracts/ai';
+import { z } from 'zod';
+import { UserDataService } from './server/core/data/UserDataService';
+import { computeRuntimeHealth } from './server/core/runtime/runtimeHealthPolicy';
+import { bindRequestCancellation, isCancellationError } from './server/core/runtime/requestCancellation';
+import { redactAuditString, sanitizeAuditValue } from './server/core/audit/auditRedaction';
+import { toSafeProviderError } from './server/core/ai/credentialRotationPolicy';
 
 dotenv.config();
 
 const PORT = 3000;
 const adkSessionService = new FirestoreSessionService();
+const temporarySessionService = new InMemorySessionService();
+const AGENT_APP_NAME = 'root_agent';
+const ClientSessionIdSchema = z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/);
+
+function parseClientSessionId(value: unknown): string {
+  const parsed = ClientSessionIdSchema.safeParse(value);
+  if (!parsed.success) {
+    const err = new Error('Invalid sessionId. Use 1-128 characters: letters, numbers, underscore or hyphen.');
+    (err as any).status = 400;
+    throw err;
+  }
+  return parsed.data;
+}
+
+function serverSessionId(userId: string, clientSessionId: string): string {
+  return `u_${userId}_s_${clientSessionId}`;
+}
+
+function clientSessionIdFromServer(userId: string, storedId: string): string {
+  const prefix = `u_${userId}_s_`;
+  return storedId.startsWith(prefix) ? storedId.slice(prefix.length) : storedId;
+}
+
+function eventIsUserMessage(event: any): boolean {
+  return event?.content?.role === 'user' || event?.author === 'user';
+}
+
+function eventText(event: any): string {
+  const content = event?.content;
+  if (!content) return '';
+  if (typeof content === 'string') return content.trim();
+  const parts = Array.isArray(content.parts) ? content.parts : [];
+  return parts.map((part: any) => typeof part?.text === 'string' ? part.text : '').filter(Boolean).join('\n').trim();
+}
+
+function sessionTranscript(events: any[]) {
+  return events.flatMap((event: any, index: number) => {
+    const text = eventText(event);
+    if (!text) return [];
+    const role = event?.content?.role === 'user' || event?.author === 'user' ? 'user' : 'assistant';
+    const rawTimestamp = Number(event?.timestamp || Date.now());
+    const timestamp = rawTimestamp > 0 && rawTimestamp < 1_000_000_000_000 ? rawTimestamp * 1000 : rawTimestamp;
+    return [{
+      id: String(event?.id || `${event?.invocationId || 'evt'}-${index}`),
+      role,
+      content: [{ type: 'text', text }],
+      timestamp,
+    }];
+  });
+}
 
 export const app = express();
 
 // Fix express-rate-limit warning in proxy environments
 app.set('trust proxy', 1);
 
-// Production Guards
-app.use(helmet({
-  contentSecurityPolicy: false, // Disable for Vite/Dev if needed, but in production we should fine-tune
-  crossOriginEmbedderPolicy: false
-}));
+// Production security headers. Development relaxes CSP only for the Vite/HMR runtime.
+const productionCsp = {
+  directives: {
+    defaultSrc: ["'self'"],
+    baseUri: ["'self'"],
+    objectSrc: ["'none'"],
+    frameAncestors: ["'self'"],
+    scriptSrc: ["'self'", 'https://apis.google.com', 'https://www.gstatic.com'],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", 'data:', 'https://lh3.googleusercontent.com', 'https://www.gstatic.com'],
+    fontSrc: ["'self'", 'data:'],
+    connectSrc: [
+      "'self'",
+      'https://identitytoolkit.googleapis.com',
+      'https://securetoken.googleapis.com',
+      'https://www.googleapis.com',
+      'https://firestore.googleapis.com',
+    ],
+    frameSrc: ["'self'", 'https://accounts.google.com', `https://${firebaseConfig.authDomain}`],
+  },
+};
+
+app.use(helmet(process.env.NODE_ENV === 'production'
+  ? { contentSecurityPolicy: productionCsp, crossOriginEmbedderPolicy: false }
+  : { contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later.' }
+  statusCode: 429,
+  message: { error: 'Too many requests, please try again later.' },
 });
 
-// Apply rate limiting to API requests only
+// Public telemetry is separately constrained because it is intentionally unauthenticated.
+const clientErrorLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  statusCode: 429,
+  message: { error: 'Too many client error reports.' },
+});
+
+// Expensive provider/agent work is limited per verified user, not per shared NAT IP.
+const expensiveUserLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  statusCode: 429,
+  keyGenerator: (req: express.Request) => `user:${(req as any).user?.id || 'missing-auth'}`,
+  handler: (_req, res) => res.status(429).json({ error: 'Too many expensive requests. Please try again later.' }),
+});
+
 app.use('/api', limiter);
 
-// JSON request size limit
+const ClientErrorSchema = z.object({
+  message: z.string().trim().min(1).max(4000),
+  source: z.string().trim().max(200).optional(),
+  stack: z.string().max(12000).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+app.post('/api/log-error', clientErrorLimiter, express.json({ limit: '32kb' }), (req, res) => {
+  const parsed = ClientErrorSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid client error report.' });
+  }
+
+  const safeReport = {
+    message: redactAuditString(parsed.data.message),
+    source: parsed.data.source ? redactAuditString(parsed.data.source) : undefined,
+    stack: parsed.data.stack ? redactAuditString(parsed.data.stack) : undefined,
+    context: parsed.data.context ? sanitizeAuditValue(parsed.data.context) : undefined,
+  };
+  console.error('>>> [CLIENT REPORTED ERROR]:', safeReport);
+  res.json({ received: true });
+});
+
+app.use('/api/log-error', (err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Client error report is too large.' });
+  if (err instanceof SyntaxError) return res.status(400).json({ error: 'Invalid JSON payload.' });
+  return next(err);
+});
+
+// JSON request size limit for authenticated application APIs.
 app.use(express.json({ limit: '1mb' }));
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
+app.get('/api/health', async (_req, res) => {
+  const [firestore, session, audit] = await Promise.all([
+    probeFirestoreAdmin(),
+    adkSessionService.probePersistenceHealth(),
+    AuditService.probeHealth(),
+  ]);
+  const modules = storage.getPersistenceHealth();
+  const health = computeRuntimeHealth({ firestore, session, modules, audit });
+  res.status(health.status === 'error' ? 503 : 200).json({
+    ...health,
     capabilitiesCount: ServerCapabilityRegistry.listAll().length,
-    storageInitialized: true,
   });
 });
 
-// Global crash guard for unhandled rejections (Phase 7 Robustness)
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('>>> [UNHANDLED REJECTION]:', reason);
-  // Do NOT exit in production dev environment to keep the app reachable
-});
+function fatalErrorSummary(value: unknown): string {
+  if (value instanceof Error) return redactAuditString(`${value.name}: ${value.message}`);
+  return redactAuditString(String(value));
+}
 
-process.on('uncaughtException', (err) => {
-  console.error('>>> [UNCAUGHT EXCEPTION]:', err);
-});
+if (process.env.NODE_ENV !== 'test') {
+  process.on('unhandledRejection', (reason) => {
+    console.error('>>> [FATAL UNHANDLED REJECTION]:', fatalErrorSummary(reason));
+    process.exit(1);
+  });
 
-// Client error logger
-app.post('/api/log-error', (req, res) => {
-  console.error('>>> [CLIENT REPORTED ERROR]:', JSON.stringify(req.body, null, 2));
-  res.json({ received: true });
-});
+  process.on('uncaughtException', (err) => {
+    console.error('>>> [FATAL UNCAUGHT EXCEPTION]:', fatalErrorSummary(err));
+    process.exit(1);
+  });
+}
 
 // Authentication middleware for protected API routes
 app.use('/api', async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -124,9 +258,10 @@ app.get('/api/test/firebase-connection', async (req, res) => {
   
   // Phase 2 Diagnostics
   const diagInfo = {
-    firebaseProjectId: firebaseConfig.projectId,
-    firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
-    envHasADC: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    firebaseProjectId: firebaseAdminConfig.projectId,
+    firestoreDatabaseId: firebaseAdminConfig.databaseId,
+    googleApplicationCredentialsEnvPresent: firebaseAdminConfig.googleApplicationCredentialsEnvPresent,
+    credentialStrategy: firebaseAdminConfig.credentialStrategy,
     userId: user?.id,
     sessionId: sessionId,
     collectionPath: `_server_probe/${sessionId}`
@@ -170,102 +305,432 @@ app.get('/api/test/firebase-connection', async (req, res) => {
 });
 
 // AI Routes
-import { AIProviderManager } from './server/core/ai/AIProviderManager';
+import { AIProviderManager, redactProviderError } from './server/core/ai/AIProviderManager';
 import { CredentialService } from './server/core/ai/CredentialService';
 
-app.post('/api/ai/test-key', async (req, res) => {
-  const { providerId, key } = req.body;
-  if (!providerId || !key) {
-    return res.status(400).json({ error: 'Missing providerId or key' });
-  }
+const AIProviderIdSchema = z.enum(['google', 'openai', 'anthropic', 'nvidia', 'opencodezen']);
+const CredentialSecretSchema = z.string().trim().min(1).max(8192);
+const CredentialNameSchema = z.string().trim().min(1).max(120);
+const TestKeySchema = z.object({
+  providerId: AIProviderIdSchema,
+  key: CredentialSecretSchema,
+}).strict();
+const CredentialCreateSchema = z.object({
+  providerId: AIProviderIdSchema,
+  key: CredentialSecretSchema,
+  name: CredentialNameSchema.optional(),
+}).strict();
+const CredentialUpdateSchema = z.object({
+  providerId: AIProviderIdSchema,
+  key: CredentialSecretSchema.optional(),
+  name: CredentialNameSchema.optional(),
+}).strict().refine((value) => value.key !== undefined || value.name !== undefined, {
+  message: 'At least one credential field must be updated.',
+});
+const TestModelSchema = z.object({
+  providerId: AIProviderIdSchema,
+  credentialId: z.string().trim().min(1).max(160),
+  modelId: z.string().trim().min(1).max(300),
+}).strict();
+
+function safeErrorCode(err: any): string | undefined {
+  return typeof err?.code === 'string' && /^[A-Z0-9_]{3,80}$/.test(err.code)
+    ? err.code
+    : undefined;
+}
+
+function credentialErrorResponse(err: any, fallback: string, knownSecret?: string) {
+  const status = Number(err?.status) || 500;
+  const safeMessage = knownSecret
+    ? redactProviderError(err, knownSecret)
+    : redactAuditString(String(err?.message || fallback));
+  const code = safeErrorCode(err);
+  return { status, body: { error: safeMessage || fallback, ...(code ? { code } : {}) } };
+}
+
+app.post('/api/ai/test-key', expensiveUserLimiter, async (req, res) => {
+  const parsed = TestKeySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid provider credential test request.' });
+  const { providerId, key } = parsed.data;
 
   try {
     const adapter = AIProviderManager.getAdapter(providerId);
     const result = await adapter.testKey(key);
-    
     if (!result.success) {
-      return res.status(result.statusCode || 401).json({ error: result.error });
+      return res.status(result.statusCode || 401).json({ error: result.error, canSaveUnverified: result.canSaveUnverified });
     }
-    
     res.json(result);
   } catch (err: any) {
-    console.error('Test key error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Provider communication error' });
+    const safe = credentialErrorResponse(err, 'Provider communication error', key);
+    console.error('Test key error:', safe.body.error);
+    res.status(safe.status).json(safe.body);
   }
 });
 
-app.get('/api/ai/models', async (req, res) => {
-  const { providerId, credentialId } = req.query;
+app.get('/api/ai/models', expensiveUserLimiter, async (req, res) => {
+  const providerParsed = AIProviderIdSchema.safeParse(req.query.providerId);
+  const credentialId = typeof req.query.credentialId === 'string' ? req.query.credentialId.trim() : '';
   const user = (req as any).user;
-
-  if (!providerId || !credentialId) {
-    return res.status(400).json({ error: 'Missing providerId or credentialId' });
+  if (!providerParsed.success || !credentialId) {
+    return res.status(400).json({ error: 'Invalid providerId or credentialId.' });
   }
 
+  let resolvedSecret: string | undefined;
   try {
-    const cred = await CredentialService.getCredential(user.id, credentialId as string);
-    if (!cred) return res.status(404).json({ error: 'Credential not found' });
-    
-    const adapter = AIProviderManager.getAdapter(providerId as any);
-    const models = await adapter.listModels(cred.key);
-    
+    const cred = await CredentialService.resolveCredential(user.id, providerParsed.data, credentialId);
+    resolvedSecret = cred.key;
+    const adapter = AIProviderManager.getAdapter(providerParsed.data);
+    let models;
+    try {
+      models = await adapter.listModels(cred.key);
+    } catch (providerErr) {
+      throw toSafeProviderError(providerErr);
+    }
     res.json({ success: true, models });
   } catch (err: any) {
-    console.error('Fetch models error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Failed to fetch models' });
+    const safe = credentialErrorResponse(err, 'Failed to fetch models', resolvedSecret);
+    console.error('Fetch models error:', safe.body.error);
+    res.status(safe.status).json(safe.body);
+  } finally {
+    resolvedSecret = undefined;
   }
 });
 
-app.post('/api/ai/test-model', async (req, res) => {
-  const { providerId, credentialId, modelId } = req.body;
+app.post('/api/ai/test-model', expensiveUserLimiter, async (req, res) => {
+  const parsed = TestModelSchema.safeParse(req.body);
   const user = (req as any).user;
-  
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid model test request.' });
+
+  let resolvedSecret: string | undefined;
   try {
-    const cred = await CredentialService.getCredential(user.id, credentialId);
-    if (!cred) return res.status(404).json({ error: 'Credential not found' });
-    
-    const adapter = AIProviderManager.getAdapter(providerId as any);
-    const success = await adapter.testModel(cred.key, modelId);
-    
-    if (!success) return res.status(400).json({ error: 'Model test failed' });
+    const { providerId, credentialId, modelId } = parsed.data;
+    const cred = await CredentialService.resolveCredential(user.id, providerId, credentialId);
+    resolvedSecret = cred.key;
+    const adapter = AIProviderManager.getAdapter(providerId);
+    try {
+      await adapter.testModel(cred.key, modelId);
+    } catch (providerErr) {
+      throw toSafeProviderError(providerErr);
+    }
     res.json({ success: true });
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message });
+    const safe = credentialErrorResponse(err, 'Model test failed', resolvedSecret);
+    res.status(safe.status).json(safe.body);
+  } finally {
+    resolvedSecret = undefined;
   }
 });
 
 app.get('/api/ai/credentials', async (req, res) => {
   const user = (req as any).user;
-  const creds = await CredentialService.listCredentials(user.id);
-  res.json(creds);
+  try {
+    res.json(await CredentialService.listCredentials(user.id));
+  } catch (err: any) {
+    const safe = credentialErrorResponse(err, 'Failed to list credentials');
+    res.status(safe.status).json(safe.body);
+  }
 });
 
 app.post('/api/ai/credentials', async (req, res) => {
-  const { providerId, key, name } = req.body;
+  const parsed = CredentialCreateSchema.safeParse(req.body);
   const user = (req as any).user;
-  if (!providerId || !key) return res.status(400).json({ error: 'Missing data' });
-  
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid credential payload.' });
+
   try {
+    const { providerId, key, name } = parsed.data;
     const id = await CredentialService.saveCredential(user.id, providerId, key, name || 'Key');
-    res.json({ id });
+    res.status(201).json({ id });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const safe = credentialErrorResponse(err, 'Failed to save credential');
+    res.status(safe.status).json(safe.body);
+  }
+});
+
+app.patch('/api/ai/credentials/:id', async (req, res) => {
+  const parsed = CredentialUpdateSchema.safeParse(req.body);
+  const user = (req as any).user;
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid credential update payload.' });
+
+  try {
+    await CredentialService.updateCredential(user.id, req.params.id, parsed.data);
+    res.json({ success: true });
+  } catch (err: any) {
+    const safe = credentialErrorResponse(err, 'Failed to update credential');
+    res.status(safe.status).json(safe.body);
+  }
+});
+
+app.post('/api/ai/credentials/reorder', async (req, res) => {
+  const user = (req as any).user;
+  const providerParsed = AIProviderIdSchema.safeParse(req.body?.providerId);
+  const credentialIds = Array.isArray(req.body?.credentialIds)
+    ? req.body.credentialIds.filter((item: unknown): item is string => typeof item === 'string')
+    : null;
+  if (!providerParsed.success || !credentialIds || credentialIds.length !== req.body.credentialIds.length) {
+    return res.status(400).json({ error: 'Invalid providerId or credentialIds.' });
+  }
+  try {
+    await CredentialService.reorderCredentials(user.id, providerParsed.data, credentialIds);
+    res.json({ success: true });
+  } catch (err: any) {
+    const safe = credentialErrorResponse(err, 'Failed to persist credential order');
+    res.status(safe.status).json(safe.body);
   }
 });
 
 app.delete('/api/ai/credentials/:id', async (req, res) => {
   const user = (req as any).user;
-  await CredentialService.deleteCredential(user.id, req.params.id);
-  res.json({ success: true });
+  try {
+    await CredentialService.deleteCredential(user.id, req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    const safe = credentialErrorResponse(err, 'Failed to delete credential');
+    res.status(safe.status).json(safe.body);
+  }
+});
+
+// Tasks & Memory REST APIs: Firebase Admin is the only persistence boundary.
+const TaskCreateSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  description: z.string().max(5000).optional(),
+  status: z.enum(['todo', 'in-progress', 'completed']).optional(),
+  priority: z.enum(['low', 'medium', 'high']).optional(),
+  category: z.string().trim().min(1).max(100).optional(),
+  dueDate: z.string().max(64).optional(),
+}).strict();
+const TaskPatchSchema = TaskCreateSchema.partial().strict();
+const MemoryCreateSchema = z.object({
+  content: z.string().trim().min(1).max(10000),
+  category: z.string().trim().min(1).max(100).optional(),
+  source: z.string().trim().min(1).max(300).optional(),
+}).strict();
+const MemoryPatchSchema = z.object({
+  content: z.string().trim().min(1).max(10000).optional(),
+  category: z.string().trim().min(1).max(100).optional(),
+  source: z.string().trim().min(1).max(300).optional(),
+  status: z.enum(['approved', 'pending']).optional(),
+}).strict();
+
+app.get('/api/tasks', requirePermission('tasks.read'), async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const status = z.enum(['todo', 'in-progress', 'completed', 'all']).catch('all').parse(req.query.status);
+    res.json({ tasks: await UserDataService.listTasks(user.id, status) });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to list tasks' });
+  }
+});
+
+app.get('/api/tasks/stats', requirePermission('tasks.read'), async (req, res) => {
+  try {
+    const user = (req as any).user;
+    res.json(await UserDataService.taskStats(user.id));
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load task stats' });
+  }
+});
+
+app.post('/api/tasks', requirePermission('tasks.write'), async (req, res) => {
+  const parsed = TaskCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid task', details: parsed.error.issues });
+  try {
+    const user = (req as any).user;
+    res.status(201).json({ task: await UserDataService.createTask(user.id, parsed.data) });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to create task' });
+  }
+});
+
+app.patch('/api/tasks/:id', requirePermission('tasks.write'), async (req, res) => {
+  const parsed = TaskPatchSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid task patch', details: parsed.error.issues });
+  try {
+    const user = (req as any).user;
+    res.json({ task: await UserDataService.updateTask(user.id, req.params.id, parsed.data) });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to update task' });
+  }
+});
+
+app.delete('/api/tasks/:id', requirePermission('tasks.delete'), async (req, res) => {
+  try {
+    const user = (req as any).user;
+    await UserDataService.deleteTask(user.id, req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to delete task' });
+  }
+});
+
+app.get('/api/memory', requirePermission('memory.read'), async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const status = z.enum(['approved', 'pending', 'all']).catch('all').parse(req.query.status);
+    const limit = z.coerce.number().int().min(1).max(100).catch(50).parse(req.query.limit);
+    res.json({ memories: await UserDataService.listMemories(user.id, {
+      status,
+      category: typeof req.query.category === 'string' ? req.query.category : undefined,
+      query: typeof req.query.query === 'string' ? req.query.query : undefined,
+      limit,
+    }) });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to list memories' });
+  }
+});
+
+app.post('/api/memory', requirePermission('memory.write'), async (req, res) => {
+  const parsed = MemoryCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid memory', details: parsed.error.issues });
+  try {
+    const user = (req as any).user;
+    res.status(201).json({ memory: await UserDataService.addMemory(user.id, {
+      ...parsed.data,
+      status: 'approved',
+      source: parsed.data.source || 'Nhập thủ công',
+    }) });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to add memory' });
+  }
+});
+
+app.patch('/api/memory/:id', requirePermission('memory.write'), async (req, res) => {
+  const parsed = MemoryPatchSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid memory patch', details: parsed.error.issues });
+  try {
+    const user = (req as any).user;
+    res.json({ memory: await UserDataService.updateMemory(user.id, req.params.id, parsed.data) });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to update memory' });
+  }
+});
+
+app.delete('/api/memory/:id', requirePermission('memory.delete'), async (req, res) => {
+  try {
+    const user = (req as any).user;
+    await UserDataService.deleteMemory(user.id, req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to delete memory' });
+  }
+});
+
+app.post('/api/agent/sessions/branch', async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const sourceClientId = parseClientSessionId(req.body.sourceSessionId);
+    const beforeUserTurn = z.coerce.number().int().min(0).max(10000).parse(req.body.beforeUserTurn);
+    const temporaryMode = req.body.temporaryMode === true;
+    const sessionService: any = temporaryMode ? temporarySessionService : adkSessionService;
+    const sourceSession = await sessionService.getSession({
+      appName: AGENT_APP_NAME,
+      userId: user.id,
+      sessionId: serverSessionId(user.id, sourceClientId),
+    });
+    if (!sourceSession) return res.status(404).json({ error: 'Source session not found' });
+
+    const newClientId = randomUUID();
+    const branchedSession = await sessionService.createSession({
+      appName: AGENT_APP_NAME,
+      userId: user.id,
+      sessionId: serverSessionId(user.id, newClientId),
+      state: {},
+    });
+
+    const copiedEvents: any[] = [];
+    let userTurn = 0;
+    for (const event of sourceSession.events || []) {
+      if (eventIsUserMessage(event)) {
+        if (userTurn === beforeUserTurn) break;
+        userTurn += 1;
+      }
+      await sessionService.appendEvent({ session: branchedSession, event });
+      copiedEvents.push(event);
+    }
+
+    res.status(201).json({
+      branch: {
+        sessionId: newClientId,
+        messages: sessionTranscript(copiedEvents),
+      },
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to branch Agent session' });
+  }
+});
+
+// Persistent Agent session history. Temporary sessions intentionally never appear here.
+app.get('/api/agent/sessions', async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const limit = z.coerce.number().int().min(1).max(100).catch(50).parse(req.query.limit);
+    const summaries = await adkSessionService.listSessionSummaries(AGENT_APP_NAME, user.id, limit);
+    res.json({
+      sessions: summaries.map((summary) => ({
+        id: clientSessionIdFromServer(user.id, summary.sessionId),
+        title: summary.title,
+        lastUpdateTime: summary.lastUpdateTime,
+        eventCount: summary.eventCount,
+      })),
+      persistence: adkSessionService.getPersistenceHealth(),
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to list Agent sessions' });
+  }
+});
+
+app.get('/api/agent/sessions/:sessionId', async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const clientId = parseClientSessionId(req.params.sessionId);
+    const session = await adkSessionService.getSession({
+      appName: AGENT_APP_NAME,
+      userId: user.id,
+      sessionId: serverSessionId(user.id, clientId),
+    });
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    res.json({
+      session: {
+        id: clientId,
+        lastUpdateTime: session.lastUpdateTime,
+        messages: sessionTranscript(session.events || []),
+      },
+    });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load Agent session' });
+  }
+});
+
+app.delete('/api/agent/sessions/:sessionId', async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const clientId = parseClientSessionId(req.params.sessionId);
+    await adkSessionService.deleteSession({
+      appName: AGENT_APP_NAME,
+      userId: user.id,
+      sessionId: serverSessionId(user.id, clientId),
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to delete Agent session' });
+  }
 });
 
 // Agent Chat API (ADK + assistant-ui)
-app.post('/api/agent/chat', async (req, res) => {
+app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
+  const requestCancellation = bindRequestCancellation(req, res);
   try {
-    const user = (req as any).user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized: Missing user identity' });
+    const user = (req as any).user || await ServerIdentityProvider.getIdentity(req);
+    const aiConfigResult = AIConfigSchema.safeParse(req.body.aiConfig || {});
+    if (!aiConfigResult.success) {
+      return res.status(400).json({
+        error: 'Invalid aiConfig',
+        details: aiConfigResult.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
     }
+    const validatedAIConfig = aiConfigResult.data;
     const reqWithJson = typeof (req as any).json === 'function' ? req : { json: async () => req.body };
     let parsed: any = {};
     let newMessage: any;
@@ -308,9 +773,10 @@ app.post('/api/agent/chat', async (req, res) => {
         ...sanitizedStateDelta, 
         user, 
         availableCapabilities: [],
-        aiConfig: req.body.aiConfig,
+        aiConfig: validatedAIConfig,
       },
       confirmed: false,
+      abortSignal: requestCancellation.signal,
     };
 
     // 1. Build dynamic agent for this context
@@ -318,25 +784,32 @@ app.post('/api/agent/chat', async (req, res) => {
     
     // 2. Create runner
     // sessionId must be associated with the user for isolation
-    const rawSessionId = (req.body as any).sessionId || 'default-session';
-    const sessionId = `u_${user.id}_s_${rawSessionId}`;
-    const appName = 'root_agent';
+    const rawSessionId = parseClientSessionId((req.body as any).sessionId || 'default-session');
+    const sessionId = serverSessionId(user.id, rawSessionId);
+    const appName = AGENT_APP_NAME;
+
+    const temporaryMode = req.body.temporaryMode === true;
+    const sessionService = temporaryMode ? temporarySessionService : adkSessionService;
 
     try {
-      await adkSessionService.getOrCreateSession({
-        appName,
-        userId: user.id,
-        sessionId,
-      });
+      if (temporaryMode) {
+        const existing = await temporarySessionService.getSession({ appName, userId: user.id, sessionId });
+        if (!existing) {
+          await temporarySessionService.createSession({ appName, userId: user.id, sessionId });
+        }
+      } else {
+        await adkSessionService.getOrCreateSession({ appName, userId: user.id, sessionId });
+      }
     } catch (err) {
-      console.warn('Session init error (possibly already exists):', err);
+      console.warn('Session init error:', fatalErrorSummary(err));
+      throw err;
     }
 
     const runner = new InMemoryRunner({
       agent,
       appName,
     });
-    (runner as any).sessionService = adkSessionService;
+    (runner as any).sessionService = sessionService;
 
     // 3. Run and stream
     const stream = runner.runAsync({
@@ -344,6 +817,7 @@ app.post('/api/agent/chat', async (req, res) => {
       sessionId,
       newMessage: newMessage as any,
       stateDelta: sanitizedStateDelta,
+      abortSignal: requestCancellation.signal,
     });
 
     const response = adkEventStream(stream as any);
@@ -382,46 +856,78 @@ app.post('/api/agent/chat', async (req, res) => {
       res.end();
     }
   } catch (err: any) {
-    console.error('Agent chat error:', err);
+    if (requestCancellation.signal.aborted || isCancellationError(err)) {
+      console.warn('Agent chat execution cancelled.');
+      if (!res.headersSent && !res.writableEnded) res.status(499).end();
+      return;
+    }
+    console.error('Agent chat error:', fatalErrorSummary(err));
     if (!res.headersSent) {
-      res.status(500).json({ error: err.message || 'Internal agent error' });
+      const code = safeErrorCode(err);
+      const status = Number(err?.status) || 500;
+      res.status(status).json({
+        error: redactAuditString(err?.message || 'Internal agent error'),
+        ...(code ? { code } : {}),
+      });
     }
   }
 });
 
 // List Capabilities
-app.get('/api/capabilities', (req, res) => {
-  const caps = ServerCapabilityRegistry.listAll().map(c => ({
-    id: c.id,
-    moduleId: c.moduleId,
-    description: c.description,
-    risk: c.risk,
-    permissions: c.permissions,
-  }));
-  res.json(caps);
+app.get('/api/capabilities', async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const caps = (await ServerCapabilityRegistry.listForContext({
+      user,
+      appContext: { user, availableCapabilities: [] },
+      confirmed: false,
+    })).map(c => ({
+      id: c.id,
+      moduleId: c.moduleId,
+      description: c.description,
+      risk: c.risk,
+      permissions: c.permissions,
+    }));
+    res.json(caps);
+  } catch (err: any) {
+    res.status(503).json({ error: redactAuditString(err?.message || 'Module settings persistence unavailable.') });
+  }
 });
 
-// Execute Capability
-app.post('/api/capabilities/execute', async (req, res) => {
+// Execute Capability through the single server-authoritative gateway.
+app.post('/api/capabilities/execute', expensiveUserLimiter, async (req, res) => {
+  const requestCancellation = bindRequestCancellation(req, res);
   try {
-    const { id, input, context, confirmed } = req.body;
-    if (!id) {
+    const { id, input, context, confirmationId } = req.body || {};
+    if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'Capability ID is required.' });
     }
+    if (confirmationId !== undefined && typeof confirmationId !== 'string') {
+      return res.status(400).json({ error: 'confirmationId must be a string when provided.' });
+    }
 
-    const user = await ServerIdentityProvider.getIdentity(req);
+    const user = (req as any).user;
+    const appContext = context && typeof context === 'object' && !Array.isArray(context)
+      ? { ...context, user }
+      : { user, availableCapabilities: [] };
+    const result = await CapabilityExecutionService.execute(
+      id,
+      input,
+      { user, appContext, confirmed: false, abortSignal: requestCancellation.signal },
+      { source: 'rest', confirmationId, abortSignal: requestCancellation.signal },
+    );
 
-    const execContext = {
-      user,
-      appContext: context,
-      confirmed: Boolean(confirmed),
-    };
-
-    const result = await ServerCapabilityRegistry.execute(id, input, execContext);
+    if (result.requiresConfirmation) {
+      return res.status(409).json(result);
+    }
     res.json(result);
   } catch (err: any) {
-    console.error('Capability execution error:', err);
-    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+    if (requestCancellation.signal.aborted || isCancellationError(err)) {
+      if (!res.headersSent && !res.writableEnded) res.status(499).end();
+      return;
+    }
+    console.error('Capability execution error:', fatalErrorSummary(err));
+    res.status(500).json({ success: false, error: redactAuditString(err?.message || 'Internal server error') });
   }
 });
 
@@ -434,34 +940,34 @@ app.get('/api/audit', async (req, res) => {
     }
 
     const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
-    const logs = await AuditService.list(limit);
-
-    const hasAuditRead = user.permissions?.includes('audit.read') || user.roles?.includes('admin') || user.roles?.includes('auditor');
-    
-    if (hasAuditRead) {
-      res.json(logs);
-    } else {
-      // User thường chỉ được xem log userId của chính mình
-      const filteredLogs = logs.filter((log: any) => log.userId === user.id);
-      res.json(filteredLogs);
-    }
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    const hasAuditRead = user.permissions?.includes('audit.read');
+    const page = await AuditService.list({
+      limit,
+      cursor,
+      userId: hasAuditRead ? undefined : user.id,
+    });
+    res.json(page);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // Module Manager Settings
-app.get('/api/modules', (req, res) => {
-  const data = storage.getData();
-  res.json(Object.values(data.moduleSettings));
+app.get('/api/modules', async (_req, res) => {
+  try {
+    res.json(await storage.listModuleSettings());
+  } catch (err: any) {
+    res.status(503).json({ error: redactAuditString(err?.message || 'Module settings persistence unavailable.') });
+  }
 });
 
 app.post('/api/modules/:id/toggle', requirePermission('module.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const user = (req as any).user;
-    const data = storage.getData();
-    const mod = data.moduleSettings[id];
+    await storage.hydrate();
+    const mod = storage.getData().moduleSettings[id];
 
     if (!mod) {
       return res.status(404).json({ error: `Module "${id}" not found.` });
@@ -471,26 +977,20 @@ app.post('/api/modules/:id/toggle', requirePermission('module.manage'), async (r
       return res.status(400).json({ error: `Module "${id}" is core and cannot be disabled.` });
     }
 
-    mod.enabled = !mod.enabled;
-    storage.commit();
-
-    AuditService.log({
-      userId: user.id,
-      action: mod.enabled ? 'module.enable' : 'module.disable',
-      moduleId: id,
-      target: id,
-      metadata: { enabled: mod.enabled },
-      status: 'success',
-    });
-
-    res.json(mod);
+    const updated = await storage.toggleModuleEnabledWithAudit(id, user);
+    res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('Module persistence error:', fatalErrorSummary(err));
+    res.status(503).json({ error: redactAuditString(err?.message || 'Module settings persistence unavailable.') });
   }
 });
 
 async function startServer() {
-  // Vite Middleware or Production Static Handling
+  try {
+    await storage.hydrate();
+  } catch (err) {
+    console.error('Module settings persistence unavailable at startup:', fatalErrorSummary(err));
+  }
 
   // Vite Middleware or Production Static Handling
   if (process.env.NODE_ENV !== 'production') {
@@ -513,5 +1013,8 @@ async function startServer() {
 }
 
 if (process.env.NODE_ENV !== 'test') {
-  startServer().catch(console.error);
+  startServer().catch((err) => {
+    console.error('Server startup failed:', fatalErrorSummary(err));
+    process.exit(1);
+  });
 }

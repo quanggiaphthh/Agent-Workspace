@@ -13,12 +13,12 @@ interface ContextStoreState extends AppContext {
   getAppContext: () => AppContext;
 }
 
-const DEFAULT_USER: UserContext = {
-  id: 'usr_admin',
-  email: 'tranhailx92@gmail.com',
-  name: 'Hai Tran',
-  roles: ['admin'],
-  permissions: ['demo.read', 'demo.write', 'demo.delete'],
+export const DEFAULT_USER: UserContext = {
+  id: 'guest',
+  email: '',
+  name: 'Khách',
+  roles: [],
+  permissions: [],
 };
 
 export const useContextStore = create<ContextStoreState>((set, get) => ({

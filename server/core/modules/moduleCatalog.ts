@@ -44,3 +44,11 @@ serverModuleCatalog.register({
   canDisable: false,
   version: '1.0.0',
 });
+
+serverModuleCatalog.register({
+  id: 'tasks',
+  name: 'Task Management',
+  enabled: true,
+  canDisable: true,
+  version: '1.0.0',
+});

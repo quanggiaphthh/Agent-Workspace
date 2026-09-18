@@ -42,7 +42,7 @@ export function AdkConfirmation() {
 
           <div className="flex gap-2">
             <Button
-              onClick={() => confirmTool(tc.id, true)}
+              onClick={() => confirmTool(tc.id, true, tc.confirmation?.payload)}
               className="flex-1 bg-amber-600 hover:bg-amber-700 text-white h-9 text-xs gap-1.5"
             >
               <Check className="h-3.5 w-3.5" />
@@ -50,7 +50,7 @@ export function AdkConfirmation() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => confirmTool(tc.id, false)}
+              onClick={() => confirmTool(tc.id, false, tc.confirmation?.payload)}
               className="flex-1 border-amber-300 text-amber-800 hover:bg-amber-100 h-9 text-xs gap-1.5"
             >
               <X className="h-3.5 w-3.5" />

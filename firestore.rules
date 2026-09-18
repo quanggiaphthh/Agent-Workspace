@@ -1,20 +1,33 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Memory and Tasks must be owned by the user
+    // Agent-owned application data is server-authoritative. Firebase Admin SDK
+    // uses IAM and bypasses these client rules; browsers must use authenticated
+    // REST endpoints so RBAC/module policy has one enforcement point.
     match /agent_memories/{id} {
-      allow read, delete: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
-    }
-    
-    match /agent_tasks/{id} {
-      allow read, delete: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow read, write: if false;
     }
 
-    // Default deny
+    match /agent_tasks/{id} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/credentials/{id} {
+      allow read, write: if false;
+    }
+
+    match /agent_sessions/{id} {
+      allow read, write: if false;
+    }
+
+    match /capability_confirmations/{id} {
+      allow read, write: if false;
+    }
+
+    match /audit_logs/{document=**} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

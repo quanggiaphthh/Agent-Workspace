@@ -33,7 +33,7 @@ export function ModuleSidebar({
   const navigate = useNavigate();
 
   const refreshNav = () => {
-    setNavItems(moduleRegistry.getNavigation());
+    setNavItems(moduleRegistry.getNavigation(user));
   };
 
   useEffect(() => {
@@ -44,7 +44,7 @@ export function ModuleSidebar({
       unsub1();
       unsub2();
     };
-  }, []);
+  }, [user]);
 
   const getIcon = (iconName?: string) => {
     switch (iconName) {
@@ -155,7 +155,7 @@ export function ModuleSidebar({
               <div className="text-[10px] text-neutral-400 font-mono truncate">{user.email}</div>
             </div>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300">
-              Quản trị viên
+              {user.roles.includes('admin') ? 'Quản trị viên' : user.roles.includes('auditor') ? 'Kiểm toán viên' : 'Người dùng'}
             </span>
           </div>
         ) : (

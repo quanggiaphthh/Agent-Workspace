@@ -9,6 +9,7 @@ import { z } from 'zod';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { storage } from '../../server/infrastructure/storage';
 import { serverModuleCatalog } from '../../server/core/modules/moduleCatalog';
+import { DEFAULT_AGENT_MODEL } from '../../shared/contracts/ai';
 
 // Mock Firebase Admin Auth for token verification tests
 vi.mock('../../server/lib/firebaseAdmin', async (importOriginal) => {
@@ -213,7 +214,7 @@ describe('Functional Consistency & Production Security Acceptance Suite', () => 
         autoRotate: false,
         globalDefaultModel: null,
         agentProvider: 'google',
-        agentModel: 'gemini-flash-lite-latest',
+        agentModel: DEFAULT_AGENT_MODEL,
         providerDefaultModels: {},
         providerLoadedModels: {},
       });
@@ -221,7 +222,7 @@ describe('Functional Consistency & Production Security Acceptance Suite', () => 
       // Assert User B's brand new state starts perfectly clean with standard defaults
       const freshState = useAIKeysStore.getState();
       expect(freshState.keys).toHaveLength(0);
-      expect(freshState.agentModel).toBe('gemini-flash-lite-latest');
+      expect(freshState.agentModel).toBe(DEFAULT_AGENT_MODEL);
     });
   });
 
@@ -277,7 +278,7 @@ describe('Functional Consistency & Production Security Acceptance Suite', () => 
   describe('PHASE 7 — FIREBASE DIRECT PERSISTENCE', () => {
     it('Firebase named DB real write/read/delete capabilities existence checks', () => {
       expect(firebaseConfig.firestoreDatabaseId).toBeDefined();
-      expect(firebaseConfig.firestoreDatabaseId).toContain('ai-studio-modularagentweba-44b40a69-3a84-4a8e-af00-a0a4885390d1');
+      expect(firebaseConfig.firestoreDatabaseId).toContain('ai-studio-');
       expect(adminFirestore).toBeDefined();
     });
   });

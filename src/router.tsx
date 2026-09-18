@@ -27,7 +27,8 @@ const rootRoute = createRootRoute({
 // 2. Module Guard Component
 const ModuleGuard = ({ moduleId, component: Component }: { moduleId: string, component: React.ComponentType }) => {
   const isEnabled = moduleRegistry.isEnabled(moduleId);
-  const navigate = useNavigate();
+  const user = useContextStore(state => state.user);
+  const hasAccess = moduleRegistry.hasAccess(moduleId, user);
 
   if (!isEnabled) {
     return (
@@ -57,6 +58,26 @@ const ModuleGuard = ({ moduleId, component: Component }: { moduleId: string, com
               Về trang chủ
             </Button>
           </div>
+        </Card>
+      </div>
+    );
+  }
+
+
+  if (!hasAccess) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-8 bg-neutral-50/50">
+        <Card className="max-w-md w-full p-6 text-center space-y-4 border-rose-200 bg-rose-50/50">
+          <div>
+            <h2 className="text-base font-bold text-rose-900">Không có quyền truy cập</h2>
+            <p className="text-xs text-rose-800 mt-1 leading-relaxed">
+              Tài khoản hiện tại không có quyền sử dụng phân hệ này.
+            </p>
+          </div>
+          <Button variant="default" size="sm" onClick={() => { window.location.href = '/'; }} className="text-xs">
+            <Home className="h-3.5 w-3.5 mr-1" />
+            Về trang chủ
+          </Button>
         </Card>
       </div>
     );

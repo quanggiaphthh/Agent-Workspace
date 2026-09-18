@@ -17,8 +17,10 @@ export async function bootstrapClient() {
   // Phase 1: Wait for auth before syncing protected data
   await auth.authStateReady();
 
-  // Sync initial state with server
-  await moduleRegistry.syncWithServer();
+  // Sync initial state with server if user is logged in
+  if (auth.currentUser) {
+    await moduleRegistry.syncWithServer();
+  }
 
   console.log('[Client Bootstrap] Catalog ready.');
 }

@@ -1,4 +1,5 @@
 import { AIProviderId, AIModelMetadata, TestKeyResponse } from '../../../shared/contracts/ai';
+import { redactAuditString } from '../audit/auditRedaction';
 
 export interface ProviderAdapter {
   id: AIProviderId;
@@ -11,12 +12,18 @@ export interface ProviderAdapter {
  * Normalizes error responses from providers to a unified format.
  * Strictly avoids logging raw API keys.
  */
-function normalizeError(err: any, providerId: string, stage: string, endpoint?: string, modelId?: string): TestKeyResponse {
-  const status = err.status || 500;
-  const rawMessage = err.message || 'Unknown provider error';
+export function redactProviderError(err: any, secret?: string): string {
+  let message = redactAuditString(String(err?.message || err || 'Unknown provider error'));
+  if (secret) message = message.split(secret).join('[redacted]');
+  return message.slice(0, 1000);
+}
+
+function normalizeError(err: any, providerId: string, stage: string, endpoint?: string, modelId?: string, secret?: string): TestKeyResponse {
+  const status = Number(err?.status || err?.statusCode || 500);
+  const safeMessage = redactProviderError(err, secret);
   
-  // Log sanitized diagnostics: provider, endpoint, modelId, HTTP status, provider error code/message
-  console.error(`[AI Provider Diagnostics] provider=${providerId} stage=${stage} endpoint=${endpoint || 'unknown'} modelId=${modelId || 'none'} status=${status} message="${rawMessage}"`);
+  // Diagnostics intentionally exclude request headers and raw credential material.
+  console.error(`[AI Provider Diagnostics] provider=${providerId} stage=${stage} endpoint=${endpoint || 'unknown'} modelId=${modelId || 'none'} status=${status} message="${safeMessage}"`);
   
   let userMessage = 'Đã xảy ra lỗi hệ thống khi kết nối nhà cung cấp';
   
@@ -40,6 +47,13 @@ function normalizeError(err: any, providerId: string, stage: string, endpoint?: 
   };
 }
 
+export function getGoogleModelRank(id: string): number {
+  if (id === 'gemini-2.5-flash-lite') return 1;
+  if (id.includes('flash-lite')) return 2;
+  if (id.includes('flash')) return 3;
+  return 4;
+}
+
 export class GoogleAdapter implements ProviderAdapter {
   id: AIProviderId = 'google';
 
@@ -48,7 +62,7 @@ export class GoogleAdapter implements ProviderAdapter {
       const models = await this.listModels(key);
       return { success: true, models };
     } catch (err: any) {
-      return normalizeError(err, this.id, 'TEST_KEY', '/models');
+      return normalizeError(err, this.id, 'TEST_KEY', '/models', undefined, key);
     }
   }
 
@@ -74,8 +88,11 @@ export class GoogleAdapter implements ProviderAdapter {
         lifecycle: m.name.includes('flash') || m.name.includes('pro') ? 'stable' : 'beta'
       }))
       .sort((a: any, b: any) => {
-        if (a.id.includes('3.8-flash')) return -1;
-        if (b.id.includes('3.8-flash')) return 1;
+        const rankA = getGoogleModelRank(a.id);
+        const rankB = getGoogleModelRank(b.id);
+        if (rankA !== rankB) {
+          return rankA - rankB;
+        }
         return a.name.localeCompare(b.name);
       });
   }
@@ -90,7 +107,8 @@ export class GoogleAdapter implements ProviderAdapter {
         generationConfig: { maxOutputTokens: 2 }
       })
     });
-    return response.ok;
+    if (!response.ok) throw { status: response.status, message: `Google model test failed: ${response.statusText}` };
+    return true;
   }
 }
 
@@ -110,7 +128,7 @@ export class OpenAIAdapter implements ProviderAdapter {
       }
       return { success: true, models };
     } catch (err: any) {
-      return normalizeError(err, this.id, 'TEST_KEY', '/chat/completions');
+      return normalizeError(err, this.id, 'TEST_KEY', '/chat/completions', undefined, k);
     }
   }
 
@@ -156,7 +174,8 @@ export class OpenAIAdapter implements ProviderAdapter {
         max_tokens: 1
       })
     });
-    return response.ok;
+    if (!response.ok) throw { status: response.status, message: `OpenAI model test failed: ${response.statusText}` };
+    return true;
   }
 }
 
@@ -175,7 +194,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       }
       return { success: true, models };
     } catch (err: any) {
-      return normalizeError(err, this.id, 'TEST_KEY', '/messages');
+      return normalizeError(err, this.id, 'TEST_KEY', '/messages', undefined, k);
     }
   }
 
@@ -216,7 +235,8 @@ export class AnthropicAdapter implements ProviderAdapter {
         max_tokens: 1
       })
     });
-    return response.ok;
+    if (!response.ok) throw { status: response.status, message: `Anthropic model test failed: ${response.statusText}` };
+    return true;
   }
 }
 
@@ -254,7 +274,7 @@ export class NvidiaNimAdapter implements ProviderAdapter {
       const models = await this.listModels(k);
       return { success: true, models };
     } catch (err: any) {
-      return normalizeError(err, this.id, 'TEST_KEY', '/chat/completions');
+      return normalizeError(err, this.id, 'TEST_KEY', '/chat/completions', undefined, k);
     }
   }
 
@@ -286,24 +306,21 @@ export class NvidiaNimAdapter implements ProviderAdapter {
 
   async testModel(key: string, modelId: string): Promise<boolean> {
     const k = this.normalize(key);
-    try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${k}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: modelId,
-          messages: [{ role: 'user', content: 'Reply OK' }],
-          max_tokens: 4,
-          stream: false
-        })
-      });
-      return response.ok;
-    } catch (e) {
-      return false;
-    }
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${k}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: 'user', content: 'Reply OK' }],
+        max_tokens: 4,
+        stream: false
+      })
+    });
+    if (!response.ok) throw { status: response.status, message: `NVIDIA model test failed: ${response.statusText}` };
+    return true;
   }
 }
 
@@ -364,7 +381,7 @@ export class OpenCodeZenAdapter implements ProviderAdapter {
       
       return { success: true, models };
     } catch (err: any) {
-      return normalizeError(err, this.id, 'TEST_KEY', 'inference');
+      return normalizeError(err, this.id, 'TEST_KEY', 'inference', undefined, k);
     }
   }
 
@@ -418,20 +435,17 @@ export class OpenCodeZenAdapter implements ProviderAdapter {
     const endpoint = this.getEndpoint(modelId);
     const headers = this.getHeaders(k, modelId);
     
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model: modelId,
-          messages: [{ role: 'user', content: 'Inference test' }],
-          max_tokens: 1
-        })
-      });
-      return response.ok;
-    } catch (e) {
-      return false;
-    }
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: 'user', content: 'Inference test' }],
+        max_tokens: 1
+      })
+    });
+    if (!response.ok) throw { status: response.status, message: `Zen model test failed: ${response.statusText}` };
+    return true;
   }
 }
 

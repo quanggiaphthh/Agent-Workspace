@@ -120,7 +120,7 @@ describe('Architectural Invariants P1 Preflight', () => {
       expect(res.error).toContain('disabled');
     });
 
-    it('should NOT list capabilities if user lacks permissions', () => {
+    it('should NOT list capabilities if user lacks permissions', async () => {
       ServerCapabilityRegistry.register({
         id: 'tasks.write.data',
         moduleId: 'tasks',
@@ -131,7 +131,7 @@ describe('Architectural Invariants P1 Preflight', () => {
         execute: async () => ({})
       });
 
-      const caps = ServerCapabilityRegistry.listForContext(mockContext);
+      const caps = await ServerCapabilityRegistry.listForContext(mockContext);
       expect(caps.find(c => c.id === 'tasks.write.data')).toBeUndefined();
     });
 

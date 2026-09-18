@@ -11,9 +11,10 @@ import { Layers, Bot, ShieldCheck, ArrowRight, Activity } from 'lucide-react';
 export function HomeModule() {
   const [widgets, setWidgets] = useState<DashboardWidgetContribution[]>([]);
   const navigate = useNavigate();
+  const user = useContextStore(state => state.user);
 
   const loadWidgets = () => {
-    setWidgets(moduleRegistry.getWidgets());
+    setWidgets(moduleRegistry.getWidgets(user));
   };
 
   useEffect(() => {
@@ -24,7 +25,7 @@ export function HomeModule() {
       unsub1();
       unsub2();
     };
-  }, []);
+  }, [user]);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -44,7 +45,7 @@ export function HomeModule() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2.5">
-            {moduleRegistry.listEnabled().filter(m => m.id !== 'home').map(m => (
+            {moduleRegistry.listEnabledFor(user).filter(m => m.id !== 'home').map(m => (
               <Button
                 key={m.id}
                 variant="outline"

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Brain, Check, Trash2, Plus, Sparkles, Clock, AlertCircle, Loader2, Search, Edit3, X, Save, ToggleLeft, ToggleRight } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
-import { db } from '../../lib/firebase';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, where } from 'firebase/firestore';
+import { authFetch } from '../../lib/authFetch';
+import { useContextStore } from '../../core/context/contextStore';
+import { useAIKeysStore } from '../../modules/settings/aiKeysStore';
 import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
 
 interface AgentMemory {
@@ -16,23 +17,19 @@ interface AgentMemory {
 
 export function AgentMemoryPanel() {
   const { user } = useFirebaseAuth();
+  const appUser = useContextStore((state) => state.user);
+  const memoryEnabled = useAIKeysStore((state) => state.memoryEnabled);
+  const setMemoryEnabled = useAIKeysStore((state) => state.setMemoryEnabled);
+  const canWrite = appUser.permissions.includes('memory.write') || appUser.roles.includes('admin');
+  const canDelete = appUser.permissions.includes('memory.delete') || appUser.roles.includes('admin');
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [memoryEnabled, setMemoryEnabled] = useState(() => {
-    const key = user ? `uid_${user.uid}_agent_memory_enabled` : 'agent_memory_enabled';
-    return localStorage.getItem(key) !== 'false';
-  });
   const [newMemoryContent, setNewMemoryContent] = useState('');
   const [newMemoryCategory, setNewMemoryCategory] = useState('Người dùng');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
-
-  useEffect(() => {
-    const key = user ? `uid_${user.uid}_agent_memory_enabled` : 'agent_memory_enabled';
-    localStorage.setItem(key, String(memoryEnabled));
-  }, [memoryEnabled, user]);
 
   const fetchMemories = async () => {
     if (!user) {
@@ -42,44 +39,33 @@ export function AgentMemoryPanel() {
     }
     try {
       setLoading(true);
-      const q = query(
-        collection(db, 'agent_memories'),
-        where('userId', '==', user.uid),
-        orderBy('createdAt', 'desc')
-      );
-      const snapshot = await getDocs(q);
-      const items: AgentMemory[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        items.push({
-          id: docSnap.id,
-          content: data.content || '',
-          category: data.category || 'Người dùng',
-          status: data.status || 'approved',
-          source: data.source || 'Cuộc hội thoại ngày gần nhất',
-          createdAt: data.createdAt,
-        });
-      });
-
-      setMemories(items);
+      const response = await authFetch('/api/memory?status=all&limit=100');
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể tải bộ nhớ');
+      const data = await response.json();
+      setMemories(Array.isArray(data.memories) ? data.memories : []);
     } catch (err) {
       console.error('Failed to fetch agent memories:', err);
+      setMemories([]);
     } finally {
       setLoading(false);
     }
   };
 
   const handleSeedSampleData = async () => {
-    if (!user) return;
+    if (!user || !canWrite) return;
     try {
       setLoading(true);
       const defaultMemories = [
-        { userId: user.uid, content: 'Người dùng thích giao diện gọn gàng, tone màu trung tính tinh tế.', category: 'Sở thích', status: 'approved', source: 'Cuộc hội thoại ngày hôm nay', createdAt: new Date().toISOString() },
-        { userId: user.uid, content: 'Ưu tiên quản lý công việc và nhiệm vụ cá nhân thông qua phân hệ Tasks.', category: 'Công việc', status: 'approved', source: 'Cuộc hội thoại ngày hôm qua', createdAt: new Date().toISOString() },
-        { userId: user.uid, content: 'Đề xuất: Người dùng thường làm việc vào buổi tối từ 20h - 23h.', category: 'Thói quen', status: 'pending', source: 'Cuộc hội thoại tự động phát hiện', createdAt: new Date().toISOString() },
+        { content: 'Người dùng thích giao diện gọn gàng, tone màu trung tính tinh tế.', category: 'Sở thích', source: 'Dữ liệu mẫu' },
+        { content: 'Ưu tiên quản lý công việc và nhiệm vụ cá nhân thông qua phân hệ Tasks.', category: 'Công việc', source: 'Dữ liệu mẫu' },
       ];
-      for (const m of defaultMemories) {
-        await addDoc(collection(db, 'agent_memories'), m);
+      for (const memory of defaultMemories) {
+        const response = await authFetch('/api/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(memory),
+        });
+        if (!response.ok) throw new Error((await response.json()).error || 'Không thể tạo dữ liệu mẫu');
       }
       await fetchMemories();
     } catch (err) {
@@ -94,8 +80,14 @@ export function AgentMemoryPanel() {
   }, [user]);
 
   const handleApprove = async (id: string) => {
+    if (!canWrite) return;
     try {
-      await updateDoc(doc(db, 'agent_memories', id), { status: 'approved' });
+      const response = await authFetch(`/api/memory/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' }),
+      });
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể phê duyệt ghi nhớ');
       setMemories(prev => prev.map(m => m.id === id ? { ...m, status: 'approved' } : m));
     } catch (err) {
       console.error('Failed to approve memory:', err);
@@ -103,8 +95,10 @@ export function AgentMemoryPanel() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) return;
     try {
-      await deleteDoc(doc(db, 'agent_memories', id));
+      const response = await authFetch(`/api/memory/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể xóa ghi nhớ');
       setMemories(prev => prev.filter(m => m.id !== id));
     } catch (err) {
       console.error('Failed to delete memory:', err);
@@ -112,9 +106,14 @@ export function AgentMemoryPanel() {
   };
 
   const handleSaveEdit = async (id: string) => {
-    if (!editText.trim()) return;
+    if (!canWrite || !editText.trim()) return;
     try {
-      await updateDoc(doc(db, 'agent_memories', id), { content: editText.trim() });
+      const response = await authFetch(`/api/memory/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editText.trim() }),
+      });
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể cập nhật ghi nhớ');
       setMemories(prev => prev.map(m => m.id === id ? { ...m, content: editText.trim() } : m));
       setEditingId(null);
     } catch (err) {
@@ -124,19 +123,21 @@ export function AgentMemoryPanel() {
 
   const handleAddMemory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMemoryContent.trim() || !user) return;
+    if (!newMemoryContent.trim() || !user || !canWrite) return;
     try {
-      await addDoc(collection(db, 'agent_memories'), {
-        userId: user.uid,
-        content: newMemoryContent.trim(),
-        category: newMemoryCategory,
-        status: 'approved',
-        source: 'Nhập thủ công',
-        createdAt: serverTimestamp(),
+      const response = await authFetch('/api/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: newMemoryContent.trim(),
+          category: newMemoryCategory,
+          source: 'Nhập thủ công',
+        }),
       });
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể thêm ghi nhớ');
       setNewMemoryContent('');
       setIsAdding(false);
-      fetchMemories();
+      await fetchMemories();
     } catch (err) {
       console.error('Failed to add memory:', err);
     }
@@ -194,17 +195,19 @@ export function AgentMemoryPanel() {
               className="w-full pl-8 pr-3 py-1.5 text-xs bg-neutral-50 border border-neutral-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-neutral-900"
             />
           </div>
-          <Button
-            size="sm"
-            onClick={() => setIsAdding(!isAdding)}
-            className="text-xs bg-neutral-900 text-white h-7 px-2.5 rounded-lg shrink-0"
-          >
-            <Plus className="h-3 w-3 mr-1" /> Thêm
-          </Button>
+          {canWrite && (
+            <Button
+              size="sm"
+              onClick={() => setIsAdding(!isAdding)}
+              className="text-xs bg-neutral-900 text-white h-7 px-2.5 rounded-lg shrink-0"
+            >
+              <Plus className="h-3 w-3 mr-1" /> Thêm
+            </Button>
+          )}
         </div>
       </div>
 
-      {isAdding && (
+      {isAdding && canWrite && (
         <form onSubmit={handleAddMemory} className="bg-white p-3.5 rounded-xl border border-neutral-200 shadow-2xs space-y-3">
           <div className="text-xs font-bold text-neutral-800">Thêm tri thức / ghi nhớ mới cho Agent</div>
           <textarea
@@ -264,21 +267,25 @@ export function AgentMemoryPanel() {
                     {m.category}
                   </span>
                   <div className="flex items-center gap-1.5">
-                    <Button
-                      size="sm"
-                      onClick={() => handleApprove(m.id)}
-                      className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-                    >
-                      <Check className="h-3 w-3" /> Phê duyệt
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(m.id)}
-                      className="h-6 px-2 text-[10px] text-rose-600 hover:bg-rose-50"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                    {canWrite && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleApprove(m.id)}
+                        className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+                      >
+                        <Check className="h-3 w-3" /> Phê duyệt
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(m.id)}
+                        className="h-6 px-2 text-[10px] text-rose-600 hover:bg-rose-50"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -302,7 +309,7 @@ export function AgentMemoryPanel() {
         ) : approvedMemories.length === 0 ? (
           <div className="p-8 text-center bg-white rounded-xl border border-neutral-200 text-neutral-400 text-xs flex flex-col items-center justify-center space-y-3">
             <span>Không tìm thấy ghi nhớ nào phù hợp.</span>
-            {memories.length === 0 && (
+            {memories.length === 0 && canWrite && (
               <Button onClick={handleSeedSampleData} variant="outline" className="text-[11px] h-7 gap-1 bg-white border-neutral-300 hover:border-neutral-800 text-neutral-800">
                 <Sparkles className="h-3 w-3" />
                 Tạo dữ liệu mẫu
@@ -343,27 +350,31 @@ export function AgentMemoryPanel() {
                           {m.category}
                         </span>
                         <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setEditingId(m.id);
-                              setEditText(m.content);
-                            }}
-                            className="h-6 w-6 text-neutral-400 hover:text-neutral-900"
-                            title="Chỉnh sửa ghi nhớ"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(m.id)}
-                            className="h-6 w-6 text-neutral-400 hover:text-rose-600"
-                            title="Xóa ghi nhớ"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          {canWrite && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setEditingId(m.id);
+                                setEditText(m.content);
+                              }}
+                              className="h-6 w-6 text-neutral-400 hover:text-neutral-900"
+                              title="Chỉnh sửa ghi nhớ"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(m.id)}
+                              className="h-6 w-6 text-neutral-400 hover:text-rose-600"
+                              title="Xóa ghi nhớ"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </>

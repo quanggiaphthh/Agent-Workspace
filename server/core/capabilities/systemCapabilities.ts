@@ -1,116 +1,112 @@
 import { z } from 'zod';
 import { ServerCapabilityRegistry } from './serverCapabilityRegistry';
-import { adminFirestore } from '../../lib/firebaseAdmin';
+import { UserDataService } from '../data/UserDataService';
+import { AIConfigSchema } from '../../../shared/contracts/ai';
+import { WebSearchService } from '../search/WebSearchService';
 
 export function registerSystemCapabilities() {
-  // Memory: Add
   ServerCapabilityRegistry.register({
     id: 'system.memory.add',
     moduleId: 'system',
-    description: 'Lưu trữ thông tin quan trọng vào bộ nhớ dài hạn của Trợ lý.',
+    description: 'Đề xuất lưu thông tin quan trọng vào bộ nhớ dài hạn của Trợ lý. Ghi nhớ do Agent tạo phải được người dùng phê duyệt trước khi dùng lại.',
     inputSchema: z.object({
-      content: z.string(),
-      category: z.string().optional().default('General'),
-    }),
+      content: z.string().trim().min(1).max(10000),
+      category: z.string().trim().min(1).max(100).optional().default('General'),
+    }).strict(),
     risk: 'low',
     permissions: ['memory.write'],
     execute: async (input, context) => {
       const { user } = context;
       if (!user) throw new Error('Unauthorized');
-
-      const docRef = await adminFirestore.collection('agent_memories').add({
-        userId: user.id,
+      const memory = await UserDataService.addMemory(user.id, {
         content: input.content,
         category: input.category,
-        createdAt: new Date().toISOString(),
+        status: 'pending',
+        source: 'Agent đề xuất',
       });
-
-      return { success: true, memoryId: docRef.id };
+      return {
+        success: true,
+        memoryId: memory.id,
+        status: memory.status,
+        requiresApproval: true,
+      };
     },
   });
 
-  // Memory: Query
   ServerCapabilityRegistry.register({
     id: 'system.memory.query',
     moduleId: 'system',
-    description: 'Tìm kiếm thông tin đã lưu trong bộ nhớ.',
+    description: 'Tìm kiếm các ghi nhớ đã được người dùng phê duyệt.',
     inputSchema: z.object({
-      query: z.string().optional(),
-      category: z.string().optional(),
-    }),
+      query: z.string().trim().max(500).optional(),
+      category: z.string().trim().max(100).optional(),
+    }).strict(),
     risk: 'low',
     permissions: ['memory.read'],
     execute: async (input, context) => {
       const { user } = context;
       if (!user) throw new Error('Unauthorized');
-
-      let query = adminFirestore.collection('agent_memories')
-        .where('userId', '==', user.id);
-      
-      if (input.category) {
-        query = query.where('category', '==', input.category);
-      }
-
-      const snapshot = await query.orderBy('createdAt', 'desc').limit(20).get();
-      const memories = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
-
+      const memories = await UserDataService.listMemories(user.id, {
+        status: 'approved',
+        query: input.query,
+        category: input.category,
+        limit: 20,
+      });
       return { memories };
     },
   });
 
-  // Tasks: Add
   ServerCapabilityRegistry.register({
     id: 'system.tasks.create',
-    moduleId: 'system',
-    description: 'Tạo một nhiệm vụ mới cho người dùng hoặc cho chính Trợ lý.',
+    moduleId: 'tasks',
+    description: 'Tạo một nhiệm vụ mới cho người dùng.',
     inputSchema: z.object({
-      title: z.string(),
-      description: z.string().optional(),
+      title: z.string().trim().min(1).max(300),
+      description: z.string().max(5000).optional(),
       priority: z.enum(['low', 'medium', 'high']).default('medium'),
-      dueDate: z.string().optional(),
-    }),
+      dueDate: z.string().max(64).optional(),
+      category: z.string().trim().max(100).optional(),
+    }).strict(),
     risk: 'low',
     permissions: ['tasks.write'],
     execute: async (input, context) => {
       const { user } = context;
       if (!user) throw new Error('Unauthorized');
-
-      const docRef = await adminFirestore.collection('agent_tasks').add({
-        userId: user.id,
-        ...input,
-        status: 'todo',
-        createdAt: new Date().toISOString(),
-      });
-
-      return { success: true, taskId: docRef.id };
+      const task = await UserDataService.createTask(user.id, input);
+      return { success: true, taskId: task.id, task };
     },
   });
 
-  // Tasks: List
   ServerCapabilityRegistry.register({
     id: 'system.tasks.list',
-    moduleId: 'system',
-    description: 'Liệt kê danh sách các nhiệm vụ hiện có.',
+    moduleId: 'tasks',
+    description: 'Liệt kê danh sách nhiệm vụ hiện có.',
     inputSchema: z.object({
       status: z.enum(['todo', 'in-progress', 'completed', 'all']).default('all'),
-    }),
+    }).strict(),
     risk: 'low',
     permissions: ['tasks.read'],
     execute: async (input, context) => {
       const { user } = context;
       if (!user) throw new Error('Unauthorized');
+      return { tasks: await UserDataService.listTasks(user.id, input.status) };
+    },
+  });
 
-      let query = adminFirestore.collection('agent_tasks')
-        .where('userId', '==', user.id);
-      
-      if (input.status !== 'all') {
-        query = query.where('status', '==', input.status);
-      }
-
-      const snapshot = await query.orderBy('createdAt', 'desc').get();
-      const tasks = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
-
-      return { tasks };
+  ServerCapabilityRegistry.register({
+    id: 'system.web.search',
+    moduleId: 'system',
+    description: 'Tìm kiếm thông tin cập nhật trên web bằng một yêu cầu Gemini Search riêng biệt và trả về nguồn tham khảo.',
+    inputSchema: z.object({
+      query: z.string().trim().min(2).max(1000),
+    }).strict(),
+    risk: 'low',
+    permissions: ['web.search'],
+    execute: async (input, context) => {
+      const { user } = context;
+      if (!user) throw new Error('Unauthorized');
+      const aiConfig = AIConfigSchema.parse(context.appContext?.aiConfig || {});
+      return WebSearchService.search(user.id, aiConfig, input.query, context.abortSignal);
     },
   });
 }

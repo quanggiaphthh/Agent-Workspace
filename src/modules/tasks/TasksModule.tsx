@@ -12,8 +12,7 @@ import {
 import { Button } from '../../components/ui/Button';
 import { TaskFormModal } from './TaskFormModal';
 import { useContextStore } from '../../core/context/contextStore';
-import { auth, db } from '../../lib/firebase';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where } from 'firebase/firestore';
+import { authFetch } from '../../lib/authFetch';
 import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
 
 interface TaskItem {
@@ -29,7 +28,10 @@ interface TaskItem {
 
 export function TasksModule() {
   const setSelectedEntity = useContextStore((state) => state.setSelectedEntity);
+  const appUser = useContextStore((state) => state.user);
   const { user } = useFirebaseAuth();
+  const canWrite = appUser.permissions.includes('tasks.write') || appUser.roles.includes('admin');
+  const canDelete = appUser.permissions.includes('tasks.delete') || appUser.roles.includes('admin');
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -45,76 +47,55 @@ export function TasksModule() {
     }
     try {
       setLoading(true);
-      const q = query(
-        collection(db, 'agent_tasks'),
-        where('userId', '==', user.uid)
-      );
-      const querySnapshot = await getDocs(q);
-      const items: TaskItem[] = [];
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        items.push({
-          id: docSnap.id,
-          title: data.title || '',
-          description: data.description || '',
-          status: data.status || 'todo',
-          priority: data.priority || 'medium',
-          category: data.category || 'Công việc',
-          dueDate: data.dueDate || new Date().toISOString().split('T')[0],
-          createdAt: data.createdAt,
-        });
-      });
-
-      setTasks(items);
+      const response = await authFetch('/api/tasks?status=all');
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể tải nhiệm vụ');
+      const data = await response.json();
+      setTasks(Array.isArray(data.tasks) ? data.tasks : []);
     } catch (err) {
-      console.error('Failed to fetch tasks from Firestore:', err);
+      console.error('Failed to fetch tasks:', err);
+      setTasks([]);
     } finally {
       setLoading(false);
     }
   };
 
   const handleSeedSampleData = async () => {
-    if (!user) return;
+    if (!user || !canWrite) return;
     try {
       setLoading(true);
       const initialSeed = [
         {
-          userId: user.uid,
           title: 'Hoàn thành báo cáo tài chính quý 3',
           description: 'Tổng hợp doanh thu các chi nhánh và chuẩn bị slide thuyết trình cho cuộc họp hội đồng quản trị.',
           status: 'in-progress',
           priority: 'high',
           category: 'Công việc',
           dueDate: '2026-09-20',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
         },
         {
-          userId: user.uid,
           title: 'Lên lịch tập luyện và kiểm tra sức khỏe định kỳ',
           description: 'Duy trì chạy bộ 3km mỗi sáng và đặt lịch khám bác sĩ chuyên khoa.',
           status: 'todo',
           priority: 'medium',
           category: 'Cá nhân',
           dueDate: '2026-09-18',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
         },
         {
-          userId: user.uid,
           title: 'Nghiên cứu kiến trúc Micro-frontend mới',
           description: 'Đánh giá các giải pháp Module Federation và chia sẻ tài liệu với team kỹ thuật.',
           status: 'completed',
           priority: 'high',
           category: 'Học tập',
           dueDate: '2026-09-14',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
         },
       ];
-
       for (const seed of initialSeed) {
-        await addDoc(collection(db, 'agent_tasks'), seed);
+        const response = await authFetch('/api/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(seed),
+        });
+        if (!response.ok) throw new Error((await response.json()).error || 'Không thể tạo dữ liệu mẫu');
       }
       await fetchTasks();
     } catch (err) {
@@ -129,14 +110,14 @@ export function TasksModule() {
   }, [user]);
 
   const handleCreateTask = async (newTaskData: any) => {
-    if (!user) return;
+    if (!user || !canWrite) return;
     try {
-      await addDoc(collection(db, 'agent_tasks'), {
-        ...newTaskData,
-        userId: user.uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+      const response = await authFetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTaskData),
       });
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể tạo nhiệm vụ');
       await fetchTasks();
     } catch (err) {
       console.error('Failed to create task:', err);
@@ -144,13 +125,16 @@ export function TasksModule() {
   };
 
   const handleToggleStatus = async (id: string, currentStatus: string) => {
+    if (!canWrite) return;
     const nextStatus: 'todo' | 'in-progress' | 'completed' =
       currentStatus === 'todo' ? 'in-progress' : currentStatus === 'in-progress' ? 'completed' : 'todo';
     try {
-      await updateDoc(doc(db, 'agent_tasks', id), { 
-        status: nextStatus,
-        updatedAt: serverTimestamp(),
+      const response = await authFetch(`/api/tasks/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
       });
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể cập nhật nhiệm vụ');
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: nextStatus } : t)));
     } catch (err) {
       console.error('Failed to update task status:', err);
@@ -158,13 +142,13 @@ export function TasksModule() {
   };
 
   const handleDeleteTask = async (id: string) => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa nhiệm vụ này không?')) {
-      try {
-        await deleteDoc(doc(db, 'agent_tasks', id));
-        setTasks((prev) => prev.filter((t) => t.id !== id));
-      } catch (err) {
-        console.error('Failed to delete task:', err);
-      }
+    if (!canDelete || !window.confirm('Bạn có chắc chắn muốn xóa nhiệm vụ này không?')) return;
+    try {
+      const response = await authFetch(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể xóa nhiệm vụ');
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      console.error('Failed to delete task:', err);
     }
   };
 
@@ -189,22 +173,22 @@ export function TasksModule() {
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-mono text-[10px] font-bold uppercase tracking-wider border border-emerald-200">
-              Firestore Cloud Database (Live)
+              Server-managed Firestore
             </span>
           </div>
           <h1 className="text-xl font-bold text-neutral-900 mt-1 tracking-tight">Quản lý Nhiệm vụ (Tasks)</h1>
           <p className="text-xs text-neutral-500 mt-0.5">
-            Dữ liệu đồng bộ trực tiếp trên đám mây Firestore, không sử dụng bộ nhớ cục bộ.
+            Dữ liệu được truy cập qua API server với kiểm soát quyền tập trung.
           </p>
         </div>
 
-        <Button
+        {canWrite && <Button
           onClick={() => setIsModalOpen(true)}
           className="bg-neutral-900 hover:bg-neutral-800 text-white gap-2 text-xs font-medium px-4 py-2.5 rounded-xl cursor-pointer shadow-sm"
         >
           <Plus className="h-4 w-4" />
           <span>Thêm nhiệm vụ mới</span>
-        </Button>
+        </Button>}
       </div>
 
       {/* Bento Grid Metrics */}
@@ -286,7 +270,7 @@ export function TasksModule() {
             <h3 className="text-sm font-bold text-neutral-700">Không tìm thấy nhiệm vụ nào</h3>
             <p className="text-xs text-neutral-500 mt-1">Thử thay đổi bộ lọc tìm kiếm hoặc tạo nhiệm vụ mới.</p>
           </div>
-          {tasks.length === 0 && (
+          {tasks.length === 0 && canWrite && (
             <Button onClick={handleSeedSampleData} variant="outline" className="text-xs gap-1.5 font-medium">
               <Sparkles className="h-3.5 w-3.5" />
               Tạo dữ liệu mẫu (Demo)
@@ -306,11 +290,12 @@ export function TasksModule() {
               <div className="flex items-start gap-3.5 flex-1 min-w-0">
                 <button
                   type="button"
+                  disabled={!canWrite}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleToggleStatus(t.id, t.status);
                   }}
-                  className={`mt-0.5 h-5 w-5 rounded-md border flex items-center justify-center transition-colors shrink-0 ${
+                  className={`mt-0.5 h-5 w-5 disabled:cursor-not-allowed disabled:opacity-50 rounded-md border flex items-center justify-center transition-colors shrink-0 ${
                     t.status === 'completed'
                       ? 'bg-emerald-600 border-emerald-600 text-white'
                       : 'border-neutral-300 hover:border-neutral-800 bg-white'
@@ -365,7 +350,7 @@ export function TasksModule() {
               </div>
 
               <div className="flex items-center gap-1 shrink-0">
-                <Button
+                {canDelete && <Button
                   variant="ghost"
                   size="icon"
                   onClick={(e) => {
@@ -376,7 +361,7 @@ export function TasksModule() {
                   title="Xóa nhiệm vụ"
                 >
                   <Trash2 className="h-4 w-4" />
-                </Button>
+                </Button>}
               </div>
             </div>
           ))}
@@ -384,7 +369,7 @@ export function TasksModule() {
       )}
 
       <TaskFormModal
-        isOpen={isModalOpen}
+        isOpen={isModalOpen && canWrite}
         onClose={() => setIsModalOpen(false)}
         onSave={handleCreateTask}
       />

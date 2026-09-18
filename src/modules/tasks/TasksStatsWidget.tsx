@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { CheckSquare, ArrowUpRight, Loader2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { Button } from '../../components/ui/Button';
-import { auth, db } from '../../lib/firebase';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { authFetch } from '../../lib/authFetch';
+import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
 
 export function TasksStatsWidget() {
   const navigate = useNavigate();
+  const { user } = useFirebaseAuth();
   const [total, setTotal] = useState(0);
   const [inProgress, setInProgress] = useState(0);
   const [completedPercent, setCompletedPercent] = useState(0);
@@ -14,45 +15,34 @@ export function TasksStatsWidget() {
 
   useEffect(() => {
     const fetchStats = async () => {
+      if (!user) {
+        setTotal(0);
+        setInProgress(0);
+        setCompletedPercent(0);
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-          setTotal(0);
-          setInProgress(0);
-          setCompletedPercent(0);
-          setLoading(false);
-          return;
-        }
-
-        const q = query(
-          collection(db, 'agent_tasks'),
-          where('userId', '==', currentUser.uid)
-        );
-        const querySnapshot = await getDocs(q);
-        let tCount = 0;
-        let cCount = 0;
-        let ipCount = 0;
-
-        querySnapshot.forEach((docSnap) => {
-          tCount++;
-          const data = docSnap.data();
-          if (data.status === 'completed') cCount++;
-          if (data.status === 'in-progress') ipCount++;
-        });
-
-        setTotal(tCount);
-        setInProgress(ipCount);
-        setCompletedPercent(tCount > 0 ? Math.round((cCount / tCount) * 100) : 0);
+        const response = await authFetch('/api/tasks/stats');
+        if (!response.ok) throw new Error((await response.json()).error || 'Không thể tải thống kê nhiệm vụ');
+        const data = await response.json();
+        setTotal(Number(data.total) || 0);
+        setInProgress(Number(data.inProgress) || 0);
+        setCompletedPercent(Number(data.completedPercent) || 0);
       } catch (err) {
-        console.error('Failed to fetch tasks stats from Firestore:', err);
+        console.error('Failed to fetch tasks stats from server:', err);
+        setTotal(0);
+        setInProgress(0);
+        setCompletedPercent(0);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchStats();
-  }, []);
+    void fetchStats();
+  }, [user]);
 
   return (
     <div className="bg-white rounded-2xl p-5 border border-neutral-200/80 shadow-2xs space-y-4">
@@ -63,7 +53,7 @@ export function TasksStatsWidget() {
           </div>
           <div>
             <h3 className="text-sm font-bold text-neutral-900">Nhiệm vụ & Công việc (Cloud)</h3>
-            <p className="text-[11px] text-neutral-500">Đồng bộ trực tiếp từ Firestore</p>
+            <p className="text-[11px] text-neutral-500">Đồng bộ qua API server có kiểm soát quyền</p>
           </div>
         </div>
         <Button

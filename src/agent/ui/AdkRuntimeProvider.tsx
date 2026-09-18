@@ -6,7 +6,7 @@ import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
 import { authFetch } from '../../lib/authFetch';
 
 export interface ChatMessagePart {
-  type: 'text' | 'reasoning' | 'tool-call' | 'tool-response' | 'error';
+  type: 'text' | 'reasoning' | 'tool-call' | 'tool-response' | 'sources' | 'error';
   text?: string;
   reasoning?: string;
   toolName?: string;
@@ -14,6 +14,7 @@ export interface ChatMessagePart {
   args?: any;
   result?: any;
   error?: string;
+  sources?: { title: string; url: string }[];
 }
 
 export interface ChatMessage {
@@ -41,13 +42,16 @@ export interface AgentRuntimeContextValue {
     messages: ChatMessage[];
     isRunning: boolean;
     isLoading: boolean;
+    isReady: boolean;
   };
   sendMessage: (text: string) => Promise<void>;
   cancelRun: () => void;
   toolConfirmations: ToolConfirmationItem[];
   confirmTool: (toolCallId: string, confirmed: boolean, payload?: any) => Promise<void>;
-  clearHistory: () => void;
+  clearHistory: () => Promise<void>;
   newConversation: () => void;
+  activeSessionId: string;
+  loadConversation: (sessionId: string, messages: ChatMessage[]) => void;
   editMessage: (id: string, newText: string) => Promise<void>;
   regenerate: () => Promise<void>;
   toggleStarMessage: (id: string) => void;
@@ -87,7 +91,8 @@ function nextId(): string {
 
 export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
   const getAppContext = useContextStore((state) => state.getAppContext);
-  const { user, getToken } = useFirebaseAuth();
+  const { user, loading: authLoading } = useFirebaseAuth();
+  const aiSettingsHydrated = useAIKeysStore((state) => state.aiSettingsHydrated);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>('');
@@ -166,7 +171,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     setIsLoading(false);
   }, []);
 
-  const sendPayloadToAgent = useCallback(async (bodyPayload: any, overrideSessionId?: string) => {
+  const sendPayloadToAgent = useCallback(async (bodyPayload: any, overrideSessionId?: string, initialMessagesOverride?: ChatMessage[]) => {
     cancelRun();
 
     const controller = new AbortController();
@@ -174,32 +179,39 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     setIsRunning(true);
     setIsLoading(true);
 
-    // Capture messages before the run starts
-    let initialMsgs: ChatMessage[] = [];
-    setMessages(prev => {
-      initialMsgs = prev;
-      return prev;
-    });
+    // Capture the exact transcript that should precede this run. Branching
+    // callers pass it explicitly so React state batching cannot lose context.
+    let initialMsgs: ChatMessage[] = initialMessagesOverride || [];
+    if (!initialMessagesOverride) {
+      setMessages(prev => {
+        initialMsgs = prev;
+        return prev;
+      });
+    }
 
     try {
-      const state = useAIKeysStore.getState();
-      
-      const aiConfig: any = {
-        credentialId: state.credentialId, // Use the selected credential ID
-        providerId: state.agentProvider,
-        modelId: state.agentModel || 'gemini-3.8-flash',
-        globalDefaultModel: state.globalDefaultModel,
-        autoRotate: state.autoRotate, // Add this!
-        memoryEnabled: localStorage.getItem(`uid_${user?.uid}_agent_memory_enabled`) !== 'false',
-      };
-      
-      // Note: We no longer send raw keys here. 
-      // The server resolves credentialId to a key.
+      if (!user || authLoading) {
+        throw new Error('Phiên đăng nhập chưa sẵn sàng. Vui lòng thử lại sau khi xác thực hoàn tất.');
+      }
+      if (!aiSettingsHydrated) {
+        throw new Error('Cài đặt AI đang được nạp. Vui lòng thử lại sau khi hoàn tất đồng bộ.');
+      }
 
-      const enrichedPayload = { 
-        ...bodyPayload, 
+      const state = useAIKeysStore.getState();
+      const aiConfig = {
+        credentialId: state.credentialId,
+        agentProvider: state.agentProvider,
+        agentModel: state.agentModel,
+        autoRotate: state.autoRotate,
+        memoryEnabled: state.memoryEnabled,
+        webSearchEnabled: state.webSearchEnabled,
+      };
+
+      const enrichedPayload = {
+        ...bodyPayload,
         aiConfig,
-        sessionId: overrideSessionId || activeSessionId
+        sessionId: overrideSessionId || activeSessionId,
+        temporaryMode,
       };
 
       const response = await authFetch('/api/agent/chat', {
@@ -302,6 +314,16 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
                     toolName: msg.name,
                     result
                   });
+                  const sourceCandidate = result?.result?.sources || result?.sources;
+                  if (Array.isArray(sourceCandidate) && sourceCandidate.length > 0) {
+                    const sources = sourceCandidate
+                      .filter((source: any) => typeof source?.url === 'string' && source.url.length > 0)
+                      .map((source: any) => ({
+                        title: typeof source.title === 'string' && source.title.trim() ? source.title : source.url,
+                        url: source.url,
+                      }));
+                    if (sources.length > 0) content.push({ type: 'sources', sources });
+                  }
                 }
 
                 if (msg.status?.type === 'incomplete' && msg.status?.reason === 'error') {
@@ -356,84 +378,130 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
       setIsLoading(false);
       activeAbortController.current = null;
     }
-  }, [cancelRun, getAppContext, activeSessionId, getToken]);
+  }, [cancelRun, activeSessionId, user, authLoading, aiSettingsHydrated, temporaryMode]);
 
-  const clearHistory = useCallback(() => {
+  const resetLocalConversation = useCallback((sessionId: string) => {
     setMessages([]);
-    const newId = crypto.randomUUID();
-    setActiveSessionId(newId);
+    setToolConfirmations([]);
+    setActiveSessionId(sessionId);
     if (temporaryMode) return;
     try {
       const historyKey = `${prefix}adk_chat_history_v2`;
       const sessionKey = `${prefix}adk_active_session_id`;
       localStorage.removeItem(historyKey);
-      localStorage.setItem(sessionKey, newId);
+      localStorage.setItem(sessionKey, sessionId);
     } catch (e) {
-      console.warn('Failed to clear chat history from localStorage', e);
+      console.warn('Failed to reset local chat state', e);
     }
   }, [prefix, temporaryMode]);
 
+  const clearHistory = useCallback(async () => {
+    const sessionToDelete = activeSessionId;
+    if (!temporaryMode && sessionToDelete && user) {
+      try {
+        const response = await authFetch(`/api/agent/sessions/${encodeURIComponent(sessionToDelete)}`, { method: 'DELETE' });
+        if (!response.ok && response.status !== 404) {
+          throw new Error((await response.json()).error || 'Không thể xóa hội thoại');
+        }
+      } catch (err) {
+        console.error('Failed to delete persistent Agent session:', err);
+        throw err;
+      }
+    }
+    resetLocalConversation(crypto.randomUUID());
+  }, [activeSessionId, resetLocalConversation, temporaryMode, user]);
+
   const newConversation = useCallback(() => {
-    clearHistory();
-  }, [clearHistory]);
+    resetLocalConversation(crypto.randomUUID());
+  }, [resetLocalConversation]);
+
+  const loadConversation = useCallback((sessionId: string, sessionMessages: ChatMessage[]) => {
+    if (!sessionId) return;
+    setToolConfirmations([]);
+    setActiveSessionId(sessionId);
+    setMessages(sessionMessages);
+    if (temporaryMode) return;
+    try {
+      localStorage.setItem(`${prefix}adk_active_session_id`, sessionId);
+      localStorage.setItem(`${prefix}adk_chat_history_v2`, JSON.stringify(sessionMessages));
+    } catch (e) {
+      console.warn('Failed to persist loaded conversation locally', e);
+    }
+  }, [prefix, temporaryMode]);
+
+  const branchConversation = useCallback(async (beforeUserTurn: number) => {
+    if (!activeSessionId) throw new Error('Không có session đang hoạt động để tạo nhánh.');
+    const response = await authFetch('/api/agent/sessions/branch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceSessionId: activeSessionId,
+        beforeUserTurn,
+        temporaryMode,
+      }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || 'Không thể tạo nhánh hội thoại');
+    const data = await response.json();
+    return data.branch as { sessionId: string; messages: ChatMessage[] };
+  }, [activeSessionId, temporaryMode]);
 
   const editMessage = useCallback(async (id: string, newText: string) => {
-    if (!newText.trim()) return;
-    setMessages((prev) => {
-      const idx = prev.findIndex((m) => m.id === id);
-      if (idx === -1) return prev;
-      const sliced = prev.slice(0, idx);
-      return [
-        ...sliced,
-        {
-          id,
-          role: 'user',
-          content: [{ type: 'text', text: newText.trim() }],
-          timestamp: Date.now(),
-        },
-      ];
-    });
+    const trimmed = newText.trim();
+    if (!trimmed) return;
+    const targetIndex = messages.findIndex((message) => message.id === id && message.role === 'user');
+    if (targetIndex < 0) return;
 
-    const newSessionId = crypto.randomUUID();
-    setActiveSessionId(newSessionId);
+    const beforeUserTurn = messages.slice(0, targetIndex).filter((message) => message.role === 'user').length;
+    const branch = await branchConversation(beforeUserTurn);
+    const editedMessage: ChatMessage = {
+      id: nextId(),
+      role: 'user',
+      content: [{ type: 'text', text: trimmed }],
+      timestamp: Date.now(),
+    };
+    const baseMessages = [...(branch.messages || []), editedMessage];
+    loadConversation(branch.sessionId, baseMessages);
 
     const appContext = getAppContext();
     await sendPayloadToAgent({
-      message: newText.trim(),
+      message: trimmed,
       stateDelta: appContext,
-    }, newSessionId);
-  }, [getAppContext, sendPayloadToAgent]);
+    }, branch.sessionId, baseMessages);
+  }, [branchConversation, getAppContext, loadConversation, messages, sendPayloadToAgent]);
 
   const regenerate = useCallback(async () => {
-    setMessages((prev) => {
-      const lastUserMsgIndex = [...prev].reverse().findIndex((m) => m.role === 'user');
-      if (lastUserMsgIndex === -1) return prev;
-      const actualIndex = prev.length - 1 - lastUserMsgIndex;
-      return prev.slice(0, actualIndex + 1);
-    });
-
-    const newSessionId = crypto.randomUUID();
-    setActiveSessionId(newSessionId);
-
-    setTimeout(async () => {
-      const currentMessages = messages;
-      const lastUser = [...currentMessages].reverse().find((m) => m.role === 'user');
-      if (lastUser) {
-        const text = typeof lastUser.content === 'string'
-          ? lastUser.content
-          : Array.isArray(lastUser.content)
-            ? lastUser.content.map((p) => p.text || '').join('')
-            : '';
-        if (text) {
-          const appContext = getAppContext();
-          await sendPayloadToAgent({
-            message: text,
-            stateDelta: appContext,
-          }, newSessionId);
-        }
+    let targetIndex = -1;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === 'user') {
+        targetIndex = index;
+        break;
       }
-    }, 50);
-  }, [messages, getAppContext, sendPayloadToAgent]);
+    }
+    if (targetIndex < 0) return;
+
+    const target = messages[targetIndex];
+    const text = typeof target.content === 'string'
+      ? target.content
+      : target.content.map((part) => part.text || '').join('').trim();
+    if (!text) return;
+
+    const beforeUserTurn = messages.slice(0, targetIndex).filter((message) => message.role === 'user').length;
+    const branch = await branchConversation(beforeUserTurn);
+    const replayedUser: ChatMessage = {
+      id: nextId(),
+      role: 'user',
+      content: [{ type: 'text', text }],
+      timestamp: Date.now(),
+    };
+    const baseMessages = [...(branch.messages || []), replayedUser];
+    loadConversation(branch.sessionId, baseMessages);
+
+    const appContext = getAppContext();
+    await sendPayloadToAgent({
+      message: text,
+      stateDelta: appContext,
+    }, branch.sessionId, baseMessages);
+  }, [branchConversation, getAppContext, loadConversation, messages, sendPayloadToAgent]);
 
   const toggleStarMessage = useCallback((id: string) => {
     setMessages((prev) =>
@@ -482,11 +550,14 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     });
   }, [getAppContext, sendPayloadToAgent]);
 
+  const isReady = Boolean(user) && !authLoading && aiSettingsHydrated;
+
   const threadState = useMemo(() => ({
     messages,
     isRunning,
     isLoading,
-  }), [messages, isRunning, isLoading]);
+    isReady,
+  }), [messages, isRunning, isLoading, isReady]);
 
   const contextValue: AgentRuntimeContextValue = useMemo(() => ({
     runtime: null,
@@ -497,12 +568,14 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     confirmTool,
     clearHistory,
     newConversation,
+    activeSessionId,
+    loadConversation,
     editMessage,
     regenerate,
     toggleStarMessage,
     temporaryMode,
     setTemporaryMode,
-  }), [threadState, sendMessage, cancelRun, toolConfirmations, confirmTool, clearHistory, newConversation, editMessage, regenerate, toggleStarMessage, temporaryMode, setTemporaryMode]);
+  }), [threadState, sendMessage, cancelRun, toolConfirmations, confirmTool, clearHistory, newConversation, activeSessionId, loadConversation, editMessage, regenerate, toggleStarMessage, temporaryMode, setTemporaryMode]);
 
   return (
     <AgentRuntimeContext.Provider value={contextValue}>

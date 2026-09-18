@@ -21,6 +21,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { authFetch } from '../../lib/authFetch';
+import { DEFAULT_AGENT_MODEL, DEFAULT_AGENT_PROVIDER } from '../../../shared/contracts/ai';
 
 export function AgentAIManagerTab() {
   const store = useAIKeysStore();
@@ -29,8 +30,10 @@ export function AgentAIManagerTab() {
   const [localKeys, setLocalKeys] = useState<APIKeyEntry[]>([]);
   const [localAutoRotate, setLocalAutoRotate] = useState(false);
   const [localGlobalDefaultModel, setLocalGlobalDefaultModel] = useState<string | null>(null);
-  const [localAgentProvider, setLocalAgentProvider] = useState('google');
-  const [localAgentModel, setLocalAgentModel] = useState('gemini-flash-lite-latest');
+  const [localAgentProvider] = useState(DEFAULT_AGENT_PROVIDER);
+  const [localAgentModel, setLocalAgentModel] = useState(DEFAULT_AGENT_MODEL);
+  const [localMemoryEnabled, setLocalMemoryEnabled] = useState(true);
+  const [localWebSearchEnabled, setLocalWebSearchEnabled] = useState(false);
   const [localProviderDefaultModels, setLocalProviderDefaultModels] = useState<Record<string, string>>({});
   
   const [newKeyInputs, setNewKeyInputs] = useState<Record<string, string>>({});
@@ -50,8 +53,9 @@ export function AgentAIManagerTab() {
     setLocalKeys(store.keys);
     setLocalAutoRotate(store.autoRotate);
     setLocalGlobalDefaultModel(store.globalDefaultModel);
-    setLocalAgentProvider(store.agentProvider);
     setLocalAgentModel(store.agentModel);
+    setLocalMemoryEnabled(store.memoryEnabled);
+    setLocalWebSearchEnabled(store.webSearchEnabled);
     setLocalCredentialId(store.credentialId);
     setLocalProviderDefaultModels(store.providerDefaultModels);
   }, [
@@ -59,7 +63,9 @@ export function AgentAIManagerTab() {
     store.autoRotate, 
     store.globalDefaultModel, 
     store.agentProvider, 
-    store.agentModel, 
+    store.agentModel,
+    store.memoryEnabled,
+    store.webSearchEnabled,
     store.credentialId,
     store.providerDefaultModels
   ]);
@@ -69,17 +75,21 @@ export function AgentAIManagerTab() {
       JSON.stringify(localKeys) !== JSON.stringify(store.keys) ||
       localAutoRotate !== store.autoRotate ||
       localGlobalDefaultModel !== store.globalDefaultModel ||
-      localAgentProvider !== store.agentProvider ||
+      store.agentProvider !== DEFAULT_AGENT_PROVIDER ||
       localAgentModel !== store.agentModel ||
-      localCredentialId !== store.credentialId
+      localCredentialId !== store.credentialId ||
+      localMemoryEnabled !== store.memoryEnabled ||
+      localWebSearchEnabled !== store.webSearchEnabled
     );
   }, [
     localKeys, store.keys,
     localAutoRotate, store.autoRotate,
     localGlobalDefaultModel, store.globalDefaultModel,
-    localAgentProvider, store.agentProvider,
+    store.agentProvider,
     localAgentModel, store.agentModel,
-    localCredentialId, store.credentialId
+    localCredentialId, store.credentialId,
+    localMemoryEnabled, store.memoryEnabled,
+    localWebSearchEnabled, store.webSearchEnabled
   ]);
 
   const handleSave = () => {
@@ -88,9 +98,11 @@ export function AgentAIManagerTab() {
     useAIKeysStore.setState({
       autoRotate: localAutoRotate,
       globalDefaultModel: localGlobalDefaultModel,
-      agentProvider: localAgentProvider,
-      agentModel: localAgentModel,
+      agentProvider: DEFAULT_AGENT_PROVIDER,
+      agentModel: localAgentModel || DEFAULT_AGENT_MODEL,
       credentialId: localCredentialId,
+      memoryEnabled: localMemoryEnabled,
+      webSearchEnabled: localWebSearchEnabled,
       providerDefaultModels: localProviderDefaultModels
     });
     
@@ -103,8 +115,9 @@ export function AgentAIManagerTab() {
     setLocalKeys(store.keys);
     setLocalAutoRotate(store.autoRotate);
     setLocalGlobalDefaultModel(store.globalDefaultModel);
-    setLocalAgentProvider(store.agentProvider);
     setLocalAgentModel(store.agentModel);
+    setLocalMemoryEnabled(store.memoryEnabled);
+    setLocalWebSearchEnabled(store.webSearchEnabled);
     setLocalCredentialId(store.credentialId);
     setLocalProviderDefaultModels(store.providerDefaultModels);
   };
@@ -281,15 +294,17 @@ export function AgentAIManagerTab() {
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Nhà cung cấp</label>
-                <select 
-                  className="w-full text-sm border border-neutral-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-neutral-50/30 font-medium"
-                  value={localAgentProvider}
-                  onChange={(e) => setLocalAgentProvider(e.target.value)}
+                <select
+                  className="w-full text-sm border border-neutral-300 rounded-lg px-3 py-2.5 bg-neutral-100 text-neutral-700 font-medium cursor-not-allowed"
+                  value={DEFAULT_AGENT_PROVIDER}
+                  disabled
+                  aria-label="Nhà cung cấp Agent Chatbox"
                 >
-                  {SUPPORTED_PROVIDERS.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  <option value={DEFAULT_AGENT_PROVIDER}>Google (Gemini) — bắt buộc cho Agent Chatbox</option>
                 </select>
+                <p className="text-[10px] text-neutral-500">
+                  Các provider khác vẫn dùng được trong API Key Manager, nhưng chưa được nối vào RootAgent.
+                </p>
               </div>
 
               <div className="space-y-1.5">
@@ -368,7 +383,7 @@ export function AgentAIManagerTab() {
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))
                   ) : (
-                    <option value="gemini-3.8-flash">Gemini 3.8 Flash (Mặc định)</option>
+                    <option value={DEFAULT_AGENT_MODEL}>Gemini 2.5 Flash-Lite — mặc định Dev</option>
                   )}
                 </select>
               </div>
@@ -407,6 +422,30 @@ export function AgentAIManagerTab() {
               )}
             </div>
           </div>
+
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={localMemoryEnabled}
+              onClick={() => setLocalMemoryEnabled(!localMemoryEnabled)}
+              className={`text-left rounded-xl border p-3 transition-colors ${localMemoryEnabled ? 'border-indigo-200 bg-indigo-50/60' : 'border-neutral-200 bg-neutral-50'}`}
+            >
+              <div className="text-xs font-bold text-neutral-800">Bộ nhớ dài hạn</div>
+              <div className="text-[10px] text-neutral-500 mt-1">{localMemoryEnabled ? 'Đang bật capability Memory cho Agent.' : 'Agent sẽ không nhận capability Memory.'}</div>
+            </button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={localWebSearchEnabled}
+              onClick={() => setLocalWebSearchEnabled(!localWebSearchEnabled)}
+              className={`text-left rounded-xl border p-3 transition-colors ${localWebSearchEnabled ? 'border-indigo-200 bg-indigo-50/60' : 'border-neutral-200 bg-neutral-50'}`}
+            >
+              <div className="text-xs font-bold text-neutral-800">Tìm kiếm Web</div>
+              <div className="text-[10px] text-neutral-500 mt-1">{localWebSearchEnabled ? 'Agent được phép dùng capability Search nếu tài khoản có web.search.' : 'Search bị tắt trong AgentConfig.'}</div>
+            </button>
+          </div>
         </div>
       </Card>
 
@@ -437,7 +476,7 @@ export function AgentAIManagerTab() {
         <div className="flex items-center justify-between pt-4">
           <div>
             <div className="text-sm font-medium text-neutral-900">Xoay vòng API Key (Quota Rotation)</div>
-            <div className="text-xs text-neutral-500">Chỉ rotate trên quota/transient error.</div>
+            <div className="text-xs text-neutral-500">Chỉ rotate giữa các API Key cá nhân cùng provider khi lỗi xác thực/quota xảy ra trước khi response bắt đầu; không tự rơi sang System Key.</div>
           </div>
           <button 
             type="button"
@@ -478,7 +517,7 @@ export function AgentAIManagerTab() {
               <div className="space-y-2 mb-4">
                 {providerKeys.length === 0 ? (
                   <div className="text-[11px] text-neutral-400 italic py-2 px-3 bg-neutral-50 rounded border border-dashed border-neutral-200">
-                    Chưa có API Key cá nhân. Hệ thống đang dùng Key mặc định.
+                    {provider.id === 'google' ? 'Chưa có API Key cá nhân. Google có thể dùng System Key.' : 'Chưa có API Key cá nhân. Provider này không có System Key; hãy thêm key riêng.'}
                   </div>
                 ) : (
                   providerKeys.map((keyEntry) => {

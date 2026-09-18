@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import request from 'supertest';
 import { app } from '../../server';
 import { adminAuth, adminFirestore } from '../../server/lib/firebaseAdmin';
-import { ServerIdentityProvider } from '../../server/core/auth/identityProvider';
+import { RootAgent } from '../../server/agent/adk/RootAgent';
+import { AuditService } from '../../server/core/audit/auditService';
+import { CapabilityExecutionService } from '../../server/core/capabilities/CapabilityExecutionService';
 
 // Mock Firebase Admin Auth
 vi.mock('../../server/lib/firebaseAdmin', async (importOriginal) => {
@@ -82,42 +84,133 @@ describe('Production Integration & Security Suite', () => {
     });
 
     it('User A data isolation from User B', async () => {
-      // This is harder to test without a real DB or complex mock, 
-      // but we can verify the service layer logic or use the REST API
-      // If DemoService correctly uses the user identity, it should filter.
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({
+        ...mockUserA,
+        permissions: ['tasks.read'],
+      } as any);
+      const listSpy = vi.spyOn(AuditService, 'list').mockResolvedValue({
+        items: [],
+        nextCursor: undefined,
+      });
+
+      try {
+        const res = await request(app)
+          .get('/api/audit?userId=user_B&limit=25')
+          .set('Authorization', 'Bearer token_A');
+
+        expect(res.status).toBe(200);
+        expect(listSpy).toHaveBeenCalledTimes(1);
+        expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({
+          limit: 25,
+          userId: mockUserA.uid,
+        }));
+      } finally {
+        listSpy.mockRestore();
+      }
     });
   });
 
   describe('PHASE C.5 — IDENTITY SPOOFING', () => {
-    it('stateDelta identity spoofing is ignored', async () => {
+    it('stateDelta identity spoofing is stripped before RootAgent receives execution context', async () => {
       vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);
+      const sentinel = Object.assign(new Error('TEST_CONTEXT_CAPTURE_COMPLETE'), { status: 418 });
+      const buildAgentSpy = vi.spyOn(RootAgent, 'buildAgent').mockRejectedValue(sentinel);
 
-      const spoofedStateDelta = {
-        user: { id: 'admin', roles: ['admin'] },
-        userId: 'admin'
-      };
+      try {
+        const res = await request(app)
+          .post('/api/agent/chat')
+          .set('Authorization', 'Bearer token_A')
+          .send({
+            message: 'Who am I?',
+            stateDelta: {
+              user: { id: 'admin', roles: ['admin'] },
+              userId: 'admin',
+              roles: ['admin'],
+              permissions: ['module.manage'],
+              admin: true,
+              confirmed: true,
+            },
+          });
 
-      // We call the chat API which uses stateDelta
-      const res = await request(app)
-        .post('/api/agent/chat')
-        .set('Authorization', 'Bearer token_A')
-        .send({
-          message: 'Who am I?',
-          stateDelta: spoofedStateDelta
-        });
-
-      // The server should have sanitized this. 
-      // We can't easily see the internal agent context here without more instrumentation,
-      // but we verified the code does 'delete sanitizedStateDelta.user'.
-      expect(res.status).toBe(200);
+        expect(res.status).toBe(418);
+        expect(buildAgentSpy).toHaveBeenCalledTimes(1);
+        const executionContext = buildAgentSpy.mock.calls[0][0] as any;
+        expect(executionContext.user.id).toBe(mockUserA.uid);
+        expect(executionContext.appContext.user.id).toBe(mockUserA.uid);
+        expect(executionContext.appContext).not.toHaveProperty('userId');
+        expect(executionContext.appContext).not.toHaveProperty('roles');
+        expect(executionContext.appContext).not.toHaveProperty('permissions');
+        expect(executionContext.appContext).not.toHaveProperty('admin');
+        expect(executionContext.confirmed).toBe(false);
+      } finally {
+        buildAgentSpy.mockRestore();
+      }
     });
   });
 
   describe('PHASE C.6 & C.7 — HITL E2E', () => {
-    it('HITL flow: request -> pending -> response', async () => {
-      // 1. Agent requests confirmation (mocked or real)
-      // 2. Client sends FunctionResponse (toolResponse)
-      // This requires a full ADK runner cycle.
+    it('HITL HTTP flow ignores client confirmed and forwards server confirmationId', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({
+        ...mockUserA,
+        permissions: ['tasks.delete'],
+      } as any);
+      const executeSpy = vi.spyOn(CapabilityExecutionService, 'execute')
+        .mockResolvedValueOnce({
+          success: false,
+          risk: 'high',
+          requiresConfirmation: true,
+          errorCode: 'CONFIRMATION_REQUIRED',
+          error: 'Server confirmation required.',
+          confirmationId: 'confirm-test',
+          confirmationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        } as any)
+        .mockResolvedValueOnce({
+          success: true,
+          risk: 'high',
+          requiresConfirmation: false,
+          result: { deleted: true },
+          confirmationId: 'confirm-test',
+        } as any);
+
+      try {
+        const pending = await request(app)
+          .post('/api/capabilities/execute')
+          .set('Authorization', 'Bearer token_A')
+          .send({
+            id: 'system.tasks.delete',
+            input: { id: 'task-1' },
+            confirmed: true,
+            context: { confirmed: true, userId: 'admin' },
+          });
+
+        expect(pending.status).toBe(409);
+        expect(pending.body.confirmationId).toBe('confirm-test');
+        const firstContext = executeSpy.mock.calls[0][2] as any;
+        const firstMeta = executeSpy.mock.calls[0][3] as any;
+        expect(firstContext.confirmed).toBe(false);
+        expect(firstContext.user.id).toBe(mockUserA.uid);
+        expect(firstMeta.confirmationId).toBeUndefined();
+
+        const confirmed = await request(app)
+          .post('/api/capabilities/execute')
+          .set('Authorization', 'Bearer token_A')
+          .send({
+            id: 'system.tasks.delete',
+            input: { id: 'task-1' },
+            confirmed: true,
+            confirmationId: 'confirm-test',
+            context: { confirmed: true, userId: 'admin' },
+          });
+
+        expect(confirmed.status).toBe(200);
+        const secondContext = executeSpy.mock.calls[1][2] as any;
+        const secondMeta = executeSpy.mock.calls[1][3] as any;
+        expect(secondContext.confirmed).toBe(false);
+        expect(secondContext.user.id).toBe(mockUserA.uid);
+        expect(secondMeta.confirmationId).toBe('confirm-test');
+      } finally {
+        executeSpy.mockRestore();
+      }
     });
   });
 

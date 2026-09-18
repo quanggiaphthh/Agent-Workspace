@@ -12,8 +12,6 @@ import {
   Clock,
   Copy,
   Check,
-  Paperclip,
-  X,
   Edit2,
   RefreshCw,
   Star,
@@ -22,18 +20,16 @@ import {
   Brain,
   ShieldAlert,
   CornerUpLeft,
-  Quote,
-  MessageSquarePlus
+  Quote
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AdkConfirmation } from './AdkConfirmation';
 import { useContextStore } from '../../core/context/contextStore';
-import { db } from '../../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { authFetch } from '../../lib/authFetch';
 import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
 
 export function AgentChatThread() {
-  const { user, login } = useFirebaseAuth();
+  const { user } = useFirebaseAuth();
   const { 
     threadState, 
     sendMessage, 
@@ -42,14 +38,14 @@ export function AgentChatThread() {
     regenerate, 
     toggleStarMessage,
     temporaryMode,
-    setTemporaryMode,
-    newConversation
+    setTemporaryMode
   } = useAgentRuntime();
   const activeModule = useContextStore(state => state.activeModule);
+  const appUser = useContextStore(state => state.user);
+  const canWriteMemory = appUser.permissions.includes('memory.write') || appUser.roles.includes('admin');
   const [inputText, setInputText] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [savedMemoryId, setSavedMemoryId] = useState<string | null>(null);
-  const [attachedFile, setAttachedFile] = useState<File | null>(null);
 
   // Editing state for user messages
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
@@ -57,9 +53,8 @@ export function AgentChatThread() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { messages, isRunning } = threadState;
+  const { messages, isRunning, isReady } = threadState;
 
   // Auto-scroll to bottom on update
   useEffect(() => {
@@ -67,16 +62,10 @@ export function AgentChatThread() {
   }, [messages, isRunning]);
 
   const handleSend = () => {
-    if ((!inputText.trim() && !attachedFile) || isRunning) return;
+    if (!inputText.trim() || isRunning || !isReady) return;
 
-    let payload = inputText.trim();
-    if (attachedFile) {
-      payload = `[Đính kèm tệp: ${attachedFile.name}]\n${payload}`;
-    }
-
-    sendMessage(payload);
+    sendMessage(inputText.trim());
     setInputText('');
-    setAttachedFile(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -102,15 +91,18 @@ export function AgentChatThread() {
   };
 
   const handleAddToMemory = async (text: string, id: string) => {
+    if (!user || !canWriteMemory) return;
     try {
-      await addDoc(collection(db, 'agent_memories'), {
-        userId: user?.uid || 'guest',
-        content: text.length > 200 ? text.substring(0, 200) + '...' : text,
-        category: 'Trò chuyện',
-        status: 'approved',
-        source: 'Thêm thủ công từ khung chat',
-        createdAt: serverTimestamp(),
+      const response = await authFetch('/api/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: text.length > 200 ? text.substring(0, 200) + '...' : text,
+          category: 'Trò chuyện',
+          source: 'Thêm thủ công từ khung chat',
+        }),
       });
+      if (!response.ok) throw new Error((await response.json()).error || 'Không thể lưu vào bộ nhớ');
       setSavedMemoryId(id);
       setTimeout(() => setSavedMemoryId(null), 2500);
     } catch (err) {
@@ -154,26 +146,6 @@ export function AgentChatThread() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-neutral-50/40 relative">
-      {/* Sign-in Overlay for Chat */}
-      {!user && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/60 backdrop-blur-[2px] p-6 text-center">
-          <div className="h-12 w-12 rounded-2xl bg-neutral-900 text-white flex items-center justify-center mb-4 shadow-lg animate-bounce">
-            <Bot className="h-6 w-6" />
-          </div>
-          <h3 className="text-sm font-bold text-neutral-900 mb-2">Đăng nhập để trò chuyện</h3>
-          <p className="text-xs text-neutral-500 max-w-[240px] mb-6 leading-relaxed">
-            Vui lòng đăng nhập bằng tài khoản Google để kích hoạt Trợ lý AI và đồng bộ hóa lịch sử hội thoại của bạn.
-          </p>
-          <Button 
-            onClick={() => login()} 
-            className="bg-neutral-900 text-white hover:bg-neutral-800 h-9 px-6 text-xs gap-2"
-          >
-            <Bot className="h-3.5 w-3.5 text-emerald-500" />
-            Đăng nhập ngay
-          </Button>
-        </div>
-      )}
-
       {/* Top Temporary Mode bar */}
       <div className="px-3 py-1.5 bg-white border-b border-neutral-200/80 flex items-center justify-between text-[11px] shrink-0">
         <span className="text-neutral-500 flex items-center gap-1">
@@ -185,23 +157,14 @@ export function AgentChatThread() {
             <span>Hội thoại tiêu chuẩn (Đã bật lưu trữ)</span>
           )}
         </span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setTemporaryMode(!temporaryMode)}
-            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
-              temporaryMode ? 'bg-amber-100 text-amber-800' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-            }`}
-          >
-            {temporaryMode ? 'Tắt tạm thời' : 'Bật tạm thời'}
-          </button>
-          <button
-            onClick={newConversation}
-            title="Hội thoại mới"
-            className="p-1.5 rounded-full text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
-          >
-            <MessageSquarePlus className="h-4 w-4" />
-          </button>
-        </div>
+        <button
+          onClick={() => setTemporaryMode(!temporaryMode)}
+          className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+            temporaryMode ? 'bg-amber-100 text-amber-800' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+          }`}
+        >
+          {temporaryMode ? 'Tắt tạm thời' : 'Bật tạm thời'}
+        </button>
       </div>
 
       {/* Messages Scroll Area */}
@@ -344,6 +307,26 @@ export function AgentChatThread() {
                           </div>
                         );
                       }
+                      if (part.type === 'sources' && Array.isArray(part.sources) && part.sources.length > 0) {
+                        return (
+                          <div key={pIdx} className="my-2 p-2.5 bg-sky-50/70 rounded-lg border border-sky-200 text-[11px] space-y-1.5">
+                            <div className="font-bold text-sky-900">Nguồn tham khảo</div>
+                            <div className="space-y-1">
+                              {part.sources.map((source: any, sourceIndex: number) => (
+                                <a
+                                  key={`${source.url}-${sourceIndex}`}
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block text-sky-700 hover:underline break-all"
+                                >
+                                  {source.title || source.url}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
                       if (part.type === 'error') {
                         return (
                           <div key={pIdx} className="my-2 p-2.5 bg-rose-50/70 rounded-lg border border-rose-200 text-[11px] space-y-1">
@@ -426,17 +409,19 @@ export function AgentChatThread() {
                         >
                           <Star className={`h-3.5 w-3.5 ${msg.starred ? 'fill-amber-500' : ''}`} />
                         </button>
-                        <button
-                          onClick={() => handleAddToMemory(msgText, msg.id || String(msgIndex))}
-                          className="p-1.5 hover:bg-neutral-100 rounded-md transition-colors text-neutral-500 hover:text-neutral-900"
-                          title="Thêm vào bộ nhớ AI"
-                        >
-                          {savedMemoryId === (msg.id || String(msgIndex)) ? (
-                            <Check className="h-3.5 w-3.5 text-emerald-600" />
-                          ) : (
-                            <Brain className="h-3.5 w-3.5 text-neutral-500" />
-                          )}
-                        </button>
+                        {canWriteMemory && (
+                          <button
+                            onClick={() => handleAddToMemory(msgText, msg.id || String(msgIndex))}
+                            className="p-1.5 hover:bg-neutral-100 rounded-md transition-colors text-neutral-500 hover:text-neutral-900"
+                            title="Thêm vào bộ nhớ AI"
+                          >
+                            {savedMemoryId === (msg.id || String(msgIndex)) ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : (
+                              <Brain className="h-3.5 w-3.5 text-neutral-500" />
+                            )}
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -471,49 +456,11 @@ export function AgentChatThread() {
       {/* Tool confirmations */}
       <AdkConfirmation />
 
-      {/* Attached file preview chip */}
-      {attachedFile && (
-        <div className="px-4 py-1.5 bg-neutral-100 border-t border-neutral-200 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-1.5 text-neutral-700 font-medium truncate">
-            <Paperclip className="h-3.5 w-3.5 text-neutral-500" />
-            <span className="truncate max-w-[280px]">{attachedFile.name}</span>
-            <span className="text-[10px] text-neutral-400 font-mono">({Math.round(attachedFile.size / 1024)} KB)</span>
-          </div>
-          <button
-            onClick={() => setAttachedFile(null)}
-            className="text-neutral-400 hover:text-rose-600 p-0.5"
-            title="Gỡ đính kèm"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+      {/* File attachment is intentionally unavailable until real upload/MIME handling exists. */}
 
       {/* Input Composer */}
       <div className="p-3 bg-white border-t border-neutral-200 shrink-0">
         <div className="flex items-end gap-2 bg-neutral-50 rounded-xl border border-neutral-200 p-2 focus-within:ring-2 focus-within:ring-neutral-900 transition-all">
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={(e) => {
-              if (e.target.files && e.target.files[0]) {
-                setAttachedFile(e.target.files[0]);
-              }
-            }}
-            className="hidden"
-          />
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => alert('Tính năng đính kèm tệp hiện đang được nâng cấp để hỗ trợ phân tích thông minh hơn.')}
-            className="h-8 w-8 text-neutral-400 hover:text-neutral-700 shrink-0 opacity-60"
-            title="Đính kèm tệp (Đang nâng cấp)"
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
-
           <textarea
             ref={textareaRef}
             rows={1}
@@ -539,7 +486,7 @@ export function AgentChatThread() {
             <Button
               type="button"
               size="icon"
-              disabled={!inputText.trim() && !attachedFile}
+              disabled={!inputText.trim() || !isReady}
               onClick={handleSend}
               className="h-8 w-8 shrink-0 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-40 text-white rounded-lg transition-opacity"
               title="Gửi tin nhắn"

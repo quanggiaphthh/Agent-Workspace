@@ -23,6 +23,7 @@ export function GlobalOverlay({
 }: GlobalOverlayProps) {
   const [search, setSearch] = useState('');
   const setSelectedEntity = useContextStore(s => s.setSelectedEntity);
+  const user = useContextStore(s => s.user);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -50,7 +51,7 @@ export function GlobalOverlay({
     return <ToastContainer />;
   }
 
-  const navItems = moduleRegistry.getNavigation();
+  const navItems = moduleRegistry.getNavigation(user);
 
   const commands = navItems.map(item => ({
     id: `nav-${item.id}`,

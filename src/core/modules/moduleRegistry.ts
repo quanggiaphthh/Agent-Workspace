@@ -4,6 +4,7 @@ import {
   RouteContribution,
   DashboardWidgetContribution,
 } from '../../../shared/contracts/module';
+import { UserContext } from '../../../shared/contracts/capability';
 import { eventBus } from '../events/eventBus';
 
 import { authFetch } from '../../lib/authFetch';
@@ -99,9 +100,22 @@ class LocalModuleRegistry {
     return this.listAll().filter(m => this.isEnabled(m.id));
   }
 
-  public getNavigation(): NavigationContribution[] {
+  public hasAccess(moduleId: string, user?: UserContext): boolean {
+    const manifest = this.manifests.get(moduleId);
+    if (!manifest) return false;
+    if (!user) return true;
+    if (user.roles.includes('admin')) return true;
+    const required = manifest.permissions || [];
+    return required.every(permission => user.permissions.includes(permission));
+  }
+
+  public listEnabledFor(user?: UserContext): ModuleManifest[] {
+    return this.listEnabled().filter(module => this.hasAccess(module.id, user));
+  }
+
+  public getNavigation(user?: UserContext): NavigationContribution[] {
     const navItems: NavigationContribution[] = [];
-    for (const mod of this.listEnabled()) {
+    for (const mod of this.listEnabledFor(user)) {
       if (mod.navigation) {
         navItems.push(...mod.navigation);
       }
@@ -109,9 +123,9 @@ class LocalModuleRegistry {
     return navItems.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
   }
 
-  public getRoutes(): RouteContribution[] {
+  public getRoutes(user?: UserContext): RouteContribution[] {
     const routes: RouteContribution[] = [];
-    for (const mod of this.listEnabled()) {
+    for (const mod of this.listEnabledFor(user)) {
       if (mod.routes) {
         routes.push(...mod.routes);
       }
@@ -119,9 +133,9 @@ class LocalModuleRegistry {
     return routes;
   }
 
-  public getWidgets(): DashboardWidgetContribution[] {
+  public getWidgets(user?: UserContext): DashboardWidgetContribution[] {
     const widgets: DashboardWidgetContribution[] = [];
-    for (const mod of this.listEnabled()) {
+    for (const mod of this.listEnabledFor(user)) {
       if (mod.widgets) {
         widgets.push(...mod.widgets);
       }
