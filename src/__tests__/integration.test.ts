@@ -5,6 +5,11 @@ import { adminAuth, adminFirestore } from '../../server/lib/firebaseAdmin';
 import { RootAgent } from '../../server/agent/adk/RootAgent';
 import { AuditService } from '../../server/core/audit/auditService';
 import { CapabilityExecutionService } from '../../server/core/capabilities/CapabilityExecutionService';
+import { CredentialService } from '../../server/core/ai/CredentialService';
+
+const testMocks = vi.hoisted(() => ({
+  persistenceProbe: vi.fn(),
+}));
 
 // Mock Firebase Admin Auth
 vi.mock('../../server/lib/firebaseAdmin', async (importOriginal) => {
@@ -27,6 +32,7 @@ vi.mock('../../server/agent/adk/FirestoreSessionService', () => {
         createSession: vi.fn().mockResolvedValue({}),
         getSession: vi.fn().mockResolvedValue({}),
         appendEvent: vi.fn().mockResolvedValue({}),
+        probePersistenceHealth: testMocks.persistenceProbe,
       };
     })
   };
@@ -50,6 +56,57 @@ describe('Production Integration & Security Suite', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    testMocks.persistenceProbe.mockResolvedValue({ status: 'ok', mode: 'persistent', backend: 'firestore', degraded: false });
+  });
+
+
+  describe('HEALTH — PERSISTENCE PROBE', () => {
+    it('reports healthy persistence only when the real probe succeeds', async () => {
+      const res = await request(app).get('/api/health');
+      expect(testMocks.persistenceProbe).toHaveBeenCalledTimes(1);
+      expect(res.body.components.session.status).toBe('ok');
+    });
+
+    it('does not return a false PASS when the persistence probe reports failure', async () => {
+      testMocks.persistenceProbe.mockResolvedValueOnce({
+        status: 'error', mode: 'unavailable', backend: 'firestore', degraded: false, lastError: 'probe failed',
+      });
+      const res = await request(app).get('/api/health');
+      expect(testMocks.persistenceProbe).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe('error');
+      expect(res.body.components.session.status).toBe('error');
+    });
+  });
+
+  describe('AUTHORIZATION ORDER — CREDENTIAL ROUTES', () => {
+    it('rejects unauthenticated model requests before credential resolution', async () => {
+      const resolveSpy = vi.spyOn(CredentialService, 'resolveCredential');
+      try {
+        const res = await request(app).get('/api/ai/models?providerId=google&credentialId=system');
+        expect(res.status).toBe(401);
+        expect(resolveSpy).not.toHaveBeenCalled();
+      } finally {
+        resolveSpy.mockRestore();
+      }
+    });
+
+    it('lets an authenticated owner reach credential resolution and receive the credential error', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);
+      const unavailable = Object.assign(new Error('System credential is unavailable.'), {
+        code: 'SYSTEM_CREDENTIAL_UNAVAILABLE', status: 400,
+      });
+      const resolveSpy = vi.spyOn(CredentialService, 'resolveCredential').mockRejectedValue(unavailable);
+      try {
+        const res = await request(app)
+          .get('/api/ai/models?providerId=google&credentialId=system')
+          .set('Authorization', 'Bearer token_A');
+        expect(res.status).toBe(400);
+        expect(resolveSpy).toHaveBeenCalledWith(mockUserA.uid, 'google', 'system');
+      } finally {
+        resolveSpy.mockRestore();
+      }
+    });
   });
 
   describe('PHASE C.1 & C.2 — AUTHENTICATION', () => {
@@ -68,8 +125,8 @@ describe('Production Integration & Security Suite', () => {
   });
 
   describe('PHASE C.3 & C.4 — AUTHORIZATION & ISOLATION', () => {
-    it('Normal user without module.manage -> 403', async () => {
-      // Mock identity provider to return a user with only read permissions
+    it('Verified user receives canonical owner permissions before route validation', async () => {
+      // Custom claims cannot remove the canonical owner permission baseline in this private single-user app.
       vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({
         ...mockUserA,
         permissions: ['tasks.read']
@@ -80,7 +137,7 @@ describe('Production Integration & Security Suite', () => {
         .set('Authorization', 'Bearer token_A')
         .send({});
       
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(400);
     });
 
     it('User A data isolation from User B', async () => {

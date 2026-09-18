@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, type UpdateData } from 'firebase-admin/firestore';
 import { adminFirestore } from '../../lib/firebaseAdmin';
 import type { AIProviderId } from '../../../shared/contracts/ai';
 import {
@@ -140,7 +140,7 @@ export class CredentialService {
           secretCiphertext: FieldValue.delete(),
           secretIv: FieldValue.delete(),
           secretTag: FieldValue.delete(),
-        });
+        } satisfies UpdateData<StoredCredential>);
         return protectedSecret;
       });
     } catch (err: any) {
@@ -260,7 +260,7 @@ export class CredentialService {
         throw credentialError('CREDENTIAL_PROVIDER_MISMATCH', 'Credential provider mismatch.', 400);
       }
 
-      const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+      const patch: UpdateData<StoredCredential> = { updatedAt: new Date().toISOString() };
       if (nextName) patch.name = nextName;
       if (protectedSecret) {
         patch.secret = protectedSecret;
@@ -329,6 +329,18 @@ export class CredentialService {
       throw credentialError('CREDENTIAL_INACTIVE', 'Credential is not active.', 409);
     }
     return credential;
+  }
+
+  public static async listAgentCredentialOptions(userId: string): Promise<{
+    systemAvailable: boolean;
+    credentials: CredentialMetadata[];
+  }> {
+    const credentials = (await this.listCredentials(userId))
+      .filter((credential) => credential.providerId === 'google' && credential.status === 'active');
+    return {
+      systemAvailable: this.getSystemCredential('google') !== null,
+      credentials,
+    };
   }
 
   public static async listCredentials(userId: string): Promise<CredentialMetadata[]> {
@@ -404,7 +416,7 @@ export class CredentialService {
       }
 
       uniqueIds.forEach((id, priority) => {
-        transaction.update(collection.doc(id), { priority, updatedAt: new Date().toISOString() });
+        transaction.update(collection.doc(id), { priority, updatedAt: new Date().toISOString() } satisfies UpdateData<StoredCredential>);
       });
     });
   }

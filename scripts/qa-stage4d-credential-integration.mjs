@@ -10,7 +10,7 @@ const write = (name, content) => fs.writeFileSync(path.join(tempDir, name), cont
 try {
   let source = fs.readFileSync(path.resolve('server/core/ai/CredentialService.ts'), 'utf8');
   source = source
-    .replace("import { FieldValue } from 'firebase-admin/firestore';", "import { FieldValue } from './firebase-stub.mjs';")
+    .replace(/import\s*{\s*FieldValue(?:,\s*type\s+UpdateData)?\s*}\s*from\s*'firebase-admin\/firestore';/, "import { FieldValue } from './firebase-stub.mjs';")
     .replace("import { adminFirestore } from '../../lib/firebaseAdmin';", "import { adminFirestore } from './firebase-stub.mjs';")
     .replace(/import type \{ AIProviderId \} from '..\/..\/..\/shared\/contracts\/ai';/, '')
     .replace("from './credentialSecretProtector';", "from './credentialSecretProtector.ts';");

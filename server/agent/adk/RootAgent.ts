@@ -1,4 +1,4 @@
-import { BaseLlm, Gemini, LlmAgent } from '@google/adk';
+import { BaseLlm, Gemini, LlmAgent, type LlmRequest, type BaseLlmConnection } from '@google/adk';
 import { ServerCapabilityRegistry } from '../../core/capabilities/serverCapabilityRegistry';
 import { CredentialService } from '../../core/ai/CredentialService';
 import { ExecutionContext } from '../../../shared/contracts/capability';
@@ -31,7 +31,7 @@ export class RotatingGemini extends BaseLlm {
   }
 
   override async *generateContentAsync(
-    llmRequest: any,
+    llmRequest: LlmRequest,
     stream?: boolean,
     abortSignal?: AbortSignal,
   ): AsyncGenerator<any, void> {
@@ -63,6 +63,16 @@ export class RotatingGemini extends BaseLlm {
     }
 
     throw toSafeProviderError(lastError);
+  }
+
+  /**
+   * Delegates to the primary candidate for live connections.
+   * Rotation is not supported for long-lived sessions in Phase 1.
+   */
+  override async connect(llmRequest: LlmRequest): Promise<BaseLlmConnection> {
+    const primary = this.candidates[0];
+    const model = new Gemini({ apiKey: primary.apiKey, model: primary.model });
+    return model.connect(llmRequest);
   }
 }
 
@@ -103,6 +113,12 @@ export class RootAgent {
         model: aiConfig.agentModel,
         label: credential.id,
       }));
+      if (candidates.length === 0) {
+        const error = new Error('Không có Gemini credential khả dụng để chạy Agent.') as Error & { code?: string; status?: number };
+        error.code = 'NO_ROTATION_CANDIDATE';
+        error.status = 409;
+        throw error;
+      }
       modelInstance = candidates.length > 1
         ? new RotatingGemini(candidates)
         : new Gemini({ apiKey: candidates[0].apiKey, model: candidates[0].model });

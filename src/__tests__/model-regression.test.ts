@@ -6,7 +6,7 @@ import {
   DEFAULT_AI_CONFIG 
 } from '../../shared/contracts/ai';
 import { getGoogleModelRank } from '../../server/core/ai/AIProviderManager';
-import { useAIKeysStore, AI_SETTINGS_RESET, AI_SETTINGS_PERSIST_VERSION } from '../modules/settings/aiKeysStore';
+import { useAIKeysStore, AI_SETTINGS_RESET, AI_SETTINGS_PERSIST_VERSION, migrateLegacyAIModelSettings, partializeAIKeysState } from '../modules/settings/aiKeysStore';
 import { RootAgent } from '../../server/agent/adk/RootAgent';
 
 // Mock the CredentialService to resolve our key
@@ -30,8 +30,8 @@ vi.mock('../../server/core/capabilities/serverCapabilityRegistry', () => {
 describe('AI Agent Model Default & Fallback Regression Suite', () => {
 
   // 1. Canonical default test
-  it('1. DEFAULT_AGENT_MODEL must be "gemini-2.5-flash-lite"', () => {
-    expect(DEFAULT_AGENT_MODEL).toBe('gemini-2.5-flash-lite');
+  it('1. DEFAULT_AGENT_MODEL must be "gemini-3.5-flash-lite"', () => {
+    expect(DEFAULT_AGENT_MODEL).toBe('gemini-3.5-flash-lite');
   });
 
   // 2. AIConfigSchema parse default test
@@ -49,11 +49,7 @@ describe('AI Agent Model Default & Fallback Regression Suite', () => {
 
   // 4. Legacy persisted state migration test
   it('4. Zustand persist migration upgrades legacy defaults to the cheapest dev model without mutating stored input', async () => {
-    const options = useAIKeysStore.persist.getOptions();
-    expect(options.version).toBe(AI_SETTINGS_PERSIST_VERSION);
-    expect(options.migrate).toBeTypeOf('function');
-
-    for (const legacyModel of ['gemini-3.8-flash', 'gemini-flash-lite-latest']) {
+    for (const legacyModel of ['gemini-2.5-flash-lite', 'gemini-3.8-flash', 'gemini-flash-lite-latest']) {
       const legacyState = {
         agentModel: legacyModel,
         globalDefaultModel: legacyModel,
@@ -61,7 +57,7 @@ describe('AI Agent Model Default & Fallback Regression Suite', () => {
       };
       const snapshot = { ...legacyState };
 
-      const migrated = await options.migrate!(legacyState, 0) as typeof legacyState;
+      const migrated = migrateLegacyAIModelSettings(legacyState) as typeof legacyState;
 
       expect(migrated.agentModel).toBe(DEFAULT_AGENT_MODEL);
       expect(migrated.globalDefaultModel).toBe(DEFAULT_AGENT_MODEL);
@@ -72,25 +68,54 @@ describe('AI Agent Model Default & Fallback Regression Suite', () => {
 
   // 5. Valid persisted user selection preservation test
   it('5. Zustand persist migration preserves valid user-selected models', async () => {
-    const options = useAIKeysStore.persist.getOptions();
     const validState = {
       agentModel: 'gemini-2.5-flash',
       globalDefaultModel: 'gemini-2.5-pro',
       autoRotate: false,
     };
 
-    const migrated = await options.migrate!(validState, 0) as typeof validState;
+    const migrated = migrateLegacyAIModelSettings(validState) as typeof validState;
 
     expect(migrated.agentModel).toBe('gemini-2.5-flash');
     expect(migrated.globalDefaultModel).toBe('gemini-2.5-pro');
   });
 
+
+  it('5b. persisted empty/invalid model recovers to canonical default without losing unrelated settings', async () => {
+    for (const invalidModel of ['', 'gpt-4o']) {
+      const migrated = migrateLegacyAIModelSettings({
+        agentModel: invalidModel,
+        memoryEnabled: false,
+        webSearchEnabled: true,
+        credentialId: 'personal-credential',
+      }) as any;
+      expect(migrated.agentModel).toBe(DEFAULT_AGENT_MODEL);
+      expect(migrated.memoryEnabled).toBe(false);
+      expect(migrated.webSearchEnabled).toBe(true);
+      expect(migrated.credentialId).toBe('personal-credential');
+    }
+  });
+
+  it('5c. AIConfig rejects non-Gemini Agent models instead of silently running another model', () => {
+    expect(AIConfigSchema.safeParse({ agentProvider: 'google', agentModel: 'gpt-4o' }).success).toBe(false);
+    expect(AIConfigSchema.safeParse({ agentProvider: 'openai', agentModel: DEFAULT_AGENT_MODEL }).success).toBe(false);
+  });
+
+  it('5d. persisted client state excludes credential secrets', () => {
+    const snapshot = partializeAIKeysState({
+      ...useAIKeysStore.getState(),
+      keys: [{ id: 'x', providerId: 'google', name: 'Key', status: 'active', key: 'SECRET' } as any],
+    } as any) as any;
+    expect(snapshot.keys).toBeUndefined();
+    expect(JSON.stringify(snapshot)).not.toContain('SECRET');
+  });
+
   // 6 & 7. Model list ranking & sorting tests
   it('6 & 7. getGoogleModelRank must correctly prioritize models in sequence', () => {
     // Ranks: 1 for the pinned cheapest dev model, 2 for other flash-lite, 3 for other flash, 4 for others
-    expect(getGoogleModelRank('gemini-2.5-flash-lite')).toBe(1);
+    expect(getGoogleModelRank('gemini-3.5-flash-lite')).toBe(1);
+    expect(getGoogleModelRank('gemini-2.5-flash-lite')).toBe(2);
     expect(getGoogleModelRank('gemini-flash-lite-latest')).toBe(2);
-    expect(getGoogleModelRank('gemini-3.5-flash-lite')).toBe(2);
     expect(getGoogleModelRank('gemini-2.5-flash')).toBe(3);
     expect(getGoogleModelRank('gemini-2.5-pro')).toBe(4);
 
@@ -110,7 +135,7 @@ describe('AI Agent Model Default & Fallback Regression Suite', () => {
       return a.name.localeCompare(b.name);
     });
 
-    expect(sorted[0].id).toBe('gemini-2.5-flash-lite');
+    expect(sorted[0].id).toBe('gemini-2.5-flash-lite'); // 3.5 is not in this fixture
     expect(sorted[1].id).toBe('gemini-flash-lite-latest');
     expect(sorted[2].id).toBe('gemini-2.5-flash');
     expect(sorted[3].id).toBe('gemini-2.5-pro');

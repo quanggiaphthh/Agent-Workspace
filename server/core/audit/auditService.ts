@@ -110,7 +110,7 @@ export class AuditService {
       completedAt: entry.completedAt,
     };
 
-    return omitUndefined(newEntry as Record<string, unknown>) as unknown as AuditLogEntry;
+    return omitUndefined(newEntry as unknown as Record<string, unknown>) as unknown as AuditLogEntry;
   }
 
   public static stageLog(

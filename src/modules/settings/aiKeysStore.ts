@@ -5,6 +5,7 @@ import { normalizeCredentialStatus, type CredentialUiStatus } from './credential
 import {
   DEFAULT_AGENT_MODEL,
   DEFAULT_AGENT_PROVIDER,
+  isAgentModelId,
   type AgentProviderId,
 } from '../../../shared/contracts/ai';
 
@@ -33,7 +34,7 @@ export const SUPPORTED_PROVIDERS: AIProvider[] = [
   { id: 'opencodezen', name: 'OpenCodeZen (mã nguồn mở chuyên code)', models: [] },
 ];
 
-interface AIKeysState {
+export interface AIKeysState {
   keys: APIKeyEntry[];
   autoRotate: boolean;
   globalDefaultModel: string | null;
@@ -43,6 +44,8 @@ interface AIKeysState {
   memoryEnabled: boolean;
   webSearchEnabled: boolean;
   aiSettingsHydrated: boolean;
+  systemCredentialAvailable: boolean | null;
+  credentialSyncError: string | null;
   providerDefaultModels: Record<string, string>;
   providerLoadedModels: Record<string, { id: string; name: string }[]>;
 
@@ -75,15 +78,33 @@ export const AI_SETTINGS_RESET = {
   memoryEnabled: true,
   webSearchEnabled: false,
   aiSettingsHydrated: false,
+  systemCredentialAvailable: null as boolean | null,
+  credentialSyncError: null as string | null,
   providerDefaultModels: {} as Record<string, string>,
   providerLoadedModels: {} as Record<string, { id: string; name: string }[]>,
 };
 
 export const LEGACY_DEFAULT_AGENT_MODELS = [
+  'gemini-2.5-flash-lite',
   'gemini-3.8-flash',
   'gemini-flash-lite-latest',
 ] as const;
-export const AI_SETTINGS_PERSIST_VERSION = 1;
+export const AI_SETTINGS_PERSIST_VERSION = 2;
+
+function normalizePersistedAgentModel(state: Record<string, unknown>): string {
+  const model = typeof state.agentModel === 'string' ? state.agentModel.trim() : '';
+  if (LEGACY_DEFAULT_AGENT_MODELS.includes(model as (typeof LEGACY_DEFAULT_AGENT_MODELS)[number])) {
+    return DEFAULT_AGENT_MODEL;
+  }
+  if (!isAgentModelId(model)) return DEFAULT_AGENT_MODEL;
+
+  const loaded = (state.providerLoadedModels as Record<string, { id?: unknown }[]> | undefined)?.[DEFAULT_AGENT_PROVIDER];
+  if (Array.isArray(loaded) && loaded.length > 0) {
+    const discovered = loaded.some((entry) => entry && entry.id === model);
+    if (!discovered && model !== DEFAULT_AGENT_MODEL) return DEFAULT_AGENT_MODEL;
+  }
+  return model;
+}
 
 export function migrateLegacyAIModelSettings<T>(persistedState: T): T {
   if (!persistedState || typeof persistedState !== 'object' || Array.isArray(persistedState)) {
@@ -91,23 +112,59 @@ export function migrateLegacyAIModelSettings<T>(persistedState: T): T {
   }
 
   const state = persistedState as T & Record<string, unknown>;
-  const shouldMigrateAgentModel = LEGACY_DEFAULT_AGENT_MODELS.includes(
-    state.agentModel as (typeof LEGACY_DEFAULT_AGENT_MODELS)[number],
-  );
-  const shouldMigrateGlobalDefault = LEGACY_DEFAULT_AGENT_MODELS.includes(
-    state.globalDefaultModel as (typeof LEGACY_DEFAULT_AGENT_MODELS)[number],
-  );
-
-  if (!shouldMigrateAgentModel && !shouldMigrateGlobalDefault) {
-    return persistedState;
-  }
+  const agentModel = normalizePersistedAgentModel(state);
+  const globalDefault = typeof state.globalDefaultModel === 'string'
+    && LEGACY_DEFAULT_AGENT_MODELS.includes(state.globalDefaultModel as (typeof LEGACY_DEFAULT_AGENT_MODELS)[number])
+      ? DEFAULT_AGENT_MODEL
+      : state.globalDefaultModel;
 
   return {
     ...state,
-    ...(shouldMigrateAgentModel ? { agentModel: DEFAULT_AGENT_MODEL } : {}),
-    ...(shouldMigrateGlobalDefault ? { globalDefaultModel: DEFAULT_AGENT_MODEL } : {}),
+    agentProvider: DEFAULT_AGENT_PROVIDER,
+    agentModel,
+    ...(globalDefault !== state.globalDefaultModel ? { globalDefaultModel: globalDefault } : {}),
   } as T;
 }
+
+export function isAgentCredentialUsable(
+  credentialId: string,
+  systemAvailable: boolean | null,
+  keys: APIKeyEntry[],
+): boolean {
+  if (credentialId === 'system') return systemAvailable === true;
+  return keys.some((key) =>
+    key.id === credentialId &&
+    key.providerId === DEFAULT_AGENT_PROVIDER &&
+    key.status === 'active'
+  );
+}
+
+export function selectValidAgentCredentialId(
+  currentCredentialId: string,
+  systemAvailable: boolean,
+  keys: APIKeyEntry[],
+): string {
+  const activeGoogle = keys
+    .filter((key) => key.providerId === DEFAULT_AGENT_PROVIDER && key.status === 'active')
+    .sort((a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id));
+
+  if (currentCredentialId === 'system' && systemAvailable) return 'system';
+  if (activeGoogle.some((key) => key.id === currentCredentialId)) return currentCredentialId;
+  if (systemAvailable) return 'system';
+  return activeGoogle[0]?.id || 'system';
+}
+
+export const partializeAIKeysState = (state: AIKeysState) => ({
+  autoRotate: state.autoRotate,
+  globalDefaultModel: state.globalDefaultModel,
+  agentProvider: state.agentProvider,
+  agentModel: state.agentModel,
+  credentialId: state.credentialId,
+  memoryEnabled: state.memoryEnabled,
+  webSearchEnabled: state.webSearchEnabled,
+  providerDefaultModels: state.providerDefaultModels,
+  providerLoadedModels: state.providerLoadedModels,
+});
 
 export const useAIKeysStore = create<AIKeysState>()(
   persist(
@@ -141,9 +198,7 @@ export const useAIKeysStore = create<AIKeysState>()(
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || 'Failed to delete key');
         }
-        set((state) => ({
-          keys: state.keys.filter((key) => key.id !== id),
-        }));
+        await get().syncKeys();
       },
 
       reorderKeys: async (providerId, startIndex, endIndex) => {
@@ -177,7 +232,7 @@ export const useAIKeysStore = create<AIKeysState>()(
       setGlobalDefaultModel: (model) => set({ globalDefaultModel: model }),
       setAgentConfig: (providerId, modelId, credentialId) => set((state) => ({
         agentProvider: providerId,
-        agentModel: modelId || DEFAULT_AGENT_MODEL,
+        agentModel: isAgentModelId(modelId) ? modelId.trim() : DEFAULT_AGENT_MODEL,
         credentialId: credentialId !== undefined ? credentialId : state.credentialId,
       })),
       setMemoryEnabled: (value) => set({ memoryEnabled: value }),
@@ -192,14 +247,37 @@ export const useAIKeysStore = create<AIKeysState>()(
 
       syncKeys: async () => {
         try {
-          const res = await authFetch('/api/ai/credentials');
-          if (!res.ok) return;
-          const keys = await res.json();
-          set({
-            keys: keys.map((key: any) => ({ ...key, status: normalizeCredentialStatus(key.status) })),
-          });
+          const [res, agentOptionsRes] = await Promise.all([
+            authFetch('/api/ai/credentials'),
+            authFetch('/api/ai/credentials/agent-options'),
+          ]);
+          if (!res.ok || !agentOptionsRes.ok) {
+            set({
+              systemCredentialAvailable: null,
+              credentialSyncError: 'Không thể đồng bộ metadata Gemini credential từ server.',
+            });
+            return;
+          }
+          const keysPayload = await res.json();
+          const agentOptions = await agentOptionsRes.json();
+          const keys = keysPayload.map((key: any) => ({ ...key, status: normalizeCredentialStatus(key.status) }));
+          const systemCredentialAvailable = agentOptions.systemAvailable === true;
+          set((state) => ({
+            keys,
+            systemCredentialAvailable,
+            credentialSyncError: null,
+            credentialId: selectValidAgentCredentialId(
+              state.credentialId,
+              systemCredentialAvailable,
+              keys,
+            ),
+          }));
         } catch (err) {
-          console.error('Failed to sync keys:', err);
+          console.error('Failed to sync credential metadata.');
+          set({
+            systemCredentialAvailable: null,
+            credentialSyncError: 'Không thể đồng bộ metadata Gemini credential. Vui lòng thử lại.',
+          });
         }
       },
 
@@ -219,24 +297,9 @@ export const useAIKeysStore = create<AIKeysState>()(
     {
       name: 'ai-keys-storage',
       version: AI_SETTINGS_PERSIST_VERSION,
-      migrate: (persistedState, persistedVersion) => {
-        if (persistedVersion >= AI_SETTINGS_PERSIST_VERSION) {
-          return persistedState;
-        }
-        return migrateLegacyAIModelSettings(persistedState);
-      },
+      migrate: (persistedState) => migrateLegacyAIModelSettings(persistedState),
       skipHydration: true,
-      partialize: (state) => ({
-        autoRotate: state.autoRotate,
-        globalDefaultModel: state.globalDefaultModel,
-        agentProvider: state.agentProvider,
-        agentModel: state.agentModel,
-        credentialId: state.credentialId,
-        memoryEnabled: state.memoryEnabled,
-        webSearchEnabled: state.webSearchEnabled,
-        providerDefaultModels: state.providerDefaultModels,
-        providerLoadedModels: state.providerLoadedModels,
-      }),
+      partialize: (state) => partializeAIKeysState(state),
     },
   ),
 );

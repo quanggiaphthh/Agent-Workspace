@@ -48,7 +48,7 @@ function normalizeError(err: any, providerId: string, stage: string, endpoint?: 
 }
 
 export function getGoogleModelRank(id: string): number {
-  if (id === 'gemini-2.5-flash-lite') return 1;
+  if (id === 'gemini-3.5-flash-lite') return 1;
   if (id.includes('flash-lite')) return 2;
   if (id.includes('flash')) return 3;
   return 4;

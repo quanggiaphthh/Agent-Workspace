@@ -40,6 +40,9 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
         try {
           if (nextUser) {
             await useAIKeysStore.persist.rehydrate();
+            // Reconcile persisted credentialId against server-owned metadata before
+            // Agent runtime is allowed to consume the hydrated AI settings.
+            await useAIKeysStore.getState().syncKeys();
           }
         } catch (err) {
           console.warn('Failed to rehydrate user-scoped AI settings', err);
@@ -88,7 +91,7 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
             email: nextUser.email || '',
             name: nextUser.displayName || nextUser.email || 'User',
             roles: ['user'],
-            permissions: [],
+            permissions: resolveVerifiedPermissions({ roles: ['user'] }),
           });
         } finally {
           setLoading(false);

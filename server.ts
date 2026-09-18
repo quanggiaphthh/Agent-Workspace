@@ -199,7 +199,7 @@ function fatalErrorSummary(value: unknown): string {
   return redactAuditString(String(value));
 }
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
   process.on('unhandledRejection', (reason) => {
     console.error('>>> [FATAL UNHANDLED REJECTION]:', fatalErrorSummary(reason));
     process.exit(1);
@@ -418,6 +418,16 @@ app.post('/api/ai/test-model', expensiveUserLimiter, async (req, res) => {
     res.status(safe.status).json(safe.body);
   } finally {
     resolvedSecret = undefined;
+  }
+});
+
+app.get('/api/ai/credentials/agent-options', async (req, res) => {
+  const user = (req as any).user;
+  try {
+    res.json(await CredentialService.listAgentCredentialOptions(user.id));
+  } catch (err: any) {
+    const safe = credentialErrorResponse(err, 'Failed to list Agent credentials');
+    res.status(safe.status).json(safe.body);
   }
 });
 
@@ -993,7 +1003,7 @@ async function startServer() {
   }
 
   // Vite Middleware or Production Static Handling
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV === 'development') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -1012,7 +1022,7 @@ async function startServer() {
   });
 }
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
   startServer().catch((err) => {
     console.error('Server startup failed:', fatalErrorSummary(err));
     process.exit(1);

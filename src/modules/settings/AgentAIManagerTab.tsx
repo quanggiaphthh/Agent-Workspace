@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useAIKeysStore, SUPPORTED_PROVIDERS, APIKeyEntry } from './aiKeysStore';
+import { useAIKeysStore, SUPPORTED_PROVIDERS, APIKeyEntry, isAgentCredentialUsable } from './aiKeysStore';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { 
@@ -21,17 +21,19 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { authFetch } from '../../lib/authFetch';
-import { DEFAULT_AGENT_MODEL, DEFAULT_AGENT_PROVIDER } from '../../../shared/contracts/ai';
+import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
+import { DEFAULT_AGENT_MODEL, DEFAULT_AGENT_MODEL_NAME, DEFAULT_AGENT_PROVIDER, isAgentModelId } from '../../../shared/contracts/ai';
 
 export function AgentAIManagerTab() {
   const store = useAIKeysStore();
+  const { user, loading: authLoading } = useFirebaseAuth();
   
   // Local state for "drafting" changes
   const [localKeys, setLocalKeys] = useState<APIKeyEntry[]>([]);
   const [localAutoRotate, setLocalAutoRotate] = useState(false);
   const [localGlobalDefaultModel, setLocalGlobalDefaultModel] = useState<string | null>(null);
   const [localAgentProvider] = useState(DEFAULT_AGENT_PROVIDER);
-  const [localAgentModel, setLocalAgentModel] = useState(DEFAULT_AGENT_MODEL);
+  const [localAgentModel, setLocalAgentModel] = useState<string>(DEFAULT_AGENT_MODEL);
   const [localMemoryEnabled, setLocalMemoryEnabled] = useState(true);
   const [localWebSearchEnabled, setLocalWebSearchEnabled] = useState(false);
   const [localProviderDefaultModels, setLocalProviderDefaultModels] = useState<Record<string, string>>({});
@@ -70,6 +72,21 @@ export function AgentAIManagerTab() {
     store.providerDefaultModels
   ]);
 
+  const agentCredentialOptions = useMemo(() =>
+    store.keys.filter((key) => key.providerId === DEFAULT_AGENT_PROVIDER && key.status === 'active'),
+  [store.keys]);
+  const selectedAgentCredentialIsUsable = isAgentCredentialUsable(
+    localCredentialId,
+    store.systemCredentialAvailable,
+    store.keys,
+  );
+
+  const agentModelOptions = useMemo(() => {
+    const discovered = store.providerLoadedModels[DEFAULT_AGENT_PROVIDER] || [];
+    if (discovered.some((model) => model.id === DEFAULT_AGENT_MODEL)) return discovered;
+    return [{ id: DEFAULT_AGENT_MODEL, name: DEFAULT_AGENT_MODEL_NAME }, ...discovered];
+  }, [store.providerLoadedModels]);
+
   const hasChanges = useMemo(() => {
     return (
       JSON.stringify(localKeys) !== JSON.stringify(store.keys) ||
@@ -91,6 +108,15 @@ export function AgentAIManagerTab() {
     localMemoryEnabled, store.memoryEnabled,
     localWebSearchEnabled, store.webSearchEnabled
   ]);
+
+  const agentReady = Boolean(
+    user &&
+    !authLoading &&
+    store.aiSettingsHydrated &&
+    localAgentProvider === DEFAULT_AGENT_PROVIDER &&
+    isAgentModelId(localAgentModel) &&
+    selectedAgentCredentialIsUsable
+  );
 
   const handleSave = () => {
     setIsSaving(true);
@@ -161,7 +187,7 @@ export function AgentAIManagerTab() {
         store.setProviderLoadedModels(providerId, data.models);
         if (data.models.length > 0 && providerId === localAgentProvider) {
           const exists = data.models.some((m: any) => m.id === localAgentModel);
-          if (!exists) setLocalAgentModel(data.models[0].id);
+          if (!exists && localAgentModel !== DEFAULT_AGENT_MODEL) setLocalAgentModel(DEFAULT_AGENT_MODEL);
         }
       }
       setStatus(`refresh_${credentialId}`, 'success');
@@ -289,6 +315,26 @@ export function AgentAIManagerTab() {
         </div>
         
         <div className="p-5 space-y-6">
+          <div className={`rounded-xl border px-4 py-3 ${agentReady ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
+            <div className={`text-xs font-bold ${agentReady ? 'text-emerald-800' : 'text-amber-800'}`}>
+              {agentReady ? 'Cấu hình Agent đã sẵn sàng' : 'Cấu hình Agent chưa sẵn sàng'}
+            </div>
+            <div className="text-[11px] text-neutral-600 mt-1">
+              Google Gemini · {localAgentModel === DEFAULT_AGENT_MODEL ? DEFAULT_AGENT_MODEL_NAME : localAgentModel}
+              {selectedAgentCredentialIsUsable
+                ? ` · ${localCredentialId === 'system' ? 'System Gemini Key' : (agentCredentialOptions.find((key) => key.id === localCredentialId)?.name || 'Personal Gemini Key')}`
+                : ' · Chưa có Gemini credential khả dụng'}
+            </div>
+            {!selectedAgentCredentialIsUsable && store.systemCredentialAvailable !== null && (
+              <div className="text-[10px] text-amber-700 mt-1">
+                Hãy cấu hình System Gemini Key hoặc thêm Personal Google/Gemini Key đang hoạt động.
+              </div>
+            )}
+            {store.credentialSyncError && (
+              <div className="text-[10px] text-red-700 mt-1">{store.credentialSyncError}</div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Cột 1: Cấu hình nguồn */}
             <div className="space-y-4">
@@ -331,7 +377,7 @@ export function AgentAIManagerTab() {
                           alert(`Lỗi: ${e.message}`); 
                         }
                       }}
-                      disabled={testStatuses[`test_${localCredentialId}`] === 'loading'}
+                      disabled={!selectedAgentCredentialIsUsable || testStatuses[`test_${localCredentialId}`] === 'loading'}
                     >
                       {testStatuses[`test_${localCredentialId}`] === 'loading' ? <Loader2 className="h-3 w-3 animate-spin" /> : 
                        testStatuses[`test_${localCredentialId}`] === 'success' ? <CheckCircle2 className="h-3 w-3" /> :
@@ -343,14 +389,26 @@ export function AgentAIManagerTab() {
                 </div>
                 <select 
                   className="w-full text-sm border border-neutral-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-neutral-50/30 font-medium"
-                  value={localCredentialId}
-                  onChange={(e) => setLocalCredentialId(e.target.value)}
+                  value={selectedAgentCredentialIsUsable ? localCredentialId : '__none__'}
+                  onChange={(e) => { if (e.target.value !== '__none__') setLocalCredentialId(e.target.value); }}
                 >
-                  <option value="system">Sử dụng Key Hệ thống</option>
-                  {store.keys.filter(k => k.providerId === localAgentProvider).map(k => (
+                  {!selectedAgentCredentialIsUsable && (
+                    <option value="__none__" disabled>
+                      {store.credentialSyncError ? 'Không thể xác minh Gemini credential' : store.systemCredentialAvailable === null ? 'Đang kiểm tra Gemini credential…' : 'Chưa có Gemini credential khả dụng'}
+                    </option>
+                  )}
+                  {store.systemCredentialAvailable === true && (
+                    <option value="system">Sử dụng Key Hệ thống</option>
+                  )}
+                  {agentCredentialOptions.map(k => (
                     <option key={k.id} value={k.id}>{k.name} (Cá nhân)</option>
                   ))}
                 </select>
+                {store.systemCredentialAvailable === false && agentCredentialOptions.length === 0 && (
+                  <p className="text-[10px] text-amber-700">
+                    System Gemini Key chưa được cấu hình và chưa có Personal Google/Gemini Key đang hoạt động.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -365,7 +423,7 @@ export function AgentAIManagerTab() {
                       'text-indigo-600 hover:text-indigo-700'
                     }`}
                     onClick={() => refreshModels(localAgentProvider, localCredentialId)}
-                    disabled={testStatuses[`refresh_${localCredentialId}`] === 'loading'}
+                    disabled={!selectedAgentCredentialIsUsable || testStatuses[`refresh_${localCredentialId}`] === 'loading'}
                   >
                     {testStatuses[`refresh_${localCredentialId}`] === 'loading' ? <Loader2 className="h-3 w-3 animate-spin" /> : 
                      testStatuses[`refresh_${localCredentialId}`] === 'success' ? <CheckCircle2 className="h-3 w-3" /> :
@@ -378,13 +436,11 @@ export function AgentAIManagerTab() {
                   value={localAgentModel}
                   onChange={(e) => setLocalAgentModel(e.target.value)}
                 >
-                  {store.providerLoadedModels[localAgentProvider]?.length > 0 ? (
-                    store.providerLoadedModels[localAgentProvider].map(m => (
-                      <option key={m.id} value={m.id}>{m.name}</option>
-                    ))
-                  ) : (
-                    <option value={DEFAULT_AGENT_MODEL}>Gemini 2.5 Flash-Lite — mặc định Dev</option>
-                  )}
+                  {agentModelOptions.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.id === DEFAULT_AGENT_MODEL ? `${DEFAULT_AGENT_MODEL_NAME} — mặc định` : m.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -399,7 +455,7 @@ export function AgentAIManagerTab() {
                         : 'bg-indigo-600 border-indigo-700 text-white hover:bg-indigo-700 shadow-md shadow-indigo-100'
                     }`}
                     onClick={() => testModel(localAgentProvider, localCredentialId, localAgentModel)}
-                    disabled={testStatuses[`test_model_${localCredentialId}_${localAgentModel}`] === 'loading'}
+                    disabled={!selectedAgentCredentialIsUsable || testStatuses[`test_model_${localCredentialId}_${localAgentModel}`] === 'loading'}
                   >
                     {testStatuses[`test_model_${localCredentialId}_${localAgentModel}`] === 'loading' ? (
                       <>

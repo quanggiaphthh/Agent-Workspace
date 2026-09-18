@@ -1,7 +1,12 @@
 import { z } from 'zod';
 
 export const DEFAULT_AGENT_PROVIDER = 'google' as const;
-export const DEFAULT_AGENT_MODEL = 'gemini-2.5-flash-lite' as const;
+export const DEFAULT_AGENT_MODEL = 'gemini-3.5-flash-lite' as const;
+export const DEFAULT_AGENT_MODEL_NAME = 'Gemini 3.5 Flash-Lite' as const;
+
+export function isAgentModelId(value: unknown): value is string {
+  return typeof value === 'string' && /^gemini-[a-z0-9][a-z0-9._-]*$/i.test(value.trim());
+}
 
 export type AIProviderId = 'google' | 'openai' | 'anthropic' | 'nvidia' | 'opencodezen';
 export type AgentProviderId = typeof DEFAULT_AGENT_PROVIDER;
@@ -29,7 +34,7 @@ export interface AIProviderMetadata {
  */
 export const AIConfigSchema = z.object({
   agentProvider: z.literal(DEFAULT_AGENT_PROVIDER).default(DEFAULT_AGENT_PROVIDER),
-  agentModel: z.string().trim().min(1).default(DEFAULT_AGENT_MODEL),
+  agentModel: z.string().trim().min(1).refine(isAgentModelId, 'Agent model must be a Google Gemini model ID.').default(DEFAULT_AGENT_MODEL),
   credentialId: z.string().trim().min(1).default('system'),
   autoRotate: z.boolean().default(false),
   memoryEnabled: z.boolean().default(true),
