@@ -299,7 +299,17 @@ export const useAIKeysStore = create<AIKeysState>()(
       version: AI_SETTINGS_PERSIST_VERSION,
       migrate: (persistedState) => migrateLegacyAIModelSettings(persistedState),
       skipHydration: true,
-      partialize: (state) => partializeAIKeysState(state),
+      partialize: (state) => ({
+        autoRotate: state.autoRotate,
+        globalDefaultModel: state.globalDefaultModel,
+        agentProvider: state.agentProvider,
+        agentModel: state.agentModel,
+        credentialId: state.credentialId,
+        memoryEnabled: state.memoryEnabled,
+        webSearchEnabled: state.webSearchEnabled,
+        providerDefaultModels: state.providerDefaultModels,
+        providerLoadedModels: state.providerLoadedModels,
+      }),
     },
   ),
 );

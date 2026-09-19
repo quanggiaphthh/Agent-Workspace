@@ -12,7 +12,7 @@ import dotenv from 'dotenv';
 import { RootAgent } from './server/agent/adk/RootAgent';
 import { InMemoryRunner, InMemorySessionService } from '@google/adk';
 import { FirestoreSessionService } from './server/agent/adk/FirestoreSessionService';
-import { adkEventStream, parseAdkRequest, toAdkContent } from '@assistant-ui/react-google-adk/server';
+import { adkEventStream } from '@assistant-ui/react-google-adk/server';
 import { ServerCapabilityRegistry } from './server/core/capabilities/serverCapabilityRegistry';
 import { CapabilityExecutionService } from './server/core/capabilities/CapabilityExecutionService';
 import { Readable } from 'stream';
@@ -27,8 +27,12 @@ import { z } from 'zod';
 import { UserDataService } from './server/core/data/UserDataService';
 import { computeRuntimeHealth } from './server/core/runtime/runtimeHealthPolicy';
 import { bindRequestCancellation, isCancellationError } from './server/core/runtime/requestCancellation';
+import { createExecutionDeadline } from './server/core/runtime/executionDeadline';
 import { redactAuditString, sanitizeAuditValue } from './server/core/audit/auditRedaction';
 import { toSafeProviderError } from './server/core/ai/credentialRotationPolicy';
+import { parseStrictAgentChatRequest } from './server/agent/chat/chatRequestContract';
+import { serializeAgentTransportComplete, serializeAgentTransportError } from './server/agent/chat/sseTransport';
+import { sessionTranscript } from './server/agent/chat/sessionHistory';
 
 dotenv.config();
 
@@ -61,29 +65,6 @@ function eventIsUserMessage(event: any): boolean {
   return event?.content?.role === 'user' || event?.author === 'user';
 }
 
-function eventText(event: any): string {
-  const content = event?.content;
-  if (!content) return '';
-  if (typeof content === 'string') return content.trim();
-  const parts = Array.isArray(content.parts) ? content.parts : [];
-  return parts.map((part: any) => typeof part?.text === 'string' ? part.text : '').filter(Boolean).join('\n').trim();
-}
-
-function sessionTranscript(events: any[]) {
-  return events.flatMap((event: any, index: number) => {
-    const text = eventText(event);
-    if (!text) return [];
-    const role = event?.content?.role === 'user' || event?.author === 'user' ? 'user' : 'assistant';
-    const rawTimestamp = Number(event?.timestamp || Date.now());
-    const timestamp = rawTimestamp > 0 && rawTimestamp < 1_000_000_000_000 ? rawTimestamp * 1000 : rawTimestamp;
-    return [{
-      id: String(event?.id || `${event?.invocationId || 'evt'}-${index}`),
-      role,
-      content: [{ type: 'text', text }],
-      timestamp,
-    }];
-  });
-}
 
 export const app = express();
 
@@ -728,10 +709,12 @@ app.delete('/api/agent/sessions/:sessionId', async (req, res) => {
 // Agent Chat API (ADK + assistant-ui)
 app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
   const requestCancellation = bindRequestCancellation(req, res);
+  const executionDeadline = createExecutionDeadline(requestCancellation.signal);
   try {
     const user = (req as any).user || await ServerIdentityProvider.getIdentity(req);
     const aiConfigResult = AIConfigSchema.safeParse(req.body.aiConfig || {});
     if (!aiConfigResult.success) {
+      executionDeadline.cleanup();
       return res.status(400).json({
         error: 'Invalid aiConfig',
         details: aiConfigResult.error.issues.map((issue) => ({
@@ -741,31 +724,10 @@ app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
       });
     }
     const validatedAIConfig = aiConfigResult.data;
-    const reqWithJson = typeof (req as any).json === 'function' ? req : { json: async () => req.body };
-    let parsed: any = {};
-    let newMessage: any;
-
-    if (req.body.toolResponse) {
-      newMessage = req.body.toolResponse;
-      parsed = {
-        stateDelta: req.body.stateDelta || {},
-      };
-    } else {
-      try {
-        parsed = await (parseAdkRequest as any)(reqWithJson);
-        newMessage = toAdkContent(parsed);
-      } catch (parseErr) {
-        const bodyMsg = req.body.message || (typeof req.body.messages?.[req.body.messages.length - 1]?.content === 'string'
-          ? req.body.messages[req.body.messages.length - 1].content
-          : req.body.messages?.[req.body.messages.length - 1]?.content?.[0]?.text) || 'Xin chào';
-        parsed = {
-          type: 'message',
-          text: bodyMsg,
-          stateDelta: req.body.stateDelta || {},
-        };
-        newMessage = { role: 'user', parts: [{ text: bodyMsg }] };
-      }
-    }
+    // Canonical semantic contract: exactly one normal message or supported HITL FunctionResponse.
+    // Malformed bodies are rejected deterministically; no intent guessing/default greeting.
+    const parsed = parseStrictAgentChatRequest(req.body);
+    const newMessage = parsed.newMessage;
     
     // Phase A: Identity Trust Boundary Sanitization
     const sanitizedStateDelta = { ...(parsed.stateDelta || {}) };
@@ -786,7 +748,7 @@ app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
         aiConfig: validatedAIConfig,
       },
       confirmed: false,
-      abortSignal: requestCancellation.signal,
+      abortSignal: executionDeadline.signal,
     };
 
     // 1. Build dynamic agent for this context
@@ -827,7 +789,7 @@ app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
       sessionId,
       newMessage: newMessage as any,
       stateDelta: sanitizedStateDelta,
-      abortSignal: requestCancellation.signal,
+      abortSignal: executionDeadline.signal,
     });
 
     const response = adkEventStream(stream as any);
@@ -839,35 +801,80 @@ app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
       const body = response.body as any;
       if (typeof body.getReader === 'function') {
         const reader = body.getReader();
+        let terminalSent = false;
         const bridge = new Readable({
           async read() {
             try {
               const { done, value } = await reader.read();
               if (done) {
+                if (!terminalSent && !res.writableEnded && !executionDeadline.signal.aborted) {
+                  terminalSent = true;
+                  this.push(Buffer.from(serializeAgentTransportComplete()));
+                }
                 this.push(null);
-              } else {
+              } else if (!executionDeadline.signal.aborted) {
                 this.push(Buffer.from(value));
               }
-            } catch (err) {
-              this.destroy(err as any);
+            } catch (err: any) {
+              if (!terminalSent && (!executionDeadline.signal.aborted || executionDeadline.timedOut)) {
+                terminalSent = true;
+                const code = executionDeadline.timedOut ? 'AGENT_TIMEOUT' : (safeErrorCode(err) || 'STREAM_ERROR');
+                this.push(Buffer.from(serializeAgentTransportError(code)));
+              }
+              this.push(null);
             }
           }
         });
+        const cancelReader = () => {
+          if (executionDeadline.timedOut && !terminalSent && !res.writableEnded) {
+            terminalSent = true;
+            bridge.push(Buffer.from(serializeAgentTransportError('AGENT_TIMEOUT')));
+            bridge.push(null);
+          } else if (!executionDeadline.timedOut) {
+            bridge.destroy();
+          }
+          void reader.cancel().catch(() => undefined);
+        };
+        executionDeadline.signal.addEventListener('abort', cancelReader, { once: true });
+        bridge.once('close', () => {
+          executionDeadline.signal.removeEventListener('abort', cancelReader);
+          executionDeadline.cleanup();
+        });
         bridge.pipe(res);
       } else if (body[Symbol.asyncIterator]) {
-        for await (const chunk of body) {
-          res.write(chunk);
+        try {
+          for await (const chunk of body) {
+            res.write(chunk);
+          }
+          if (!executionDeadline.signal.aborted) {
+            res.write(serializeAgentTransportComplete());
+          }
+        } catch (err: any) {
+          if (!executionDeadline.signal.aborted || executionDeadline.timedOut) {
+            const code = executionDeadline.timedOut ? 'AGENT_TIMEOUT' : (safeErrorCode(err) || 'STREAM_ERROR');
+            res.write(serializeAgentTransportError(code));
+          }
+        } finally {
+          executionDeadline.cleanup();
+          if (!res.writableEnded) res.end();
         }
-        res.end();
       } else {
+        executionDeadline.cleanup();
         res.end();
       }
     } else {
+      executionDeadline.cleanup();
       res.end();
     }
   } catch (err: any) {
+    executionDeadline.cleanup();
+    if (executionDeadline.timedOut) {
+      if (!res.headersSent && !res.writableEnded) {
+        res.status(504).json({ error: 'Agent execution timed out.', code: 'AGENT_TIMEOUT' });
+      }
+      return;
+    }
     if (requestCancellation.signal.aborted || isCancellationError(err)) {
-      console.warn('Agent chat execution cancelled.');
       if (!res.headersSent && !res.writableEnded) res.status(499).end();
       return;
     }

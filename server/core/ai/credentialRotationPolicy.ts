@@ -47,6 +47,10 @@ export function classifyProviderFailure(err: any): ProviderFailureClass {
 }
 
 export function shouldRotateCredential(err: any, responseAlreadyStarted: boolean): boolean {
+  // Intentional cancellation is control flow, never credential health. Do this
+  // before status/message classification because some SDK aborts retain an
+  // upstream status (including 429).
+  if (err?.name === 'AbortError' || err?.code === 'EXECUTION_CANCELLED') return false;
   if (responseAlreadyStarted) return false;
   const failure = classifyProviderFailure(err);
   return failure === 'authentication' || failure === 'quota';

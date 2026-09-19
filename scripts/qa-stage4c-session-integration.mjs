@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 const sourcePath = path.resolve('server/agent/adk/FirestoreSessionService.ts');
 const pinningPath = path.resolve('server/agent/adk/sessionBackendPinning.ts');
+const serializationPath = path.resolve('server/agent/adk/firestoreSerialization.ts');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stage4c-session-'));
 
 function write(name, content) {
@@ -17,9 +18,11 @@ try {
     .replace(/import \{[\s\S]*?\} from '@google\/adk';/, "import { BaseSessionService } from './adk-stub.mjs';")
     .replace("import { adminFirestore } from '../../lib/firebaseAdmin';", "import { adminFirestore } from './firebase-stub.mjs';")
     .replace("import { redactAuditString } from '../../core/audit/auditRedaction';", "import { redactAuditString } from './audit-stub.mjs';")
+    .replace("import { sanitizeForFirestore } from './firestoreSerialization';", "import { sanitizeForFirestore } from './firestoreSerialization.ts';")
     .replace("import { SessionBackendPinning, type SessionBackendIdentity } from './sessionBackendPinning';", "import { SessionBackendPinning } from './sessionBackendPinning.ts';");
   write('FirestoreSessionService.ts', serviceSource);
   fs.copyFileSync(pinningPath, path.join(tempDir, 'sessionBackendPinning.ts'));
+  fs.copyFileSync(serializationPath, path.join(tempDir, 'firestoreSerialization.ts'));
   write('adk-stub.mjs', 'export class BaseSessionService {}\n');
   write('audit-stub.mjs', 'export const redactAuditString = (value) => String(value);\n');
   write('firebase-stub.mjs', `

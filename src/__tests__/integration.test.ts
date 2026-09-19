@@ -167,6 +167,54 @@ describe('Production Integration & Security Suite', () => {
     });
   });
 
+  describe('GD2 L2 — STRICT AGENT CHAT REQUEST CONTRACT', () => {
+    it('rejects malformed chat body with 400 and never starts RootAgent', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);
+      const buildAgentSpy = vi.spyOn(RootAgent, 'buildAgent');
+      try {
+        const res = await request(app)
+          .post('/api/agent/chat')
+          .set('Authorization', 'Bearer token_A')
+          .send({ messages: [] });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('INVALID_CHAT_REQUEST');
+        expect(JSON.stringify(res.body)).not.toContain('Xin chào');
+        expect(buildAgentSpy).not.toHaveBeenCalled();
+      } finally {
+        buildAgentSpy.mockRestore();
+      }
+    });
+
+    it('preserves a deterministic credential failure code before streaming', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);
+      const failure = Object.assign(new Error('No usable Gemini credential is available.'), { status: 503, code: 'CREDENTIAL_UNAVAILABLE' });
+      const buildAgentSpy = vi.spyOn(RootAgent, 'buildAgent').mockRejectedValue(failure);
+      try {
+        const res = await request(app)
+          .post('/api/agent/chat')
+          .set('Authorization', 'Bearer token_A')
+          .send({ message: 'hello' });
+        expect(res.status).toBe(503);
+        expect(res.body.code).toBe('CREDENTIAL_UNAVAILABLE');
+        expect(res.body.error).toMatch(/credential/i);
+      } finally {
+        buildAgentSpy.mockRestore();
+      }
+    });
+
+    it('does not execute Agent when authentication fails', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockRejectedValue(Object.assign(new Error('Invalid token'), { status: 401 }));
+      const buildAgentSpy = vi.spyOn(RootAgent, 'buildAgent');
+      try {
+        const res = await request(app).post('/api/agent/chat').send({ message: 'hello' });
+        expect(res.status).toBe(401);
+        expect(buildAgentSpy).not.toHaveBeenCalled();
+      } finally {
+        buildAgentSpy.mockRestore();
+      }
+    });
+  });
+
   describe('PHASE C.5 — IDENTITY SPOOFING', () => {
     it('stateDelta identity spoofing is stripped before RootAgent receives execution context', async () => {
       vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);

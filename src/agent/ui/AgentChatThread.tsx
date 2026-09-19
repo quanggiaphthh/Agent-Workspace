@@ -54,7 +54,7 @@ export function AgentChatThread() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const { messages, isRunning, isReady } = threadState;
+  const { messages, isRunning, isReady, historyError } = threadState;
 
   // Auto-scroll to bottom on update
   useEffect(() => {
@@ -146,6 +146,11 @@ export function AgentChatThread() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-neutral-50/40 relative">
+      {historyError && !temporaryMode && (
+        <div className="px-3 py-2 border-b border-amber-200 bg-amber-50 text-[11px] text-amber-800 shrink-0">
+          {historyError}
+        </div>
+      )}
       {/* Top Temporary Mode bar */}
       <div className="px-3 py-1.5 bg-white border-b border-neutral-200/80 flex items-center justify-between text-[11px] shrink-0">
         <span className="text-neutral-500 flex items-center gap-1">

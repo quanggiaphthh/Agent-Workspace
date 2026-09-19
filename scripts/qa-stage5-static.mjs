@@ -59,7 +59,11 @@ check('client preserves credential lifecycle status',
 check('AI store persistence excludes credential secret/list',
   store.includes('partialize: (state) => ({') && !store.slice(store.indexOf('partialize: (state) => ({'), store.indexOf('      }),', store.indexOf('partialize: (state) => ({')) + 8).includes('keys:'));
 check('temporary chat mode skips browser persistence',
-  runtime.includes('if (temporaryMode) return;') && runtime.includes('localStorage.setItem(historyKey'));
+  runtime.includes('if (temporaryMode) return;') &&
+  runtime.includes('localStorage.setItem(sessionKey') &&
+  !runtime.includes('localStorage.setItem(legacyHistoryKey') &&
+  !runtime.includes('localStorage.setItem(historyKey') &&
+  runtime.includes('localStorage.removeItem('));
 check('Firestore client rules deny direct Tasks/Memory/Credential/Session/Audit access',
   ['agent_memories','agent_tasks','credentials','agent_sessions','audit_logs'].every((name) => rules.includes(name)) &&
   (rules.match(/allow read, write: if false;/g) || []).length >= 6);

@@ -98,3 +98,11 @@ describe('single-user Gemini credential workflow', () => {
     expect((agent as any).model.model).toBe(DEFAULT_AGENT_MODEL);
   });
 });
+
+describe('cancellation does not rotate credentials', () => {
+  it('never rotates an AbortError even if it carries a provider-like status', async () => {
+    const { shouldRotateCredential } = await import('../../server/core/ai/credentialRotationPolicy');
+    const aborted = Object.assign(new Error('aborted'), { name: 'AbortError', status: 429 });
+    expect(shouldRotateCredential(aborted, false)).toBe(false);
+  });
+});
