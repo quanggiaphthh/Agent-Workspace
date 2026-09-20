@@ -37,6 +37,14 @@ export function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values));
 }
 
+export const CANONICAL_PERMISSION_IDS = uniqueStrings([
+  ...ADMIN_DEFAULT_PERMISSIONS,
+]) as readonly string[];
+
+export function isCanonicalPermissionId(permission: string): boolean {
+  return CANONICAL_PERMISSION_IDS.includes(permission);
+}
+
 /**
  * Resolve permissions from a verified identity.
  *

@@ -68,14 +68,14 @@ describe('single-user Gemini credential workflow', () => {
 
   it('RootAgent resolves the selected personal Google credential server-side', async () => {
     credentialMocks.resolveCredential.mockResolvedValue({ id: 'google-1', providerId: 'google', key: 'server-only-key', status: 'active' });
-    const agent = await RootAgent.buildAgent(context('google-1'));
+    const agent = await RootAgent.buildAgent(context('google-1'), { sessionId: 'test-session-12345678' });
     expect(credentialMocks.resolveCredential).toHaveBeenCalledWith('owner-1', 'google', 'google-1');
     expect((agent as any).model.model).toBe(DEFAULT_AGENT_MODEL);
   });
 
   it('auto-rotation with zero candidates returns a controlled domain error', async () => {
     credentialMocks.getRotationCandidates.mockResolvedValue([]);
-    await expect(RootAgent.buildAgent(context('google-1', true))).rejects.toMatchObject({
+    await expect(RootAgent.buildAgent(context('google-1', true), { sessionId: 'test-session-12345678' })).rejects.toMatchObject({
       code: 'NO_ROTATION_CANDIDATE',
       status: 409,
     });
@@ -83,7 +83,7 @@ describe('single-user Gemini credential workflow', () => {
 
   it('auto-rotation with one candidate uses Gemini directly', async () => {
     credentialMocks.getRotationCandidates.mockResolvedValue([{ id: 'google-1', key: 'k1' }]);
-    const agent = await RootAgent.buildAgent(context('google-1', true));
+    const agent = await RootAgent.buildAgent(context('google-1', true), { sessionId: 'test-session-12345678' });
     expect((agent as any).model).not.toBeInstanceOf(RotatingGemini);
     expect((agent as any).model.model).toBe(DEFAULT_AGENT_MODEL);
   });
@@ -93,7 +93,7 @@ describe('single-user Gemini credential workflow', () => {
       { id: 'google-1', key: 'k1' },
       { id: 'google-2', key: 'k2' },
     ]);
-    const agent = await RootAgent.buildAgent(context('google-1', true));
+    const agent = await RootAgent.buildAgent(context('google-1', true), { sessionId: 'test-session-12345678' });
     expect((agent as any).model).toBeInstanceOf(RotatingGemini);
     expect((agent as any).model.model).toBe(DEFAULT_AGENT_MODEL);
   });

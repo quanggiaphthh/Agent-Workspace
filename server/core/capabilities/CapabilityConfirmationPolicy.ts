@@ -6,7 +6,9 @@ export type ConfirmationFailureCode =
   | 'CONFIRMATION_REPLAY'
   | 'CONFIRMATION_USER_MISMATCH'
   | 'CONFIRMATION_CAPABILITY_MISMATCH'
-  | 'CONFIRMATION_INPUT_MISMATCH';
+  | 'CONFIRMATION_INPUT_MISMATCH'
+  | 'CONFIRMATION_EXECUTION_MISMATCH'
+  | 'CONFIRMATION_CANCELLED';
 
 export interface ConfirmationRecord {
   userId: string;
@@ -14,12 +16,22 @@ export interface ConfirmationRecord {
   inputHash: string;
   expiresAtMs: number;
   consumedAt?: string | null;
+  decision?: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  source?: 'agent' | 'rest';
+  sessionId?: string;
+  toolCallId?: string;
+  logicalExecutionId?: string;
+  temporaryMode?: boolean;
 }
 
 export interface ConfirmationExpectation {
   userId: string;
   capabilityId: string;
   inputHash: string;
+  source?: 'agent' | 'rest';
+  sessionId?: string;
+  toolCallId?: string;
+  logicalExecutionId?: string;
 }
 
 function normalizeForHash(value: unknown): unknown {
@@ -57,6 +69,13 @@ export function evaluateConfirmationRecord(
   expected: ConfirmationExpectation,
   nowMs = Date.now(),
 ): { ok: true } | { ok: false; errorCode: ConfirmationFailureCode; errorSummary: string } {
+  if (challenge.decision === 'cancelled') {
+    return {
+      ok: false,
+      errorCode: 'CONFIRMATION_CANCELLED',
+      errorSummary: 'Confirmation challenge belongs to a cancelled Agent execution.',
+    };
+  }
   if (challenge.consumedAt) {
     return {
       ok: false,
@@ -91,6 +110,18 @@ export function evaluateConfirmationRecord(
       errorCode: 'CONFIRMATION_INPUT_MISMATCH',
       errorSummary: 'Confirmation challenge is bound to different input.',
     };
+  }
+  if (expected.source !== undefined && challenge.source !== expected.source) {
+    return { ok: false, errorCode: 'CONFIRMATION_EXECUTION_MISMATCH', errorSummary: 'Confirmation challenge belongs to another execution source.' };
+  }
+  if (expected.sessionId !== undefined && challenge.sessionId !== expected.sessionId) {
+    return { ok: false, errorCode: 'CONFIRMATION_EXECUTION_MISMATCH', errorSummary: 'Confirmation challenge belongs to another Agent session.' };
+  }
+  if (expected.toolCallId !== undefined && challenge.toolCallId !== expected.toolCallId) {
+    return { ok: false, errorCode: 'CONFIRMATION_EXECUTION_MISMATCH', errorSummary: 'Confirmation challenge belongs to another tool call.' };
+  }
+  if (expected.logicalExecutionId !== undefined && challenge.logicalExecutionId !== expected.logicalExecutionId) {
+    return { ok: false, errorCode: 'CONFIRMATION_EXECUTION_MISMATCH', errorSummary: 'Confirmation challenge belongs to another logical execution.' };
   }
   return { ok: true };
 }

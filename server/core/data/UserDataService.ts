@@ -94,7 +94,8 @@ export class UserDataService {
     const snapshot = await q.get();
     return snapshot.docs
       .map(normalizeTask)
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+      .slice(0, 100);
   }
 
   public static async createTask(userId: string, input: {

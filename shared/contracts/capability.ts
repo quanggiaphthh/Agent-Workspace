@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { AIConfig } from './ai';
 
 export type CapabilityRisk = 'low' | 'medium' | 'high';
+export type CapabilitySideEffect = 'none' | 'mutation' | 'ui-local';
+export type CapabilityConfirmationPolicy = 'none' | 'required';
 
 export interface UserContext {
   id: string;
@@ -44,6 +46,10 @@ export interface CapabilityDescriptor<TInput = unknown, TOutput = unknown> {
   inputSchema: z.ZodType<TInput>;
   outputSchema?: z.ZodType<TOutput>;
   risk: CapabilityRisk;
+  /** Machine-readable execution semantics. Legacy descriptors are normalized at registration. */
+  sideEffect?: CapabilitySideEffect;
+  /** Explicit HITL policy; risk remains independent security/business metadata. */
+  confirmationPolicy?: CapabilityConfirmationPolicy;
   permissions: string[];
   effects?: string[];
   execute(input: TInput, context: ExecutionContext): Promise<TOutput>;

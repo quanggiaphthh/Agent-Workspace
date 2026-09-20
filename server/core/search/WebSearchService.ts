@@ -14,6 +14,10 @@ export interface WebSearchResult {
   searchQueries: string[];
 }
 
+const MAX_SEARCH_SOURCES = 20;
+const MAX_SEARCH_QUERIES = 20;
+const MAX_SEARCH_ANSWER_CHARS = 120_000;
+
 function uniqueSources(chunks: any[] | undefined): WebSearchSource[] {
   const seen = new Set<string>();
   const sources: WebSearchSource[] = [];
@@ -27,7 +31,7 @@ function uniqueSources(chunks: any[] | undefined): WebSearchSource[] {
       url,
     });
   }
-  return sources;
+  return sources.slice(0, MAX_SEARCH_SOURCES);
 }
 
 export class WebSearchService {
@@ -69,10 +73,14 @@ export class WebSearchService {
           .join('\n');
 
     return {
-      answer: answer || '',
+      answer: (answer || '').slice(0, MAX_SEARCH_ANSWER_CHARS),
       sources: uniqueSources(grounding?.groundingChunks),
       searchQueries: Array.isArray(grounding?.webSearchQueries)
-        ? grounding.webSearchQueries.filter((item: unknown): item is string => typeof item === 'string')
+        ? grounding.webSearchQueries
+            .filter((item: unknown): item is string => typeof item === 'string')
+            .map((item: string) => item.trim())
+            .filter(Boolean)
+            .slice(0, MAX_SEARCH_QUERIES)
         : [],
     };
   }

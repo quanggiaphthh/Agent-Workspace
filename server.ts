@@ -751,16 +751,19 @@ app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
       abortSignal: executionDeadline.signal,
     };
 
-    // 1. Build dynamic agent for this context
-    const agent = await RootAgent.buildAgent(execContext);
-    
-    // 2. Create runner
-    // sessionId must be associated with the user for isolation
+    // Derive the server-owned session identity before building tools so mutation
+    // idempotency never depends on model/client-supplied function arguments.
     const rawSessionId = parseClientSessionId((req.body as any).sessionId || 'default-session');
     const sessionId = serverSessionId(user.id, rawSessionId);
-    const appName = AGENT_APP_NAME;
 
     const temporaryMode = req.body.temporaryMode === true;
+
+    // 1. Build dynamic agent for this context. Native ADK owns the FunctionCall
+    // -> FunctionTool -> FunctionResponse -> continued-reasoning loop.
+    const agent = await RootAgent.buildAgent(execContext, { sessionId, abortSignal: executionDeadline.signal, temporaryMode });
+
+    // 2. Create runner
+    const appName = AGENT_APP_NAME;
     const sessionService = temporaryMode ? temporarySessionService : adkSessionService;
 
     try {
@@ -916,6 +919,11 @@ app.post('/api/capabilities/execute', expensiveUserLimiter, async (req, res) => 
   const requestCancellation = bindRequestCancellation(req, res);
   try {
     const { id, input, context, confirmationId } = req.body || {};
+    const idempotencyKeyHeader = req.get('Idempotency-Key');
+    const idempotencyKey = typeof idempotencyKeyHeader === 'string' ? idempotencyKeyHeader.trim() : undefined;
+    if (idempotencyKey !== undefined && !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) {
+      return res.status(400).json({ error: 'Idempotency-Key must be 8-128 characters using A-Z, a-z, 0-9, dot, underscore, colon, or hyphen.' });
+    }
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'Capability ID is required.' });
     }
@@ -931,7 +939,7 @@ app.post('/api/capabilities/execute', expensiveUserLimiter, async (req, res) => 
       id,
       input,
       { user, appContext, confirmed: false, abortSignal: requestCancellation.signal },
-      { source: 'rest', confirmationId, abortSignal: requestCancellation.signal },
+      { source: 'rest', requestId: (req as any).requestId, idempotencyKey, confirmationId, abortSignal: requestCancellation.signal },
     );
 
     if (result.requiresConfirmation) {

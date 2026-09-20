@@ -45,7 +45,8 @@ class ClientCapabilityRegistry {
     // 1. If it is a locally registered capability (e.g. UI capability)
     const localCap = this.localCapabilities.get(id);
     if (localCap) {
-      if (localCap.risk === 'high' && !confirmed) {
+      const requiresConfirmation = localCap.confirmationPolicy === 'required' || (localCap.confirmationPolicy === undefined && localCap.risk === 'high');
+      if (requiresConfirmation && !confirmed) {
         return {
           success: false,
           requiresConfirmation: true,

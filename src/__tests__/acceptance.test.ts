@@ -25,6 +25,7 @@ vi.mock('../../server/lib/firebaseAdmin', async (importOriginal) => {
 describe('Functional Consistency & Production Security Acceptance Suite', () => {
 
   beforeEach(() => {
+    ServerCapabilityRegistry.reset();
     vi.clearAllMocks();
     serverModuleCatalog.reset();
     serverModuleCatalog.register({ id: 'system', name: 'System', enabled: true, canDisable: false, version: '1.0' });
@@ -260,8 +261,8 @@ describe('Functional Consistency & Production Security Acceptance Suite', () => 
         confirmed: false,
       };
 
-      const agentOn = await RootAgent.buildAgent(execContextMemoryOn as any);
-      const agentOff = await RootAgent.buildAgent(execContextMemoryOff as any);
+      const agentOn = await RootAgent.buildAgent(execContextMemoryOn as any, { sessionId: 'test-session-12345678' });
+      const agentOff = await RootAgent.buildAgent(execContextMemoryOff as any, { sessionId: 'test-session-12345678' });
 
       const toolsOnNames = (agentOn.tools as any[]).map(t => t.name);
       const toolsOffNames = (agentOff.tools as any[]).map(t => t.name);

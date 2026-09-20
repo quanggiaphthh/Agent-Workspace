@@ -154,7 +154,7 @@ describe('AI Agent Model Default & Fallback Regression Suite', () => {
     };
 
     // Build agent with a custom model
-    const agentCustom = await RootAgent.buildAgent(executionCtx);
+    const agentCustom = await RootAgent.buildAgent(executionCtx, { sessionId: 'test-session-12345678' });
     expect(agentCustom).toBeDefined();
     expect((agentCustom as any).model.model).toBe('gemini-model-custom-123');
 
@@ -166,7 +166,7 @@ describe('AI Agent Model Default & Fallback Regression Suite', () => {
       }
     };
 
-    const agentFallback = await RootAgent.buildAgent(executionCtxFallback);
+    const agentFallback = await RootAgent.buildAgent(executionCtxFallback, { sessionId: 'test-session-12345678' });
     expect(agentFallback).toBeDefined();
     expect((agentFallback as any).model.model).toBe(DEFAULT_AGENT_MODEL);
   });

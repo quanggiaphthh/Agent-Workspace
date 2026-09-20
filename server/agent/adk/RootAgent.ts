@@ -1,5 +1,6 @@
 import { BaseLlm, Gemini, LlmAgent, type LlmRequest, type BaseLlmConnection } from '@google/adk';
 import { ServerCapabilityRegistry } from '../../core/capabilities/serverCapabilityRegistry';
+import { CapabilityToolNameRegistry } from '../../core/capabilities/capabilityToolNameRegistry';
 import { CredentialService } from '../../core/ai/CredentialService';
 import { ExecutionContext } from '../../../shared/contracts/capability';
 import {
@@ -8,7 +9,7 @@ import {
   DEFAULT_AGENT_MODEL,
   type AIConfig,
 } from '../../../shared/contracts/ai';
-import { CapabilityToolAdapter } from './CapabilityToolAdapter';
+import { CapabilityToolAdapter, type AgentToolRuntimeMetadata } from './CapabilityToolAdapter';
 import { classifyProviderFailure, shouldRotateCredential, toSafeProviderError } from '../../core/ai/credentialRotationPolicy';
 
 interface RotationCandidate {
@@ -76,8 +77,28 @@ export class RotatingGemini extends BaseLlm {
   }
 }
 
+
+export function filterAgentCapabilitiesForConfig<T extends { id: string }>(capabilities: T[], aiConfig: AIConfig): T[] {
+  return capabilities.filter((cap) => {
+    if (!aiConfig.memoryEnabled && cap.id.startsWith('system.memory.')) return false;
+    if (!aiConfig.webSearchEnabled && cap.id === 'system.web.search') return false;
+    return true;
+  });
+}
+
+
+export function assertUniqueAgentToolNames<T extends { id: string }>(capabilities: T[]): void {
+  const seen = new Map<string, string>();
+  for (const capability of capabilities) {
+    const toolName = CapabilityToolNameRegistry.getToolName(capability.id);
+    const existing = seen.get(toolName);
+    if (existing && existing !== capability.id) throw new Error(`ADK tool-name collision between "${existing}" and "${capability.id}".`);
+    seen.set(toolName, capability.id);
+  }
+}
+
 export class RootAgent {
-  public static async buildAgent(executionContext: ExecutionContext): Promise<LlmAgent> {
+  public static async buildAgent(executionContext: ExecutionContext, runtime: AgentToolRuntimeMetadata): Promise<LlmAgent> {
     const { user } = executionContext;
     if (!user || user.id === 'guest') {
       throw new Error('Vui lòng đăng nhập để sử dụng Trợ lý AI.');
@@ -88,18 +109,14 @@ export class RootAgent {
       throw new Error('Agent Chat hiện chỉ hỗ trợ Google/Gemini.');
     }
 
-    let availableCaps = await ServerCapabilityRegistry.listForContext(executionContext);
-    if (!aiConfig.memoryEnabled) {
-      availableCaps = availableCaps.filter((cap) => !cap.id.startsWith('system.memory.'));
-    }
+    // Search remains a custom server capability; settings only reduce the server-authoritative tool set.
+    const availableCaps = filterAgentCapabilitiesForConfig(
+      await ServerCapabilityRegistry.listForContext(executionContext),
+      aiConfig,
+    );
 
-    // Search is intentionally exposed as a custom server capability in Phase 2,
-    // never as a built-in search tool beside custom tools on Gemini 2.5.
-    if (!aiConfig.webSearchEnabled) {
-      availableCaps = availableCaps.filter((cap) => cap.id !== 'system.web.search');
-    }
-
-    const tools = availableCaps.map((cap) => CapabilityToolAdapter.createTool(cap, executionContext));
+    assertUniqueAgentToolNames(availableCaps);
+    const tools = availableCaps.map((cap) => CapabilityToolAdapter.createTool(cap, executionContext, runtime));
 
     let modelInstance: BaseLlm;
     if (aiConfig.autoRotate) {
@@ -144,7 +161,7 @@ export class RootAgent {
         1. PHẢN HỒI TIẾNG VIỆT: Luôn phản hồi bằng tiếng Việt trừ khi người dùng yêu cầu ngôn ngữ khác.
         2. SỬ DỤNG TOOLS: Bạn không thể trực tiếp thao tác DOM hay giao diện. Hãy sử dụng các tools (capabilities) được cung cấp để thực hiện hành động hoặc lấy dữ liệu.
         3. NGỮ CẢNH: Bạn có quyền truy cập vào thông tin về module đang mở (activeModule) và đối tượng đang được chọn (selectedEntity). Hãy ưu tiên sử dụng thông tin này để hiểu các đại từ như "việc này", "mục này".
-        4. ĐIỀU HƯỚNG: Sử dụng tool 'ui_openModule' hoặc 'ui_openEntity' để thay đổi giao diện cho người dùng khi cần thiết.
+        4. ĐIỀU HƯỚNG: Khi cần thay đổi giao diện, chỉ sử dụng tool điều hướng đang được cung cấp trong danh sách tools của lượt chạy.
         5. KHÔNG GIẢ ĐỊNH: Chỉ sử dụng các tools có tên trong danh sách hiện tại. Nếu không thấy tool phù hợp, hãy thông báo cho người dùng rằng tính năng đó có thể bị khóa hoặc chưa được cài đặt.
         6. AN TOÀN: Các hành động quan trọng sẽ yêu cầu xác nhận theo policy phía server.
       `,

@@ -65,7 +65,7 @@ check('Agent runner receives AbortSignal', /runner\.runAsync\(\{[\s\S]*?abortSig
 check('tool adapter propagates ADK abort signal into gateway', /abortSignal\s*:\s*context\?\.abortSignal/.test(adapter));
 check('gateway prevents new capability work after cancellation', /throwIfAborted\(meta\.abortSignal\)/.test(gateway));
 check('cancelled capability execution is audited as cancelled', /outcome\s*:\s*cancelled\s*\?\s*['"]cancelled['"]/.test(gateway));
-const descriptorExecutePos = registry.indexOf('const result = await descriptor.execute');
+const descriptorExecutePos = registry.indexOf('descriptor.execute');
 const postExecuteAbortPos = registry.indexOf('context.abortSignal?.aborted', descriptorExecutePos);
 const successReturnPos = registry.indexOf('success: true', descriptorExecutePos);
 check('completed capability result is not retroactively cancelled after commit',

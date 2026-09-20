@@ -36,7 +36,7 @@ check('confirmation binds normalized input hash', /inputHash/.test(confirmationA
 check('confirmation has TTL and rejects expiry', /expiresAt/.test(confirmationAll) && /expired|expiresAt.*Date\.now|Date\.now\(\).*expiresAt/.test(confirmationAll));
 check('confirmation is single-use atomically', /runTransaction/.test(confirmation) && /consumedAt|usedAt/.test(confirmation));
 check('confirmation replay is explicitly rejected', /replay|already used|consumed/i.test(confirmationAll));
-check('gateway creates server challenge for high-risk action', /risk\s*===\s*['"]high['"][\s\S]*?CapabilityConfirmationService\.(?:prepare|create)/.test(gateway));
+check('gateway creates server challenge for high-risk action', /confirmationPolicy\s*===\s*['"]required['"][\s\S]*?CapabilityConfirmationService\.(?:prepare|create)/.test(gateway));
 check('gateway verifies confirmation before high-risk execution', /CapabilityConfirmationService\.consume|CapabilityConfirmationService\.verify/.test(gateway));
 check('REST supports confirmationId contract', /confirmationId/.test(server) && /CapabilityExecutionService\.execute/.test(server));
 check('Agent HITL carries server confirmationId', /confirmationId/.test(adapter) && /requestConfirmation/.test(adapter));
