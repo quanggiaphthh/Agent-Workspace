@@ -40,9 +40,11 @@
 | GĐ1 | Single-user owner foundation, settings/model/credential baseline | **FINAL PASS / LOCKED** | Đã khóa |
 | GĐ2 | Agent execution/chat runtime, SSE, cancellation, session/history, temporary chat/recovery | **FINAL PASS / LOCKED** | Đã khóa |
 | GĐ3 | Capability execution architecture, idempotency, ADK tools, HITL/resume, integration | **FINAL PASS / LOCKED** | Đã khóa |
-| GĐ4 | Persistent personal files + secure file use by end user/Agent | **IN PROGRESS** | `2f45b997db25fd61736b239f71f6d3767aa4a508` — Lượt 2 FINAL PASS / LOCKED |
+| GĐ4 | Persistent personal files + secure file use by end user/Agent | **IN PROGRESS** | `1ae1a7431b58d54b7996d3cded5093e26b534352` — GĐ4 Lượt 3A FINAL PASS / LOCKED; Actions `35658931580` — SUCCESS |
 | GĐ5 | Production/runtime hardening cho single-user deployment | **PLANNED** | Chỉ mở sau GĐ4 Final Gate |
 | GĐ6 | Final end-user acceptance + release/deployment readiness | **PLANNED** | Chỉ mở sau GĐ5 |
+
+**Lịch sử checkpoint GĐ4:** `2f45b997db25fd61736b239f71f6d3767aa4a508` — GĐ4 Lượt 2 FINAL PASS / LOCKED.
 
 ---
 
@@ -98,6 +100,8 @@ Các invariant canonical:
 ---
 
 # 6. GĐ4 — PERSISTENT PERSONAL FILES + DOCUMENT INPUT
+
+**Trạng thái GĐ4: IN PROGRESS**
 
 ## 6.1. Mục tiêu GĐ4
 
@@ -200,32 +204,124 @@ Tại HEAD `2f45b997db25fd61736b239f71f6d3767aa4a508`, GitHub Actions run `35644
 - production build: PASS;
 - final production manifest: **138/138 PASS**.
 
-**Completion gate:** GĐ4 Lượt 2 đã đạt **FINAL PASS / LOCKED**. Phần tiếp theo duy nhất của roadmap là GĐ4 Lượt 3; không mở lại Lượt 2 nếu không có regression/blocker tái hiện được.
+**Completion gate:** GĐ4 Lượt 2 đã đạt **FINAL PASS / LOCKED** và được giữ trong lịch sử canonical. Không mở lại Lượt 2 nếu không có regression/blocker tái hiện được.
 
 ---
 
 ## 6.4. GĐ4 Lượt 3 — Chat Attachment + Gemini Document Input
 
-**Trạng thái: PLANNED — NEXT**
+**Trạng thái: IN PROGRESS**
 
-Mục tiêu cấp roadmap:
+Tiến độ:
 
-Cho phép file mà người dùng đã upload qua canonical file pipeline được sử dụng thực sự trong hội thoại/Agent execution theo cách có kiểm soát.
+- **L3 Discovery & Architecture Audit — COMPLETE**
+- **L3 Implementation Plan — COMPLETE**
+- **L3A — FINAL PASS / LOCKED**
+- **L3B — DESIGN GATE NEXT**
+- **L3C — PLANNED**
+- **L3D — PLANNED**
 
-Nguyên tắc kiến trúc bắt buộc cho discovery/implementation sau này:
+Mục tiêu cấp roadmap: cho phép file mà người dùng đã upload qua canonical file pipeline được sử dụng thực sự trong hội thoại/Agent execution theo cách có kiểm soát, không tạo upload pipeline, file authority hoặc Agent runtime song song.
 
-1. File upload pipeline hiện hữu là canonical ingress; không tạo upload pipeline thứ hai riêng cho chat.
-2. Chat attachment phải reuse canonical file identity, metadata và ownership.
-3. Browser/client không phải authority cho storage object identity, MIME trust, file authorization hoặc Gemini document authority.
-4. Server tiếp tục là trust boundary và phải authorize/resolve attachment từ canonical file authority.
-5. Gemini document input phải được xây trên canonical server-side file authority.
-6. Không bypass auth, file policy, ownership hoặc existing Agent execution architecture.
-7. Không tạo parallel Agent runtime hoặc parallel file authority.
-8. Phải giữ compatibility với persistent chat, temporary chat, cancellation, timeout, stale-run isolation, session/history reconciliation, HITL/tool resume và idempotency đã khóa.
-9. File content luôn là untrusted user data; nội dung file không được tự cấp quyền, thay policy hoặc trở thành security authority.
-10. Discovery Lượt 3 phải đọc source/SDK/runtime thực tế trước khi quyết định Gemini transport/materialization strategy; không mặc định trước inline bytes, Gemini Files API URI, GCS URI hoặc transport cụ thể khác.
+### 6.4.1. GĐ4 Lượt 3A — Contract + Authorized Bounded Read + Safe Attachment Representation
 
-Lượt 3 là một lượt riêng. Tài liệu checkpoint này không implementation chat attachment hoặc Gemini document input.
+**Status: FINAL PASS / LOCKED**
+
+Canonical HEAD:
+
+`1ae1a7431b58d54b7996d3cded5093e26b534352`
+
+Canonical GitHub Actions:
+
+`35658931580` — **SUCCESS**
+
+#### Nội dung đã khóa
+
+- strict optional chat attachment contract;
+- attachment chỉ truyền opaque `fileId`;
+- tối đa 4 attachments/turn;
+- duplicate/malformed/unknown/authority fields bị reject;
+- `UserFileService` vẫn là canonical ownership/file authority;
+- `BinaryStore` có bounded streaming read;
+- metadata size chỉ defense-in-depth;
+- actual streamed bytes vẫn bounded;
+- foreign/missing fail closed;
+- canonical MIME policy cho model input;
+- per-file 20 MiB;
+- aggregate 20 MiB/turn;
+- safe durable attachment metadata tách khỏi run-scoped `Buffer`;
+- không persist binary/base64 vào ADK history;
+- capability count vẫn 9;
+- không Agent file capability mới.
+
+#### Canonical verification evidence
+
+- manifest **141/141 PASS**;
+- TypeScript **PASS**;
+- targeted L3A **52/52 PASS**;
+- L2B **9/9 PASS**;
+- L2A **16/16 PASS**;
+- L1 **27/27 PASS**;
+- Capability Bridge **18/18 PASS**;
+- Full Vitest **33/33 files, 347/347 tests PASS**;
+- **0 failed**;
+- **0 unhandled**;
+- Acceptance **13/13 PASS**;
+- QA Stage 1–5 **ALL PASS**;
+- production build **PASS**;
+- static security **PASS**.
+
+#### L3A chưa thực hiện
+
+L3A **chưa** hoàn thành và không được mô tả là đã hoàn thành các nội dung sau:
+
+- Gemini `inlineData`;
+- Gemini `fileData`;
+- Gemini Files API;
+- model invocation materialization;
+- chat composer attachment UX;
+- File Library;
+- RAG;
+- Agent file capability.
+
+### 6.4.2. GĐ4 Lượt 3B — DESIGN GATE
+
+**Trạng thái: DESIGN GATE NEXT**
+
+Trước implementation L3B phải:
+
+1. dùng dependency hiện hành;
+2. đọc exact installed `@google/adk` 2.1.0 source/types;
+3. xác định exact supported invocation-local LLM request enrichment seam;
+4. chứng minh attachment media/text có thể materialize run-scoped cho Gemini mà không persist media-bearing Parts vào durable ADK history;
+5. kiểm tra compatibility với Runner/session/events/SSE/cancellation;
+6. nếu không có clean supported seam: **ARCHITECTURE ESCALATION**;
+7. không bypass Runner;
+8. không hack ADK durable history.
+
+**Gate:** chỉ sau checker approval mới được implementation L3B.
+
+### 6.4.3. GĐ4 Lượt 3C — Composer Attachment UX + History/Recovery/Temporary-chat Semantics
+
+**Trạng thái: PLANNED**
+
+Mục tiêu giữ nguyên:
+
+- chat composer attachment UX;
+- attachment selection/state semantics;
+- history/recovery behavior;
+- temporary-chat semantics;
+- giữ compatibility với canonical file identity/authority và runtime invariants đã khóa.
+
+### 6.4.4. GĐ4 Lượt 3D — Final L3 Integration + Real Gemini/Firebase Runtime Verification
+
+**Trạng thái: PLANNED**
+
+Mục tiêu giữ nguyên:
+
+- final integration của Lượt 3;
+- real Gemini/Firebase runtime verification;
+- xác minh document/media input đúng turn và không phá durable history, SSE, cancellation, recovery hoặc Agent execution semantics.
 
 ---
 
@@ -418,41 +514,3 @@ Mỗi lượt feature phải lựa chọn gate theo phạm vi, nhưng trước k
 | Final manifest | 100% matched |
 
 Không dùng local-only PASS để thay canonical runtime verification khi lượt đó thay production behavior.
-
----
-
-# 11. Progress dashboard
-
-| ID | Work item | Status | Dependency | Canonical evidence |
-|---|---|---|---|---|
-| GĐ1 | Single-user owner foundation | 🔒 LOCKED | — | Final reports/checkpoints |
-| GĐ2 | Agent chat/execution runtime | 🔒 LOCKED | GĐ1 | Canonical verification |
-| GĐ3 | Capability execution + HITL | 🔒 LOCKED | GĐ2 | Canonical verification |
-| GĐ4-L1 | File domain/storage foundation | 🔒 LOCKED | GĐ3 | GitHub verification |
-| GĐ4-L2A | Secure ingestion/validation | 🔒 LOCKED | L1 | Canonical Lượt 2 verification |
-| GĐ4-L2B | End-user upload integration/UX | 🔒 LOCKED | L2A | `2f45b997...`, run `35644917109`, 299/299 |
-| **GĐ4-L3** | **Chat attachment + Gemini document input** | **⬜ NEXT** | L2 complete | — |
-| GĐ4-L4 | File library + authorized file operations | ⬜ PLANNED | L3 | — |
-| GĐ4-L5 | Delete/recovery/orphan/security lifecycle | ⬜ PLANNED | L4 | — |
-| GĐ4-L6 | Final GĐ4 E2E integration verification | ⬜ PLANNED | L5 | — |
-| GĐ5 | Production/runtime hardening | ⬜ PLANNED | GĐ4 LOCKED | — |
-| GĐ6 | Final UAT + release readiness | ⬜ PLANNED | GĐ5 | — |
-
-**Current next action:** GĐ4 Lượt 3 — CHAT ATTACHMENT + GEMINI DOCUMENT INPUT.
-
----
-
-# 12. Cách cập nhật tài liệu sau mỗi lượt
-
-Sau mỗi checker verdict, cập nhật tối thiểu:
-
-1. `Status` của work item;
-2. canonical commit SHA;
-3. exact targeted/full test counts;
-4. manifest count;
-5. GitHub Actions run/result;
-6. blocker/known limitation mới;
-7. `Current next action`;
-8. nếu scope thay đổi: ghi lý do và checker decision, không âm thầm sửa roadmap.
-
-Tài liệu này là **living canonical roadmap**, nhưng các mục đã `FINAL PASS / LOCKED` không được đổi lịch sử tùy tiện.
