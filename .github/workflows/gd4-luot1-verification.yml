@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Firebase Web API keys are client configuration, not Admin credentials.
+  # CI only needs a syntactically present value because hermetic tests mock network/persistence boundaries.
+  VITE_FIREBASE_API_KEY: ci-test-only-not-a-production-key
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -36,36 +41,30 @@ jobs:
       - name: Targeted GD4 Luot 1 tests
         run: npx vitest run server/core/files/__tests__/fileStorageFoundation.test.ts
 
+      - name: Capability tool bridge
+        run: npx vitest run server/agent/adk/__tests__/capabilityToolBridge.test.ts
+
       - name: Full Vitest
         run: npm run test
 
       - name: QA Stage 1
         run: node scripts/qa-stage1.mjs
-
       - name: QA Stage 2
         run: node scripts/qa-stage2.mjs
-
       - name: QA Stage 3A
         run: node scripts/qa-stage3a.mjs
-
       - name: QA Stage 3B
         run: node scripts/qa-stage3b.mjs
-
       - name: QA Stage 3C
         run: node scripts/qa-stage3c.mjs
-
       - name: QA Stage 4A
         run: node scripts/qa-stage4a.mjs
-
       - name: QA Stage 4B
         run: node scripts/qa-stage4b.mjs
-
       - name: QA Stage 4C
         run: node scripts/qa-stage4c.mjs
-
       - name: QA Stage 4D
         run: node scripts/qa-stage4d.mjs
-
       - name: QA Stage 5
         run: node scripts/qa-stage5-static.mjs
 

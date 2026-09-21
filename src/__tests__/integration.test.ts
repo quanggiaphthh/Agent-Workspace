@@ -9,6 +9,7 @@ import { CredentialService } from '../../server/core/ai/CredentialService';
 
 const testMocks = vi.hoisted(() => ({
   persistenceProbe: vi.fn(),
+  firestoreProbe: vi.fn(),
 }));
 
 // Mock Firebase Admin Auth
@@ -19,7 +20,8 @@ vi.mock('../../server/lib/firebaseAdmin', async (importOriginal) => {
     adminAuth: {
       verifyIdToken: vi.fn(),
     },
-    // We'll use a real-ish firestore mock or real firestore if config exists
+    probeFirestoreAdmin: testMocks.firestoreProbe,
+    // Firestore-backed collaborators are mocked at their domain boundaries below
   };
 });
 
@@ -54,9 +56,14 @@ describe('Production Integration & Security Suite', () => {
     email_verified: true,
   };
 
+  beforeAll(() => {
+    vi.spyOn(AuditService, 'probeHealth').mockResolvedValue({ status: 'ok', backend: 'firestore', durationMs: 0 });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     testMocks.persistenceProbe.mockResolvedValue({ status: 'ok', mode: 'persistent', backend: 'firestore', degraded: false });
+    testMocks.firestoreProbe.mockResolvedValue({ status: 'ok', backend: 'firestore', durationMs: 0 });
   });
 
 

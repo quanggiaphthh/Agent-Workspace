@@ -53,6 +53,7 @@ describe('GĐ3 Lượt 3 canonical ADK capability tool bridge', () => {
     vi.spyOn(AuditService, 'log').mockResolvedValue({ id: 'audit-1' } as any);
     vi.spyOn(AuditService, 'update').mockResolvedValue();
     vi.spyOn(storage, 'refreshModuleSettings').mockResolvedValue();
+    vi.spyOn(CapabilityConfirmationService, 'prepare').mockResolvedValue({ confirmationId: 'confirm-1', expiresAt: new Date(Date.now() + 60_000).toISOString() });
     vi.spyOn(CapabilityConfirmationService, 'reject').mockResolvedValue({ ok: true, confirmationId: 'confirm-1' } as any);
   });
   afterEach(() => { vi.restoreAllMocks(); CapabilityExecutionIdempotencyService.resetRepositoryForTests(); ServerCapabilityRegistry.reset(); CapabilityToolNameRegistry.reset(); });
