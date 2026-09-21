@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import { adminFirestore, adminStorageBucket } from '../../lib/firebaseAdmin';
 import { UserFileService, type BinaryStore, type MetadataStore } from './UserFileService';
+import { FileIngestionService } from './FileIngestionService';
 
 class FirebaseBinaryStore implements BinaryStore {
   async put(object:string, bytes:Buffer, mime:string, signal?:AbortSignal) {
@@ -18,3 +19,4 @@ class FirestoreFileMetadataStore implements MetadataStore {
   async delete(fileId:string){ await this.col().doc(fileId).delete(); }
 }
 export const userFileService = new UserFileService(new FirebaseBinaryStore(), new FirestoreFileMetadataStore());
+export const fileIngestionService = new FileIngestionService(userFileService);

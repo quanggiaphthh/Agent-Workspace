@@ -6,6 +6,8 @@ import { RootAgent } from '../../server/agent/adk/RootAgent';
 import { AuditService } from '../../server/core/audit/auditService';
 import { CapabilityExecutionService } from '../../server/core/capabilities/CapabilityExecutionService';
 import { CredentialService } from '../../server/core/ai/CredentialService';
+import { fileIngestionService } from '../../server/core/files/firebaseFileStores';
+import { MAX_FILE_BYTES } from '../../server/core/files/filePolicy';
 
 const testMocks = vi.hoisted(() => ({
   persistenceProbe: vi.fn(),
@@ -340,6 +342,79 @@ describe('Production Integration & Security Suite', () => {
         .send({ data: largeBody });
       
       expect(res.status).toBe(413); // Payload Too Large
+    });
+  });
+
+  describe('GĐ4 LƯỢT 2 — SECURE FILE INGESTION ROUTE', () => {
+    const uploadedFile = {
+      fileId: 'server-file-id', ownerId: 'user_A', originalName: 'report.pdf',
+      mimeType: 'application/pdf' as const, sizeBytes: 14, status: 'ready' as const, createdAt: '2026-09-21T00:00:00.000Z',
+    };
+
+    beforeEach(() => {
+      vi.spyOn(AuditService, 'log').mockResolvedValue({} as any);
+    });
+
+    it('uses the canonical ingestion service and server identity, ignoring spoofed request metadata', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);
+      const ingestSpy = vi.spyOn(fileIngestionService, 'ingest').mockResolvedValue(uploadedFile);
+      try {
+        const response = await request(app)
+          .post('/api/files')
+          .set('Authorization', 'Bearer token_A')
+          .set('Content-Type', 'application/pdf')
+          .set('X-File-Name', 'report.pdf')
+          .set('X-Owner-Id', 'attacker')
+          .set('X-File-Id', 'client-file-id')
+          .set('X-Storage-Key', '../../escape')
+          .send(Buffer.from('%PDF-1.7\nhello'));
+
+        expect(response.status).toBe(201);
+        expect(response.body.file).toEqual(uploadedFile);
+        expect(ingestSpy).toHaveBeenCalledWith(mockUserA.uid, expect.objectContaining({
+          originalName: 'report.pdf', mimeType: 'application/pdf', bytes: Buffer.from('%PDF-1.7\nhello'),
+        }));
+        expect(ingestSpy.mock.calls[0][1]).not.toHaveProperty('clientMetadata');
+      } finally {
+        ingestSpy.mockRestore();
+      }
+    });
+
+    it('rejects an actual oversized raw body before it reaches ingestion', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);
+      const ingestSpy = vi.spyOn(fileIngestionService, 'ingest');
+      try {
+        const response = await request(app)
+          .post('/api/files')
+          .set('Authorization', 'Bearer token_A')
+          .set('Content-Type', 'application/pdf')
+          .set('X-File-Name', 'large.pdf')
+          .send(Buffer.alloc(MAX_FILE_BYTES + 1, 0x41));
+
+        expect(response.status).toBe(413);
+        expect(response.body.code).toBe('FILE_TOO_LARGE');
+        expect(ingestSpy).not.toHaveBeenCalled();
+      } finally {
+        ingestSpy.mockRestore();
+      }
+    });
+
+    it('passes an empty binary upload through ingestion for deterministic validation', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);
+      const ingestSpy = vi.spyOn(fileIngestionService, 'ingest');
+      try {
+        const response = await request(app)
+          .post('/api/files')
+          .set('Authorization', 'Bearer token_A')
+          .set('Content-Type', 'application/pdf')
+          .set('X-File-Name', 'empty.pdf');
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('EMPTY_FILE');
+        expect(ingestSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        ingestSpy.mockRestore();
+      }
     });
   });
 });

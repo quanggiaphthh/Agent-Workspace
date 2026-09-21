@@ -34,8 +34,8 @@ import { parseStrictAgentChatRequest } from './server/agent/chat/chatRequestCont
 import { serializeAgentTransportComplete, serializeAgentTransportError } from './server/agent/chat/sseTransport';
 import { sessionTranscript } from './server/agent/chat/sessionHistory';
 import { FileDomainError } from './server/core/files/UserFileService';
-import { userFileService } from './server/core/files/firebaseFileStores';
-import { MAX_FILE_BYTES, SUPPORTED_FILE_MIME_SET, buildSafeFileAuditMetadata } from './server/core/files/filePolicy';
+import { fileIngestionService, userFileService } from './server/core/files/firebaseFileStores';
+import { MAX_FILE_BYTES, buildSafeFileAuditMetadata } from './server/core/files/filePolicy';
 
 dotenv.config();
 
@@ -515,9 +515,14 @@ app.post('/api/files', requirePermission('files.write'), express.raw({ type: () 
   try { originalName = decodeURIComponent(originalName); } catch { /* sanitizer handles raw value */ }
   const cancellation = bindRequestCancellation(req, res);
   try {
-    if (!SUPPORTED_FILE_MIME_SET.has(mimeType)) throw new FileDomainError('UNSUPPORTED_FILE_TYPE', 415, 'Unsupported file type.');
     if (!Buffer.isBuffer(req.body)) throw new FileDomainError('INVALID_FILE_BODY', 400, 'Binary file body is required.');
-    const file = await userFileService.store(user.id, { originalName, mimeType, bytes: req.body, signal: cancellation.signal });
+    const file = await fileIngestionService.ingest(user.id, {
+      originalName,
+      mimeType,
+      bytes: req.body,
+      declaredSizeBytes: req.headers['content-length'],
+      signal: cancellation.signal,
+    });
     try { await AuditService.log({ userId:user.id,userEmail:user.email,roles:user.roles,effectivePermissions:user.permissions,action:'file.upload',target:file.fileId,outcome:'success',source:'user',agentInitiated:false,durationMs:Date.now()-startedAt,metadata:buildSafeFileAuditMetadata({fileId:file.fileId,mimeType:file.mimeType,sizeBytes:file.sizeBytes}) }); } catch (auditError) { console.warn('File upload audit persistence unavailable:', fatalErrorSummary(auditError)); }
     return res.status(201).json({ file });
   } catch (error:any) {
