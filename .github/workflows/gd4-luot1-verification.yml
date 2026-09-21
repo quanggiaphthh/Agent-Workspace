@@ -1,13 +1,9 @@
-name: GD4 Luot 1 Verification
+name: GD4 Canonical Verification
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/gd4-luot1-verification.yml'
-      - 'PRODUCTION_SOURCE_MANIFEST.sha256'
-      - 'src/__tests__/acceptance.test.ts'
 
 permissions:
   contents: read
@@ -45,6 +41,12 @@ jobs:
 
       - name: Capability tool bridge
         run: npx vitest run server/agent/adk/__tests__/capabilityToolBridge.test.ts
+
+      - name: Targeted GD4 Luot 2A gateway
+        run: npx vitest run server/core/files/__tests__/fileIngestion.test.ts
+
+      - name: Targeted GD4 Luot 2B client
+        run: npx vitest run src/modules/home/__tests__/fileUploadClient.test.ts
 
       - name: Full Vitest
         run: npm run test
