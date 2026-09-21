@@ -1,0 +1,76 @@
+name: GD4 Luot 1 Verification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gd4-luot1-verification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify production manifest
+        run: sha256sum -c PRODUCTION_SOURCE_MANIFEST.sha256
+
+      - name: TypeScript
+        run: npm run lint
+
+      - name: Targeted GD4 Luot 1 tests
+        run: npx vitest run server/core/files/__tests__/fileStorageFoundation.test.ts
+
+      - name: Full Vitest
+        run: npm run test
+
+      - name: QA Stage 1
+        run: node scripts/qa-stage1.mjs
+
+      - name: QA Stage 2
+        run: node scripts/qa-stage2.mjs
+
+      - name: QA Stage 3A
+        run: node scripts/qa-stage3a.mjs
+
+      - name: QA Stage 3B
+        run: node scripts/qa-stage3b.mjs
+
+      - name: QA Stage 3C
+        run: node scripts/qa-stage3c.mjs
+
+      - name: QA Stage 4A
+        run: node scripts/qa-stage4a.mjs
+
+      - name: QA Stage 4B
+        run: node scripts/qa-stage4b.mjs
+
+      - name: QA Stage 4C
+        run: node scripts/qa-stage4c.mjs
+
+      - name: QA Stage 4D
+        run: node scripts/qa-stage4d.mjs
+
+      - name: QA Stage 5
+        run: node scripts/qa-stage5-static.mjs
+
+      - name: Production build
+        run: npm run build
+
+      - name: Final manifest verification
+        run: sha256sum -c PRODUCTION_SOURCE_MANIFEST.sha256
