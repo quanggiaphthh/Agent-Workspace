@@ -33,6 +33,9 @@ import { toSafeProviderError } from './server/core/ai/credentialRotationPolicy';
 import { parseStrictAgentChatRequest } from './server/agent/chat/chatRequestContract';
 import { serializeAgentTransportComplete, serializeAgentTransportError } from './server/agent/chat/sseTransport';
 import { sessionTranscript } from './server/agent/chat/sessionHistory';
+import { FileDomainError } from './server/core/files/UserFileService';
+import { userFileService } from './server/core/files/firebaseFileStores';
+import { MAX_FILE_BYTES, SUPPORTED_FILE_MIME_SET, buildSafeFileAuditMetadata } from './server/core/files/filePolicy';
 
 dotenv.config();
 
@@ -501,6 +504,40 @@ const MemoryPatchSchema = z.object({
   source: z.string().trim().min(1).max(300).optional(),
   status: z.enum(['approved', 'pending']).optional(),
 }).strict();
+
+// GĐ4 V1 canonical upload path: authenticated, server-mediated raw binary upload.
+// The browser never receives Firebase Storage authority; owner and storage identity are server-derived.
+app.post('/api/files', requirePermission('files.write'), express.raw({ type: () => true, limit: MAX_FILE_BYTES }), async (req, res) => {
+  const startedAt = Date.now();
+  const user = (req as any).user;
+  const mimeType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  let originalName = String(req.headers['x-file-name'] || 'file');
+  try { originalName = decodeURIComponent(originalName); } catch { /* sanitizer handles raw value */ }
+  const cancellation = bindRequestCancellation(req, res);
+  try {
+    if (!SUPPORTED_FILE_MIME_SET.has(mimeType)) throw new FileDomainError('UNSUPPORTED_FILE_TYPE', 415, 'Unsupported file type.');
+    if (!Buffer.isBuffer(req.body)) throw new FileDomainError('INVALID_FILE_BODY', 400, 'Binary file body is required.');
+    const file = await userFileService.store(user.id, { originalName, mimeType, bytes: req.body, signal: cancellation.signal });
+    try { await AuditService.log({ userId:user.id,userEmail:user.email,roles:user.roles,effectivePermissions:user.permissions,action:'file.upload',target:file.fileId,outcome:'success',source:'user',agentInitiated:false,durationMs:Date.now()-startedAt,metadata:buildSafeFileAuditMetadata({fileId:file.fileId,mimeType:file.mimeType,sizeBytes:file.sizeBytes}) }); } catch (auditError) { console.warn('File upload audit persistence unavailable:', fatalErrorSummary(auditError)); }
+    return res.status(201).json({ file });
+  } catch (error:any) {
+    const status = error instanceof FileDomainError ? error.status : 500;
+    const code = error instanceof FileDomainError ? error.code : 'FILE_UPLOAD_FAILED';
+    try { await AuditService.log({ userId:user.id,userEmail:user.email,roles:user.roles,effectivePermissions:user.permissions,action:'file.upload',outcome:'execution_error',source:'user',agentInitiated:false,durationMs:Date.now()-startedAt,errorCode:code,metadata:buildSafeFileAuditMetadata({mimeType,sizeBytes:Buffer.isBuffer(req.body)?req.body.length:0}) }); } catch {}
+    return res.status(status).json({ error: error instanceof FileDomainError ? error.message : 'File upload failed.', code });
+  } finally { cancellation.cleanup(); }
+});
+
+app.get('/api/files/:fileId', requirePermission('files.read'), async (req, res) => {
+  const user=(req as any).user;
+  try { return res.json({ file: await userFileService.resolve(user.id, req.params.fileId) }); }
+  catch(error:any){ const status=error instanceof FileDomainError?error.status:500; return res.status(status).json({error:error instanceof FileDomainError?error.message:'File resolve failed.',code:error instanceof FileDomainError?error.code:'FILE_RESOLVE_FAILED'}); }
+});
+
+app.use('/api/files', (error: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (error?.type === 'entity.too.large') return res.status(413).json({ error: 'File exceeds the application size limit.', code: 'FILE_TOO_LARGE' });
+  return next(error);
+});
 
 app.get('/api/tasks', requirePermission('tasks.read'), async (req, res) => {
   try {

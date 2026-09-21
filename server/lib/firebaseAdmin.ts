@@ -1,6 +1,7 @@
 import { initializeApp, getApps, applicationDefault } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { redactAuditString } from '../core/audit/auditRedaction';
 
@@ -16,6 +17,7 @@ const app = getApps().length === 0
 
 export const adminAuth = getAuth(app);
 export const adminFirestore = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const adminStorageBucket = getStorage(app).bucket(firebaseConfig.storageBucket);
 
 export const firebaseAdminConfig = {
   projectId: firebaseConfig.projectId,

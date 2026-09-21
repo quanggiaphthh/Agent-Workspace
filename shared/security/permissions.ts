@@ -16,6 +16,8 @@ export const SINGLE_USER_OWNER_PERMISSIONS = [
   'settings.read',
   'settings.write',
   'module.manage',
+  'files.read',
+  'files.write',
 ] as const;
 
 // Compatibility alias for code/tests that still refer to the historical name.

@@ -16,6 +16,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /user_files/{id} {
+      allow read, write: if false;
+    }
+
     match /agent_sessions/{id} {
       allow read, write: if false;
     }
