@@ -1,6 +1,7 @@
 import { MAX_FILE_BYTES, SUPPORTED_FILE_MIME_TYPES, type SupportedFileMimeType } from '../../../shared/contracts/fileUploadPolicy';
 
 export { MAX_FILE_BYTES, SUPPORTED_FILE_MIME_TYPES };
+export type { SupportedFileMimeType } from '../../../shared/contracts/fileUploadPolicy';
 export const SUPPORTED_FILE_MIME_SET = new Set<string>(SUPPORTED_FILE_MIME_TYPES);
 
 const FILE_EXTENSIONS_BY_MIME: Record<SupportedFileMimeType, readonly string[]> = {
