@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { UserFileService, FileDomainError, type BinaryStore, type MetadataStore } from '../UserFileService';
 import { MAX_FILE_BYTES, sanitizeDisplayFilename, validateFileBytes, buildSafeFileAuditMetadata } from '../filePolicy';
 
-class B implements BinaryStore { data=new Map<string,Buffer>(); failPut=false; failDelete=false; async put(k:string,b:Buffer){if(this.failPut)throw Error('put');this.data.set(k,b)} async exists(k:string){return this.data.has(k)} async delete(k:string){if(this.failDelete)throw Error('del');this.data.delete(k)} }
+class B implements BinaryStore { data=new Map<string,Buffer>(); failPut=false; failDelete=false; async put(k:string,b:Buffer){if(this.failPut)throw Error('put');this.data.set(k,b)} async readBounded(k:string,max:number){const b=this.data.get(k);if(!b)throw Error('missing');if(b.length>max)throw Object.assign(Error('limit'),{code:'READ_LIMIT_EXCEEDED'});return b} async exists(k:string){return this.data.has(k)} async delete(k:string){if(this.failDelete)throw Error('del');this.data.delete(k)} }
 class M implements MetadataStore { data=new Map<string,any>(); fail=false; async create(v:any){if(this.fail)throw Error('meta');this.data.set(v.fileId,v)} async get(k:string){return this.data.get(k)||null} async delete(k:string){this.data.delete(k)} }
 const pdf=Buffer.from('%PDF-1.7\nhello');
 const svc=()=>{const b=new B(),m=new M();return {b,m,s:new UserFileService(b,m)}};

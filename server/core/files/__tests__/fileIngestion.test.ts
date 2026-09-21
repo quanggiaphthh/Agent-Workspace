@@ -5,6 +5,7 @@ import { UserFileService, type BinaryStore, type MetadataStore } from '../UserFi
 class BinaryMemoryStore implements BinaryStore {
   readonly data = new Map<string, Buffer>();
   async put(object: string, bytes: Buffer) { this.data.set(object, bytes); }
+  async readBounded(object: string, maxBytes: number) { const b=this.data.get(object); if(!b) throw Error('missing'); if(b.length>maxBytes) throw Object.assign(Error('limit'),{code:'READ_LIMIT_EXCEEDED'}); return b; }
   async exists(object: string) { return this.data.has(object); }
   async delete(object: string) { this.data.delete(object); }
 }
