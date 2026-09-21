@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../..
 import { Button } from '../../components/ui/Button';
 import { eventBus } from '../../core/events/eventBus';
 import { Layers, Bot, ShieldCheck, ArrowRight, Activity } from 'lucide-react';
+import { FileUploadCard } from './FileUploadCard';
 
 export function HomeModule() {
   const [widgets, setWidgets] = useState<DashboardWidgetContribution[]>([]);
@@ -59,6 +60,8 @@ export function HomeModule() {
           </div>
         </div>
       </div>
+
+      <FileUploadCard />
 
       {/* Dynamic Widget Registry Area (Home renders widgets contributed by enabled modules) */}
       <div className="space-y-4">
