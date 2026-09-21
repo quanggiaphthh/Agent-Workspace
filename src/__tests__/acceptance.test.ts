@@ -10,6 +10,7 @@ import firebaseConfig from '../../firebase-applet-config.json';
 import { storage } from '../../server/infrastructure/storage';
 import { serverModuleCatalog } from '../../server/core/modules/moduleCatalog';
 import { DEFAULT_AGENT_MODEL } from '../../shared/contracts/ai';
+import { CredentialService } from '../../server/core/ai/CredentialService';
 
 // Mock Firebase Admin Auth for token verification tests
 vi.mock('../../server/lib/firebaseAdmin', async (importOriginal) => {
@@ -241,38 +242,54 @@ describe('Functional Consistency & Production Security Acceptance Suite', () => 
     });
 
     it('memory OFF prevents Agent memory operations', async () => {
-      const execContextMemoryOn = {
-        user: { id: 'usr_1', email: 'usr_1@test.local', name: 'User One', roles: ['user'], permissions: [] },
-        appContext: { 
-          user: {} as any, 
-          availableCapabilities: [],
-          aiConfig: { memoryEnabled: true }, // Memory explicitly ON
-        },
-        confirmed: false,
-      };
+      const resolveSpy = vi.spyOn(CredentialService, 'resolveCredential').mockResolvedValue({
+        id: 'system',
+        userId: 'system',
+        providerId: 'google',
+        name: 'Mock System Google Gemini Key',
+        key: 'mock-key',
+        priority: 1,
+        status: 'active',
+        createdAt: '',
+        updatedAt: '',
+      });
 
-      const execContextMemoryOff = {
-        user: { id: 'usr_1', email: 'usr_1@test.local', name: 'User One', roles: ['user'], permissions: [] },
-        appContext: { 
-          user: {} as any, 
-          availableCapabilities: [],
-          aiConfig: { memoryEnabled: false }, // Memory explicitly OFF
-        },
-        confirmed: false,
-      };
+      try {
+        const execContextMemoryOn = {
+          user: { id: 'usr_1', email: 'usr_1@test.local', name: 'User One', roles: ['user'], permissions: [] },
+          appContext: { 
+            user: {} as any, 
+            availableCapabilities: [],
+            aiConfig: { memoryEnabled: true }, // Memory explicitly ON
+          },
+          confirmed: false,
+        };
 
-      const agentOn = await RootAgent.buildAgent(execContextMemoryOn as any, { sessionId: 'test-session-12345678' });
-      const agentOff = await RootAgent.buildAgent(execContextMemoryOff as any, { sessionId: 'test-session-12345678' });
+        const execContextMemoryOff = {
+          user: { id: 'usr_1', email: 'usr_1@test.local', name: 'User One', roles: ['user'], permissions: [] },
+          appContext: { 
+            user: {} as any, 
+            availableCapabilities: [],
+            aiConfig: { memoryEnabled: false }, // Memory explicitly OFF
+          },
+          confirmed: false,
+        };
 
-      const toolsOnNames = (agentOn.tools as any[]).map(t => t.name);
-      const toolsOffNames = (agentOff.tools as any[]).map(t => t.name);
+        const agentOn = await RootAgent.buildAgent(execContextMemoryOn as any, { sessionId: 'test-session-12345678' });
+        const agentOff = await RootAgent.buildAgent(execContextMemoryOff as any, { sessionId: 'test-session-12345678' });
 
-      // Verify memory capability is absent in the disabled memory state
-      // system.memory.add capability maps to an ADK tool name containing memory_add or similar
-      const memoryOnHasMemoryTool = toolsOnNames.some(name => name.includes('memory'));
-      const memoryOffHasMemoryTool = toolsOffNames.some(name => name.includes('memory'));
+        const toolsOnNames = (agentOn.tools as any[]).map(t => t.name);
+        const toolsOffNames = (agentOff.tools as any[]).map(t => t.name);
 
-      expect(memoryOffHasMemoryTool).toBe(false);
+        // Verify memory capability is absent in the disabled memory state
+        // system.memory.add capability maps to an ADK tool name containing memory_add or similar
+        const memoryOnHasMemoryTool = toolsOnNames.some(name => name.includes('memory'));
+        const memoryOffHasMemoryTool = toolsOffNames.some(name => name.includes('memory'));
+
+        expect(memoryOffHasMemoryTool).toBe(false);
+      } finally {
+        resolveSpy.mockRestore();
+      }
     });
   });
 
