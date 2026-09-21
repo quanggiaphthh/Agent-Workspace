@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const authFetchMock = vi.fn();
+const { authFetchMock } = vi.hoisted(() => ({
+  authFetchMock: vi.fn(),
+}));
+
 vi.mock('../../../lib/authFetch', () => ({ authFetch: authFetchMock }));
 
 import {
@@ -17,7 +20,12 @@ function makeFile(name: string, type: string, size = 3) {
 }
 
 describe('GĐ4 Lượt 2B end-user upload client', () => {
-  beforeEach(() => authFetchMock.mockReset());
+  beforeEach(() => {
+    authFetchMock.mockReset();
+    authFetchMock.mockImplementation(async () => {
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+  });
 
   it('accepts supported PDF, image, TXT and Markdown selections', () => {
     for (const file of [
@@ -63,7 +71,9 @@ describe('GĐ4 Lượt 2B end-user upload client', () => {
   });
 
   it('turns network failure into a safe recoverable error', async () => {
-    authFetchMock.mockRejectedValue(new Error('bucket secret internals'));
+    authFetchMock.mockImplementationOnce(async () => {
+      throw new Error('bucket secret internals');
+    });
     await expect(uploadUserFile(makeFile('a.pdf','application/pdf'))).rejects.toMatchObject({ code:'NETWORK_ERROR' });
   });
 
@@ -102,9 +112,15 @@ describe('GĐ4 Lượt 2B end-user upload client', () => {
 
   it('aborted request is distinguishable and does not become a generic network failure', async () => {
     const controller = new AbortController();
-    authFetchMock.mockImplementation(async (_u:any, init:any) => new Promise((_resolve, reject) => {
-      init.signal.addEventListener('abort', () => reject(new DOMException('Aborted','AbortError')));
-    }));
+    authFetchMock.mockImplementationOnce(async (...args: any[]) => {
+      const init = args[1];
+      if (!init || !init.signal) {
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new DOMException('Aborted','AbortError')));
+      });
+    });
     const pending = uploadUserFile(makeFile('a.pdf','application/pdf'), controller.signal);
     controller.abort();
     await expect(pending).rejects.toMatchObject({ code:'ABORTED' });
