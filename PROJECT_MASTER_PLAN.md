@@ -2,7 +2,7 @@
 
 > **Vai trò:** tài liệu canonical để theo dõi kế hoạch, trạng thái, checkpoint, acceptance gate và tiến độ triển khai Agent-Workspace.
 >
-> **Cập nhật:** 2026-09-21
+> **Cập nhật:** 2026-09-22
 >
 > **Mô hình triển khai mục tiêu:** single-user owner, chưa public; Google AI Studio + Firebase + Gemini API; ưu tiên ứng dụng ổn định và người dùng cuối sử dụng được.
 
@@ -40,7 +40,7 @@
 | GĐ1 | Single-user owner foundation, settings/model/credential baseline | **FINAL PASS / LOCKED** | Đã khóa |
 | GĐ2 | Agent execution/chat runtime, SSE, cancellation, session/history, temporary chat/recovery | **FINAL PASS / LOCKED** | Đã khóa |
 | GĐ3 | Capability execution architecture, idempotency, ADK tools, HITL/resume, integration | **FINAL PASS / LOCKED** | Đã khóa |
-| GĐ4 | Persistent personal files + secure file use by end user/Agent | **IN PROGRESS** | `c9b62f2a918c159abb82c12d000d01ef81e927f2` sau Lượt 2 backend |
+| GĐ4 | Persistent personal files + secure file use by end user/Agent | **IN PROGRESS** | `2f45b997db25fd61736b239f71f6d3767aa4a508` — Lượt 2 FINAL PASS / LOCKED |
 | GĐ5 | Production/runtime hardening cho single-user deployment | **PLANNED** | Chỉ mở sau GĐ4 Final Gate |
 | GĐ6 | Final end-user acceptance + release/deployment readiness | **PLANNED** | Chỉ mở sau GĐ5 |
 
@@ -137,104 +137,99 @@ Canonical verification đã đạt 29/29 test files, 271/271 tests tại thời 
 
 ---
 
-## 6.3. GĐ4 Lượt 2 — Secure File Ingestion + End-user Upload Completion
+## 6.3. GĐ4 Lượt 2 — End-user File Upload Pipeline
 
-**Trạng thái tổng: IN PROGRESS**
+**Trạng thái: FINAL PASS / LOCKED**
+
+Canonical HEAD:
+
+`2f45b997db25fd61736b239f71f6d3767aa4a508`
+
+Canonical GitHub Actions verification:
+
+`35644917109`
+
+Lượt 2 đã hoàn thành toàn bộ pipeline upload cho người dùng cuối qua hai phần 2A + 2B, trên cùng canonical file authority của Lượt 1.
 
 ### Lượt 2A — Secure File Ingestion + Validation Pipeline
 
 **Trạng thái: FINAL PASS / LOCKED**
 
-Canonical baseline sau Lượt 2A:
-
-`c9b62f2a918c159abb82c12d000d01ef81e927f2`
-
 Đã hoàn thành:
 
-- `FileIngestionService` làm canonical ingestion/validation gateway trước `UserFileService`;
-- `/api/files` là bounded transport boundary;
+- `FileIngestionService` là canonical ingestion/validation gateway trước `UserFileService`;
+- `/api/files` là bounded server upload transport boundary;
 - actual + declared size validation;
 - filename normalization/display policy;
 - extension + MIME + lightweight signature validation;
-- owner/spoof protection;
-- server-derived authoritative metadata;
-- Lượt 1 cleanup compensation được giữ nguyên;
-- không có direct Storage-write bypass mới.
-
-Canonical GitHub verification:
-
-- manifest: **135/135 PASS**;
-- TypeScript: PASS;
-- Lượt 1 regression: **27/27 PASS**;
-- Capability Tool Bridge: **18/18 PASS**;
-- Full Vitest: **30/30 files, 290/290 tests PASS**;
-- Acceptance: **13/13 PASS**;
-- QA Stage 1–5: ALL PASS;
-- production build: PASS;
-- final manifest: **135/135 PASS**.
+- owner/spoof protection và server-derived authoritative metadata;
+- compensation semantics của Lượt 1 được giữ nguyên;
+- không có direct Firebase Storage write từ browser.
 
 ### Lượt 2B — End-user Upload Integration + Runtime UX Completion
 
-**Trạng thái: PLANNED — việc tiếp theo phải thực hiện**
+**Trạng thái: FINAL PASS / LOCKED**
 
-Mục tiêu: hoàn thiện phần còn lại của Lượt 2 để upload không chỉ tồn tại ở backend mà người dùng cuối sử dụng được ổn định.
+Đã hoàn thành:
 
-Scope bắt buộc:
+- `HomeModule` có entry point upload tối thiểu cho người dùng cuối;
+- frontend upload đi duy nhất qua canonical `/api/files` bằng authenticated request convention hiện hữu;
+- public upload policy dùng chung cho supported types và application limit 20 MiB mà không đưa server/storage internals vào browser;
+- client pre-check chỉ phục vụ UX; server vẫn là security authority;
+- trạng thái select/upload/success/error/retry rõ ràng;
+- duplicate submit bị chặn khi request đang pending;
+- abort/stale-response safety ngăn request cũ ghi đè lựa chọn mới;
+- success UI chỉ dùng canonical public file metadata/opaque file ID, không render storage object/path;
+- machine-readable server errors được map sang thông báo an toàn;
+- không mở chat attachment, Gemini document input, file library hoặc direct browser Storage authority.
 
-- audit UI/file entry points hiện hữu trước khi code;
-- kết nối frontend upload duy nhất tới canonical `/api/files`;
-- file picker/drop interaction tối thiểu, phù hợp UI hiện tại;
-- client pre-check chỉ để UX; server vẫn là authority;
-- progress/loading/disabled state trong khi upload;
-- success state trả canonical file metadata/ID, không storage path;
-- user-facing error mapping cho unsupported type, too large, malformed, unauthorized và server/storage failure;
-- retry an toàn, không tạo duplicate/ghost state;
-- cancellation/unmount/stale-response safety nếu flow UI hiện hữu cần;
-- không direct Firebase Storage upload từ browser;
-- không mở chat attachment/model input ở Lượt 2B;
-- behavioral tests cho UI/API integration và regression đầy đủ.
+### Canonical verification evidence
 
-**Acceptance gate Lượt 2B:** người dùng có thể upload một file được hỗ trợ từ UI và nhận canonical file record; lỗi phổ biến hiển thị rõ; không bypass server ingestion; full regression/build/manifest PASS.
+Tại HEAD `2f45b997db25fd61736b239f71f6d3767aa4a508`, GitHub Actions run `35644917109` đã xác minh:
 
-### GĐ4 Lượt 2 — Completion Gate
+- `npm ci`: PASS;
+- production manifest đầu vào: **138/138 PASS**;
+- TypeScript: PASS;
+- GĐ4 Lượt 1: **27/27 PASS**;
+- Capability Tool Bridge: **18/18 PASS**;
+- GĐ4 Lượt 2A gateway: **16/16 PASS**;
+- GĐ4 Lượt 2B client: **9/9 PASS**;
+- Full Vitest: **31/31 files, 299/299 tests PASS**;
+- Acceptance: **13/13 PASS**;
+- QA Stage 1–5: ALL PASS;
+- production build: PASS;
+- final production manifest: **138/138 PASS**.
 
-Chỉ ghi **GĐ4 Lượt 2 FINAL PASS / LOCKED** khi cả 2A và 2B đã PASS canonical GitHub verification.
-
----
-
-## 6.4. GĐ4 Lượt 3 — Chat Attachment Contract + Gemini Document/Multimodal Input
-
-**Trạng thái: PLANNED — chỉ mở sau Lượt 2 Completion Gate**
-
-Mục tiêu:
-
-`canonical authorized file → chat attachment reference → bounded server resolution → ADK/Gemini model input`
-
-Scope dự kiến:
-
-- chat request attachment contract dùng opaque canonical file ID;
-- server-side owner authorization cho mọi attachment;
-- explicit limits: attachment count, per-file model-input size, aggregate bytes;
-- PDF/image native Gemini multimodal/document input theo API/version thực tế;
-- TXT/Markdown bounded UTF-8 user-content input;
-- file content luôn là untrusted user content, không trở thành system/developer/security instruction;
-- không persist binary/base64 vào chat history;
-- giữ session/history, temporary chat, cancellation, timeout, stale-run isolation;
-- attachment UI tối thiểu trong composer;
-- deterministic error contract;
-- behavioral tests + full regression.
-
-Không làm ở Lượt 3:
-
-- RAG/embeddings/vector DB;
-- OCR pipeline riêng nếu native Gemini input đủ;
-- autonomous file-library browsing;
-- DOCX/XLSX/PPTX nếu chưa có kế hoạch riêng;
-- capability authority thứ hai.
+**Completion gate:** GĐ4 Lượt 2 đã đạt **FINAL PASS / LOCKED**. Phần tiếp theo duy nhất của roadmap là GĐ4 Lượt 3; không mở lại Lượt 2 nếu không có regression/blocker tái hiện được.
 
 ---
 
-## 6.5. GĐ4 Lượt 4 — Personal File Library + Authorized Agent File Operations
+## 6.4. GĐ4 Lượt 3 — Chat Attachment + Gemini Document Input
+
+**Trạng thái: PLANNED — NEXT**
+
+Mục tiêu cấp roadmap:
+
+Cho phép file mà người dùng đã upload qua canonical file pipeline được sử dụng thực sự trong hội thoại/Agent execution theo cách có kiểm soát.
+
+Nguyên tắc kiến trúc bắt buộc cho discovery/implementation sau này:
+
+1. File upload pipeline hiện hữu là canonical ingress; không tạo upload pipeline thứ hai riêng cho chat.
+2. Chat attachment phải reuse canonical file identity, metadata và ownership.
+3. Browser/client không phải authority cho storage object identity, MIME trust, file authorization hoặc Gemini document authority.
+4. Server tiếp tục là trust boundary và phải authorize/resolve attachment từ canonical file authority.
+5. Gemini document input phải được xây trên canonical server-side file authority.
+6. Không bypass auth, file policy, ownership hoặc existing Agent execution architecture.
+7. Không tạo parallel Agent runtime hoặc parallel file authority.
+8. Phải giữ compatibility với persistent chat, temporary chat, cancellation, timeout, stale-run isolation, session/history reconciliation, HITL/tool resume và idempotency đã khóa.
+9. File content luôn là untrusted user data; nội dung file không được tự cấp quyền, thay policy hoặc trở thành security authority.
+10. Discovery Lượt 3 phải đọc source/SDK/runtime thực tế trước khi quyết định Gemini transport/materialization strategy; không mặc định trước inline bytes, Gemini Files API URI, GCS URI hoặc transport cụ thể khác.
+
+Lượt 3 là một lượt riêng. Tài liệu checkpoint này không implementation chat attachment hoặc Gemini document input.
+
+---
+
+## 6.5. GĐ4 Lượt 4 — File Library + Authorized File Operations
 
 **Trạng thái: PLANNED**
 
@@ -338,6 +333,8 @@ Các workstream phải được audit lại tại thời điểm mở GĐ5:
 
 Tại các GitHub verification GĐ4 đã quan sát `npm ci` báo **7 dependency vulnerabilities (5 moderate, 2 high)**. Đây là backlog cần audit riêng; chưa được coi là source defect của GĐ4 và không được tự động `npm audit fix --force`.
 
+Production build cũng đã quan sát bundle JavaScript khoảng **1.216 MB trước gzip**. Đây là non-blocking performance observation, không phải blocker của GĐ4 Lượt 2; chỉ tối ưu sau audit ở workstream hardening phù hợp.
+
 GĐ5 phải tạo threat/risk assessment trước khi sửa dependency.
 
 ---
@@ -432,16 +429,16 @@ Không dùng local-only PASS để thay canonical runtime verification khi lư�
 | GĐ2 | Agent chat/execution runtime | 🔒 LOCKED | GĐ1 | Canonical verification |
 | GĐ3 | Capability execution + HITL | 🔒 LOCKED | GĐ2 | Canonical verification |
 | GĐ4-L1 | File domain/storage foundation | 🔒 LOCKED | GĐ3 | GitHub verification |
-| GĐ4-L2A | Secure ingestion/validation | 🔒 LOCKED | L1 | `c9b62f2...`, 290/290 |
-| **GĐ4-L2B** | **End-user upload integration/UX** | **⬜ NEXT** | L2A | — |
-| GĐ4-L3 | Chat attachment + Gemini document input | ⬜ PLANNED | L2 complete | — |
-| GĐ4-L4 | Personal file library + authorized file operations | ⬜ PLANNED | L3 | — |
+| GĐ4-L2A | Secure ingestion/validation | 🔒 LOCKED | L1 | Canonical Lượt 2 verification |
+| GĐ4-L2B | End-user upload integration/UX | 🔒 LOCKED | L2A | `2f45b997...`, run `35644917109`, 299/299 |
+| **GĐ4-L3** | **Chat attachment + Gemini document input** | **⬜ NEXT** | L2 complete | — |
+| GĐ4-L4 | File library + authorized file operations | ⬜ PLANNED | L3 | — |
 | GĐ4-L5 | Delete/recovery/orphan/security lifecycle | ⬜ PLANNED | L4 | — |
 | GĐ4-L6 | Final GĐ4 E2E integration verification | ⬜ PLANNED | L5 | — |
 | GĐ5 | Production/runtime hardening | ⬜ PLANNED | GĐ4 LOCKED | — |
 | GĐ6 | Final UAT + release readiness | ⬜ PLANNED | GĐ5 | — |
 
-**Current next action:** GĐ4 Lượt 2B.
+**Current next action:** GĐ4 Lượt 3 — CHAT ATTACHMENT + GEMINI DOCUMENT INPUT.
 
 ---
 
