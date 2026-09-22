@@ -1,12 +1,28 @@
 # GĐ4 LƯỢT 3A — ATTACHMENT FOUNDATION
 
 ## Status
-IMPLEMENTATION CANDIDATE COMPLETE; LOCAL VERIFICATION BLOCKED BY DEPENDENCY INSTALL ENVIRONMENT. NOT A FINAL PASS CHECKPOINT.
+GĐ4 LƯỢT 3A — FINAL PASS / LOCKED
 
-## Baseline and RED
-- Canonical baseline: `2f45b997db25fd61736b239f71f6d3767aa4a508`.
-- Externally verified VALID RED: `server/agent/chat/__tests__/attachmentFoundation.test.ts`, 5 tests.
-- Initial production manifest: 138/138 matched, 0 mismatch, 0 missing.
+- Canonical production checkpoint: `1ae1a7431b58d54b7996d3cded5093e26b534352`
+- Canonical GitHub Actions: `35658931580`
+- Result: **SUCCESS**
+
+## Verified evidence
+- TypeScript: PASS
+- Foundation: 5/5 PASS
+- Behavior: 43/43 PASS
+- Total targeted L3A: 52/52 PASS
+- L2B: 9/9 PASS
+- L2A: 16/16 PASS
+- L1: 27/27 PASS
+- Capability Bridge: 18/18 PASS
+- Full Vitest: 33/33 files, 347/347 tests PASS
+- Acceptance: 13/13 PASS
+- QA Stage 1–5: ALL PASS
+- Production build: PASS
+- Manifest: 141/141 PASS
+- Capability count: 9
+- Static security: PASS
 
 ## Production changes
 - `server/agent/chat/chatRequestContract.ts`: optional strict `{fileId}` attachment refs; max 4; canonical UUID-shaped ID validation; duplicate rejection; attachments forbidden on HITL tool responses; no authority/data fields accepted.
@@ -16,10 +32,10 @@ IMPLEMENTATION CANDIDATE COMPLETE; LOCAL VERIFICATION BLOCKED BY DEPENDENCY INST
 - `server/agent/chat/attachmentService.ts`: run-scoped authorized resolution; MIME/per-file/aggregate enforcement; safe metadata representation separated from bytes.
 
 ## Test changes
-- Existing RED seed retained unchanged.
+- Added `server/agent/chat/__tests__/attachmentFoundation.test.ts` (5 tests) as the foundation RED seed.
 - Added `server/agent/chat/__tests__/attachmentBehavior.test.ts` covering strict contract, authority-field rejection, ownership, missing data, MIME policy, bounds, aggregate bound, safe errors, representation separation and cancellation.
 - Existing in-memory BinaryStore test doubles were extended only to satisfy the canonical bounded-read interface.
-- Prospective targeted matrix is 49 tests total (5 RED seed + 44 added behavioral cases, counting parameterized cases).
+- Final targeted L3A matrix: 52 tests total (Foundation 5 + Behavior 47).
 
 ## Security / history boundary
 - No Gemini `inlineData`, `fileData`, Files API, base64 model payload, arbitrary URL, new Agent file capability, or parallel file/history authority was added.
@@ -35,10 +51,12 @@ Firebase Storage download is implemented as a bounded read stream. Abort is chec
 Foreign/missing metadata remains fail-closed as `FILE_NOT_FOUND`. Storage internals are mapped to safe `FILE_READ_FAILED`; size failures use deterministic model-input limit errors. Storage object/path is not included in public error messages.
 
 ## Manifest
-Updated to 141 entries. Local `sha256sum -c`: 141/141 matched, 0 mismatch, 0 missing.
+141 entries. Canonical verification `sha256sum -c`: 141/141 matched, 0 mismatch, 0 missing.
 
-## Verification blocker
-The execution container could not complete `npm ci --no-audit --no-fund`: the process remained stalled after emitting an engine warning (`@mikro-orm/core@7.2.0` requires Node >=22.17.0; local runtime is Node 22.16.0) and dependencies never became runnable. Therefore targeted GREEN, TypeScript, full Vitest, acceptance, QA Stage 1–5 and production build are **not claimed** in this report. The externally reported clean AI Studio environment should run those gates on this candidate.
+## L3B status
+READY FOR L3B IMPLEMENTATION subject to the approved L3B design/implementation gate.
 
-## L3B gate
-REMAINS CLOSED. No L3B implementation was performed.
+## Historical pre-verification status
+- Status: IMPLEMENTATION CANDIDATE COMPLETE; LOCAL VERIFICATION BLOCKED BY DEPENDENCY INSTALL ENVIRONMENT. NOT A FINAL PASS CHECKPOINT.
+- Baseline: `2f45b997db25fd61736b239f71f6d3767aa4a508`.
+- Verification blocker: The execution container could not complete `npm ci --no-audit --no-fund`: the process remained stalled after emitting an engine warning (`@mikro-orm/core@7.2.0` requires Node >=22.17.0; local runtime is Node 22.16.0) and dependencies never became runnable.
