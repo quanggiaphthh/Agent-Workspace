@@ -1,0 +1,77 @@
+name: GD4 L3C assistant-ui API probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-api-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Clean install exact lockfile
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify exact installed versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p l3c-assistant-ui-evidence
+          node - <<'NODE' | tee l3c-assistant-ui-evidence/versions.txt
+          const fs = require('fs');
+          for (const pkg of ['@assistant-ui/react', '@assistant-ui/react-google-adk']) {
+            const path = `node_modules/${pkg}/package.json`;
+            const json = JSON.parse(fs.readFileSync(path, 'utf8'));
+            console.log(`${pkg}@${json.version}`);
+          }
+          NODE
+          grep -Fx '@assistant-ui/react@0.15.20' l3c-assistant-ui-evidence/versions.txt
+          grep -Fx '@assistant-ui/react-google-adk@0.0.30' l3c-assistant-ui-evidence/versions.txt
+
+      - name: Capture package exports and attachment/composer API evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=l3c-assistant-ui-evidence
+          node - <<'NODE' > "$OUT/package-metadata.json"
+          const fs = require('fs');
+          const out = {};
+          for (const pkg of ['@assistant-ui/react', '@assistant-ui/react-google-adk']) {
+            const json = JSON.parse(fs.readFileSync(`node_modules/${pkg}/package.json`, 'utf8'));
+            out[pkg] = { version: json.version, exports: json.exports, types: json.types, main: json.main, module: json.module };
+          }
+          process.stdout.write(JSON.stringify(out, null, 2));
+          NODE
+
+          find node_modules/@assistant-ui/react node_modules/@assistant-ui/react-google-adk \
+            -type f \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.mjs' \) \
+            -print | sort > "$OUT/package-files.txt"
+
+          grep -RniE --include='*.d.ts' --include='*.d.mts' --include='*.ts' --include='*.tsx' \
+            'AttachmentAdapter|PendingAttachment|CompleteAttachment|addAttachment|removeAttachment|clearAttachments|AttachmentDropzone|ComposerPrimitive|attachmentAccept|attachments' \
+            node_modules/@assistant-ui/react node_modules/@assistant-ui/react-google-adk \
+            > "$OUT/attachment-composer-symbols.txt" || true
+
+          grep -RniE --include='*.d.ts' --include='*.d.mts' --include='*.ts' --include='*.tsx' \
+            'use.*Runtime|RuntimeProvider|AssistantRuntime|LocalRuntime|ExternalStore|ThreadRuntime' \
+            node_modules/@assistant-ui/react-google-adk \
+            > "$OUT/google-adk-runtime-symbols.txt" || true
+
+      - name: Upload exact API evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: gd4-l3c-assistant-ui-api-evidence
+          path: l3c-assistant-ui-evidence/
+          if-no-files-found: error
+          retention-days: 7
