@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { RootAgent } from './server/agent/adk/RootAgent';
-import { InMemoryRunner, InMemorySessionService } from '@google/adk';
+import { InMemorySessionService } from '@google/adk';
 import { FirestoreSessionService } from './server/agent/adk/FirestoreSessionService';
 import { adkEventStream } from '@assistant-ui/react-google-adk/server';
 import { ServerCapabilityRegistry } from './server/core/capabilities/serverCapabilityRegistry';
@@ -36,6 +36,8 @@ import { sessionTranscript } from './server/agent/chat/sessionHistory';
 import { FileDomainError } from './server/core/files/UserFileService';
 import { fileIngestionService, userFileService } from './server/core/files/firebaseFileStores';
 import { MAX_FILE_BYTES, buildSafeFileAuditMetadata } from './server/core/files/filePolicy';
+import { createRunScopedArtifactService } from './server/agent/adk/RunScopedArtifactService';
+import { createCanonicalAgentRunner } from './server/agent/adk/nativeArtifactIntegration';
 
 dotenv.config();
 
@@ -800,9 +802,21 @@ app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
 
     const temporaryMode = req.body.temporaryMode === true;
 
+    // Current-request attachments become an immutable, read-only ADK artifact
+    // view. Metadata authorization happens now; bytes remain lazy until ADK's
+    // native LoadArtifactsTool requests an artifact.
+    const attachmentRefs = parsed.attachments ?? [];
+    const artifactService = attachmentRefs.length > 0
+      ? await createRunScopedArtifactService(user.id, attachmentRefs, userFileService, executionDeadline.signal)
+      : undefined;
+
     // 1. Build dynamic agent for this context. Native ADK owns the FunctionCall
     // -> FunctionTool -> FunctionResponse -> continued-reasoning loop.
-    const agent = await RootAgent.buildAgent(execContext, { sessionId, abortSignal: executionDeadline.signal, temporaryMode });
+    const agent = await RootAgent.buildAgent(
+      execContext,
+      { sessionId, abortSignal: executionDeadline.signal, temporaryMode },
+      artifactService !== undefined,
+    );
 
     // 2. Create runner
     const appName = AGENT_APP_NAME;
@@ -822,11 +836,12 @@ app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
       throw err;
     }
 
-    const runner = new InMemoryRunner({
+    const runner = createCanonicalAgentRunner({
       agent,
       appName,
+      sessionService,
+      ...(artifactService ? { artifactService } : {}),
     });
-    (runner as any).sessionService = sessionService;
 
     // 3. Run and stream
     const stream = runner.runAsync({

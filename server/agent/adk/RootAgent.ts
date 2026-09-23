@@ -1,4 +1,5 @@
 import { BaseLlm, Gemini, LlmAgent, type LlmRequest, type BaseLlmConnection } from '@google/adk';
+import { withNativeArtifactLoading } from './nativeArtifactIntegration';
 import { ServerCapabilityRegistry } from '../../core/capabilities/serverCapabilityRegistry';
 import { CapabilityToolNameRegistry } from '../../core/capabilities/capabilityToolNameRegistry';
 import { CredentialService } from '../../core/ai/CredentialService';
@@ -98,7 +99,7 @@ export function assertUniqueAgentToolNames<T extends { id: string }>(capabilitie
 }
 
 export class RootAgent {
-  public static async buildAgent(executionContext: ExecutionContext, runtime: AgentToolRuntimeMetadata): Promise<LlmAgent> {
+  public static async buildAgent(executionContext: ExecutionContext, runtime: AgentToolRuntimeMetadata, artifactLoadingEnabled = false): Promise<LlmAgent> {
     const { user } = executionContext;
     if (!user || user.id === 'guest') {
       throw new Error('Vui lòng đăng nhập để sử dụng Trợ lý AI.');
@@ -116,7 +117,8 @@ export class RootAgent {
     );
 
     assertUniqueAgentToolNames(availableCaps);
-    const tools = availableCaps.map((cap) => CapabilityToolAdapter.createTool(cap, executionContext, runtime));
+    const capabilityTools = availableCaps.map((cap) => CapabilityToolAdapter.createTool(cap, executionContext, runtime));
+    const tools = withNativeArtifactLoading(capabilityTools, artifactLoadingEnabled);
 
     let modelInstance: BaseLlm;
     if (aiConfig.autoRotate) {
