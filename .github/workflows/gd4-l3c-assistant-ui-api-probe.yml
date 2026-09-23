@@ -2,6 +2,10 @@ name: GD4 L3C assistant-ui API probe
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gd4-l3c-assistant-ui-api-probe.yml'
 
 permissions:
   contents: read
