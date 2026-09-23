@@ -1,516 +1,245 @@
-# AGENT-WORKSPACE — PROJECT MASTER PLAN & PROGRESS TRACKER
+# AGENT-WORKSPACE --- PROJECT MASTER PLAN & PROGRESS TRACKER
+
+> **Authority:** historical/canonical technical checkpoint authority.\
+> **Planning repository HEAD audited:**
+> `be6459f250242e5c1201c65680a4dc07d842993a` ---
+> `docs: align MVP tracker with reuse-first completion plan`.\
+> **Latest production implementation checkpoint:**
+> `1ae1a7431b58d54b7996d3cded5093e26b534352` --- GĐ4 L3A FINAL PASS /
+> LOCKED.\
+> **Canonical GitHub Actions:** `35658931580` --- SUCCESS.\
+> Documentation HEAD is not a production implementation checkpoint.
+
+## 1. Canonical authority model
+
+-   `PROJECT_MASTER_PLAN.md` --- historical/canonical technical
+    checkpoints and locked evidence.
+-   `docs/MVP_COMPLETION_PLAN_REUSE_FIRST.md` --- MVP scope, critical
+    path and reuse governance.
+-   `docs/MVP_IMPLEMENTATION_TRACKER.md` --- operational current status.
+-   `docs/MVP_EXECUTION_PHASES.md` --- detailed decomposition of
+    remaining MVP implementation.
+-   `docs/ARCHITECTURE_GUARDRAILS.md` --- mandatory architecture
+    constraints.
+-   `docs/CANONICAL_REUSE_MATRIX_SOURCE_LEVEL.md` --- source/package/API
+    reuse decisions.
 
-> **Vai trò:** tài liệu canonical để theo dõi kế hoạch, trạng thái, checkpoint, acceptance gate và tiến độ triển khai Agent-Workspace.
->
-> **Cập nhật:** 2026-09-22
->
-> **Mô hình triển khai mục tiêu:** single-user owner, chưa public; Google AI Studio + Firebase + Gemini API; ưu tiên ứng dụng ổn định và người dùng cuối sử dụng được.
+No two documents are current-status authorities. If wording conflicts,
+the operational status is taken from the Tracker, while locked technical
+evidence remains governed here.
 
----
+## 2. Locked architecture authorities
 
-## 1. Quy tắc quản trị kế hoạch
+The following remain canonical and must not be duplicated:
 
-1. Mỗi giai đoạn/lượt chỉ được chuyển sang **FINAL PASS / LOCKED** sau khi checker xác minh source và các gate bắt buộc.
-2. Không mở lại phần đã LOCKED trừ khi có regression/blocker tái hiện được.
-3. Mỗi lượt lớn đi theo chu trình: **audit/design → implementation TDD → checker source audit → canonical GitHub runtime verification → LOCK**.
-4. ChatGPT Web thực hiện các lượt phát triển lớn và đóng gói checkpoint; chỉnh sửa nhỏ/corrective có thể giao AI Studio trực tiếp.
-5. Chỉ đưa checkpoint lên AI Studio khi hoàn thành một lượt/giai đoạn đủ lớn hoặc khi cần canonical GitHub verification.
-6. AI Studio là nơi đồng bộ/commit khi phù hợp; **không dùng SHA-256 của ZIP AI Studio để so với checkpoint ZIP gốc**. Sau khi qua AI Studio, xác minh bằng source thực tế, manifest, diff, tests và GitHub Actions.
-7. Không commit/push/deploy từ lượt implementation nếu prompt chưa cho phép.
-8. Không suy diễn PASS. Gate chưa chạy hoặc FAIL thì trạng thái không được ghi FINAL PASS.
-9. `PRODUCTION_SOURCE_MANIFEST.sha256` là integrity gate của production source và phải được cập nhật/xác minh khi production source thay đổi.
-10. Không dùng `npm audit fix --force` trong một lượt tính năng. Dependency/security housekeeping phải tách riêng và kiểm chứng regression.
+-   `ServerCapabilityRegistry` --- runtime capability registry.
+-   `CapabilityExecutionService` --- capability execution gateway.
+-   `ConfirmationService` --- HITL/confirmation authority.
+-   Zod --- runtime validation.
+-   `UserFileService` --- file authority.
+-   `FileIngestionService` --- secure ingestion authority.
+-   Google ADK --- Agent runtime.
+-   Gemini --- AI provider.
+-   Current Firebase stack --- persistence/storage stack.
 
-### Trạng thái chuẩn
+No second Agent runtime, file authority, capability registry/gateway,
+confirmation engine or storage subsystem may be introduced without an
+explicit architecture escalation.
 
-- `PLANNED` — đã xác định scope, chưa bắt đầu.
-- `IN PROGRESS` — đang triển khai/kiểm thử.
-- `SOURCE AUDIT PASS` — checkpoint đã qua checker source audit, chưa có canonical runtime verification.
-- `BLOCKED` — có blocker; phải ghi rõ loại và bằng chứng.
-- `FIX REQUIRED` — có defect tái hiện được cần corrective.
-- `FINAL PASS / LOCKED` — hoàn tất, đã qua canonical verification.
-- `DEFERRED` — cố ý chưa thực hiện, không phải defect của scope hiện tại.
+## 3. Canonical pre-code governance
 
----
+Every remaining implementation workstream must pass the same five gates
+before production code:
 
-## 2. Canonical project status
+**A. SOURCE AUDIT** --- fresh HEAD; relevant current source; existing
+authority; existing tests/integration; exact current dependency
+versions.
 
-| Giai đoạn | Mục tiêu | Trạng thái | Canonical checkpoint/baseline |
-|---|---|---|---|
-| GĐ1 | Single-user owner foundation, settings/model/credential baseline | **FINAL PASS / LOCKED** | Đã khóa |
-| GĐ2 | Agent execution/chat runtime, SSE, cancellation, session/history, temporary chat/recovery | **FINAL PASS / LOCKED** | Đã khóa |
-| GĐ3 | Capability execution architecture, idempotency, ADK tools, HITL/resume, integration | **FINAL PASS / LOCKED** | Đã khóa |
-| GĐ4 | Persistent personal files + secure file use by end user/Agent | **IN PROGRESS** | `1ae1a7431b58d54b7996d3cded5093e26b534352` — GĐ4 Lượt 3A FINAL PASS / LOCKED; Actions `35658931580` — SUCCESS |
-| GĐ5 | Production/runtime hardening cho single-user deployment | **PLANNED** | Chỉ mở sau GĐ4 Final Gate |
-| GĐ6 | Final end-user acceptance + release/deployment readiness | **PLANNED** | Chỉ mở sau GĐ5 |
+**B. REUSE AUDIT** --- existing project code; installed dependencies;
+official SDK/framework APIs; mature upstream GitHub
+implementations/patterns; license/deployment compatibility where
+relevant.
 
-**Lịch sử checkpoint GĐ4:** `2f45b997db25fd61736b239f71f6d3767aa4a508` — GĐ4 Lượt 2 FINAL PASS / LOCKED.
+**C. NEW-CODE NECESSITY PROOF** --- requirement; reuse options checked;
+why direct reuse/configuration is insufficient; smallest
+Agent-Workspace-owned code required.
 
----
+**D. TEST MINIMIZATION PLAN** --- upstream behavior not re-tested;
+app-owned boundaries to test; locked regressions; runtime/E2E evidence
+required.
 
-# 3. GĐ1 — SINGLE-USER OWNER FOUNDATION
+**E. IMPLEMENTATION PLAN** --- files/responsibilities; dependency/order;
+fail-closed/rollback behavior; exit criteria; explicit non-goals.
 
-**Trạng thái: FINAL PASS / LOCKED**
+Only after A--E may a workstream proceed:
 
-Mục tiêu đã khóa:
+`IMPLEMENT → CHECKER → LIVE RUNTIME (when required) → CANONICAL CI → LOCK`
 
-- owner/single-user permission model;
-- settings persistence;
-- Google provider/model baseline;
-- credential policy;
-- không mở multi-user/public scope.
+A gate failure or unsupported seam requires STOP, not an architectural
+workaround.
 
-**Quy tắc:** không refactor GĐ1 trong các giai đoạn sau nếu không có blocker thực tế.
+## 4. Canonical project status
 
----
+| Area | Status | Canonical evidence |
+|---|---|---|
+| GĐ1 | FINAL PASS / LOCKED | single-user owner foundation |
+| GĐ2 | FINAL PASS / LOCKED | Agent execution/chat runtime, SSE, cancellation, session/history, temporary chat/recovery |
+| GĐ3 | FINAL PASS / LOCKED | capability execution, idempotency, native ADK tools, HITL/resume |
+| GĐ4 L1/L2 | FINAL PASS / LOCKED | persistent file authority + secure end-user upload |
+| GĐ4 L3A | FINAL PASS / LOCKED | production checkpoint `1ae1a7431b58d54b7996d3cded5093e26b534352`; Actions `35658931580` SUCCESS |
+| GĐ4 L3B | **DESIGN APPROVED / PRE-IMPLEMENTATION REUSE AUDIT NEXT** | implementation has not started |
+| GĐ4 L3C | PLANNED | starts only after L3B lock |
+| GĐ4 L3D | PLANNED | full user E2E after L3C |
+| MVP W4--W12 | PLANNED | governed by Completion Plan + Execution Phases |
 
-# 4. GĐ2 — AGENT CHAT & EXECUTION RUNTIME
+Capability count at the L3A checkpoint remains **9**.
 
-**Trạng thái: FINAL PASS / LOCKED**
+## 5. GĐ1--GĐ3 locked invariants
 
-Các invariant đã khóa:
+GĐ1--GĐ3 remain locked. Later work must preserve:
 
-- `AgentChatThread → AdkRuntimeProvider → /api/agent/chat → RootAgent → Gemini → SSE`;
-- strict request contract và SSE lifecycle;
-- cancellation/timeout, abort propagation, stale-run isolation;
-- server-persisted ADK session/history; localStorage chỉ giữ pointer;
-- temporary chat không persist sai semantics;
-- recovery và reload behavior được giữ ổn định.
+-   single-user owner semantics;
+-   `AgentChatThread → AdkRuntimeProvider → /api/agent/chat → RootAgent → Gemini → SSE`;
+-   strict chat request/SSE lifecycle;
+-   cancellation/timeout/stale-run isolation;
+-   server-persisted ADK session/history;
+-   temporary chat semantics and recovery;
+-   canonical capability registry/execution/HITL authorities;
+-   durable mutation idempotency;
+-   native ADK FunctionTool bridge.
 
-Không tạo runtime/chat authority thứ hai trong giai đoạn sau.
+Locked phases are not refactored unless a reproducible blocker requires
+it.
 
----
+## 6. GĐ4 --- current document-to-Agent frontier
 
-# 5. GĐ3 — CAPABILITY EXECUTION + HITL
+### 6.1 L1/L2 --- FINAL PASS / LOCKED
 
-**Trạng thái: FINAL PASS / LOCKED**
+The canonical file/storage and secure upload path is locked:
 
-Các invariant canonical:
+`browser → /api/files → FileIngestionService → UserFileService → Firebase`
 
-- `ServerCapabilityRegistry` = canonical runtime registry;
-- `CapabilityExecutionService` = central execution gateway;
-- Zod = canonical runtime validation;
-- `ConfirmationService` = canonical confirmation authority;
-- side-effect / risk / confirmation policy có semantics rõ ràng;
-- durable mutation idempotency/recovery;
-- native ADK FunctionTool bridge;
-- HITL confirmation/resume/reload không tạo workflow authority song song;
-- canonical capability set không được mở rộng ngoài kế hoạch mà không qua design gate.
+Browser code does not become a direct Firebase Storage authority.
 
----
+### 6.2 L3A --- FINAL PASS / LOCKED
 
-# 6. GĐ4 — PERSISTENT PERSONAL FILES + DOCUMENT INPUT
-
-**Trạng thái GĐ4: IN PROGRESS**
-
-## 6.1. Mục tiêu GĐ4
-
-Cho phép một người dùng thực sự:
-
-1. upload file an toàn;
-2. quản lý file cá nhân bền vững;
-3. đính kèm file vào chat;
-4. để Gemini/Agent hiểu file được người dùng cấp quyền trong đúng lượt/ngữ cảnh;
-5. đọc/tái sử dụng file theo quyền và lifecycle rõ ràng;
-6. xóa/khôi phục/xử lý lỗi an toàn;
-7. hoàn tất end-to-end runtime verification.
-
-**Không biến GĐ4 thành:** project/workspace platform, virtual filesystem, generic cloud drive, artifact platform, vector database/RAG platform hoặc multi-user collaboration.
-
----
-
-## 6.2. GĐ4 Lượt 1 — Secure File Domain + Storage Foundation
-
-**Trạng thái: FINAL PASS / LOCKED**
-
-Đã hoàn thành:
-
-- Firebase Storage chứa binary;
-- Firestore `user_files` chứa canonical metadata;
-- `UserFileService` là canonical file/storage-record authority;
-- ownership server-derived;
-- UUID/object-path isolation;
-- MIME/signature validation foundation;
-- application upload limit 20 MiB;
-- compensation khi metadata persistence thất bại;
-- owner-authorized resolve;
-- `files.read` / `files.write` trong canonical permission catalog;
-- không thêm Agent file capability ở Lượt 1.
-
-Canonical verification đã đạt 29/29 test files, 271/271 tests tại thời điểm khóa Lượt 1.
-
----
-
-## 6.3. GĐ4 Lượt 2 — End-user File Upload Pipeline
-
-**Trạng thái: FINAL PASS / LOCKED**
-
-Canonical HEAD:
-
-`2f45b997db25fd61736b239f71f6d3767aa4a508`
-
-Canonical GitHub Actions verification:
-
-`35644917109`
-
-Lượt 2 đã hoàn thành toàn bộ pipeline upload cho người dùng cuối qua hai phần 2A + 2B, trên cùng canonical file authority của Lượt 1.
-
-### Lượt 2A — Secure File Ingestion + Validation Pipeline
-
-**Trạng thái: FINAL PASS / LOCKED**
-
-Đã hoàn thành:
-
-- `FileIngestionService` là canonical ingestion/validation gateway trước `UserFileService`;
-- `/api/files` là bounded server upload transport boundary;
-- actual + declared size validation;
-- filename normalization/display policy;
-- extension + MIME + lightweight signature validation;
-- owner/spoof protection và server-derived authoritative metadata;
-- compensation semantics của Lượt 1 được giữ nguyên;
-- không có direct Firebase Storage write từ browser.
-
-### Lượt 2B — End-user Upload Integration + Runtime UX Completion
-
-**Trạng thái: FINAL PASS / LOCKED**
-
-Đã hoàn thành:
-
-- `HomeModule` có entry point upload tối thiểu cho người dùng cuối;
-- frontend upload đi duy nhất qua canonical `/api/files` bằng authenticated request convention hiện hữu;
-- public upload policy dùng chung cho supported types và application limit 20 MiB mà không đưa server/storage internals vào browser;
-- client pre-check chỉ phục vụ UX; server vẫn là security authority;
-- trạng thái select/upload/success/error/retry rõ ràng;
-- duplicate submit bị chặn khi request đang pending;
-- abort/stale-response safety ngăn request cũ ghi đè lựa chọn mới;
-- success UI chỉ dùng canonical public file metadata/opaque file ID, không render storage object/path;
-- machine-readable server errors được map sang thông báo an toàn;
-- không mở chat attachment, Gemini document input, file library hoặc direct browser Storage authority.
-
-### Canonical verification evidence
-
-Tại HEAD `2f45b997db25fd61736b239f71f6d3767aa4a508`, GitHub Actions run `35644917109` đã xác minh:
-
-- `npm ci`: PASS;
-- production manifest đầu vào: **138/138 PASS**;
-- TypeScript: PASS;
-- GĐ4 Lượt 1: **27/27 PASS**;
-- Capability Tool Bridge: **18/18 PASS**;
-- GĐ4 Lượt 2A gateway: **16/16 PASS**;
-- GĐ4 Lượt 2B client: **9/9 PASS**;
-- Full Vitest: **31/31 files, 299/299 tests PASS**;
-- Acceptance: **13/13 PASS**;
-- QA Stage 1–5: ALL PASS;
-- production build: PASS;
-- final production manifest: **138/138 PASS**.
-
-**Completion gate:** GĐ4 Lượt 2 đã đạt **FINAL PASS / LOCKED** và được giữ trong lịch sử canonical. Không mở lại Lượt 2 nếu không có regression/blocker tái hiện được.
-
----
-
-## 6.4. GĐ4 Lượt 3 — Chat Attachment + Gemini Document Input
-
-**Trạng thái: IN PROGRESS**
-
-Tiến độ:
-
-- **L3 Discovery & Architecture Audit — COMPLETE**
-- **L3 Implementation Plan — COMPLETE**
-- **L3A — FINAL PASS / LOCKED**
-- **L3B — DESIGN GATE NEXT**
-- **L3C — PLANNED**
-- **L3D — PLANNED**
-
-Mục tiêu cấp roadmap: cho phép file mà người dùng đã upload qua canonical file pipeline được sử dụng thực sự trong hội thoại/Agent execution theo cách có kiểm soát, không tạo upload pipeline, file authority hoặc Agent runtime song song.
-
-### 6.4.1. GĐ4 Lượt 3A — Contract + Authorized Bounded Read + Safe Attachment Representation
-
-**Status: FINAL PASS / LOCKED**
-
-Canonical HEAD:
+Canonical production checkpoint:
 
 `1ae1a7431b58d54b7996d3cded5093e26b534352`
 
-Canonical GitHub Actions:
+Canonical Actions:
 
-`35658931580` — **SUCCESS**
+`35658931580` --- SUCCESS.
 
-#### Nội dung đã khóa
+Locked L3A semantics include strict opaque `fileId` attachment
+references, owner authorization, bounded reads, safe durable metadata
+separated from run-scoped bytes, per-file/aggregate bounds, no durable
+binary/base64 and unchanged capability count 9.
 
-- strict optional chat attachment contract;
-- attachment chỉ truyền opaque `fileId`;
-- tối đa 4 attachments/turn;
-- duplicate/malformed/unknown/authority fields bị reject;
-- `UserFileService` vẫn là canonical ownership/file authority;
-- `BinaryStore` có bounded streaming read;
-- metadata size chỉ defense-in-depth;
-- actual streamed bytes vẫn bounded;
-- foreign/missing fail closed;
-- canonical MIME policy cho model input;
-- per-file 20 MiB;
-- aggregate 20 MiB/turn;
-- safe durable attachment metadata tách khỏi run-scoped `Buffer`;
-- không persist binary/base64 vào ADK history;
-- capability count vẫn 9;
-- không Agent file capability mới.
+L3A did **not** implement model invocation materialization or composer
+attachment UX.
 
-#### Canonical verification evidence
+### 6.3 L3B --- Native ADK attachment materialization
 
-- manifest **141/141 PASS**;
-- TypeScript **PASS**;
-- targeted L3A **52/52 PASS**;
-- L2B **9/9 PASS**;
-- L2A **16/16 PASS**;
-- L1 **27/27 PASS**;
-- Capability Bridge **18/18 PASS**;
-- Full Vitest **33/33 files, 347/347 tests PASS**;
-- **0 failed**;
-- **0 unhandled**;
-- Acceptance **13/13 PASS**;
-- QA Stage 1–5 **ALL PASS**;
-- production build **PASS**;
-- static security **PASS**.
+**Status: DESIGN APPROVED / PRE-IMPLEMENTATION REUSE AUDIT NEXT.**
 
-#### L3A chưa thực hiện
+Design direction is approved. Production implementation has not started.
+Exact installed ADK audit is mandatory before code.
 
-L3A **chưa** hoàn thành và không được mô tả là đã hoàn thành các nội dung sau:
+#### L3B decision table
 
-- Gemini `inlineData`;
-- Gemini `fileData`;
-- Gemini Files API;
-- model invocation materialization;
-- chat composer attachment UX;
-- File Library;
-- RAG;
-- Agent file capability.
-
-### 6.4.2. GĐ4 Lượt 3B — DESIGN GATE
-
-**Trạng thái: DESIGN GATE NEXT**
-
-Trước implementation L3B phải:
-
-1. dùng dependency hiện hành;
-2. đọc exact installed `@google/adk` 2.1.0 source/types;
-3. xác định exact supported invocation-local LLM request enrichment seam;
-4. chứng minh attachment media/text có thể materialize run-scoped cho Gemini mà không persist media-bearing Parts vào durable ADK history;
-5. kiểm tra compatibility với Runner/session/events/SSE/cancellation;
-6. nếu không có clean supported seam: **ARCHITECTURE ESCALATION**;
-7. không bypass Runner;
-8. không hack ADK durable history.
-
-**Gate:** chỉ sau checker approval mới được implementation L3B.
-
-### 6.4.3. GĐ4 Lượt 3C — Composer Attachment UX + History/Recovery/Temporary-chat Semantics
-
-**Trạng thái: PLANNED**
-
-Mục tiêu giữ nguyên:
-
-- chat composer attachment UX;
-- attachment selection/state semantics;
-- history/recovery behavior;
-- temporary-chat semantics;
-- giữ compatibility với canonical file identity/authority và runtime invariants đã khóa.
-
-### 6.4.4. GĐ4 Lượt 3D — Final L3 Integration + Real Gemini/Firebase Runtime Verification
-
-**Trạng thái: PLANNED**
-
-Mục tiêu giữ nguyên:
-
-- final integration của Lượt 3;
-- real Gemini/Firebase runtime verification;
-- xác minh document/media input đúng turn và không phá durable history, SSE, cancellation, recovery hoặc Agent execution semantics.
-
----
-
-## 6.5. GĐ4 Lượt 4 — File Library + Authorized File Operations
-
-**Trạng thái: PLANNED**
-
-Chỉ thiết kế sau khi Lượt 3 đã LOCK để tránh tạo tool contract trước khi model-input semantics ổn định.
-
-Mục tiêu:
-
-- giao diện file library cá nhân tối thiểu, dùng được;
-- list/get metadata/download/open theo quyền;
-- chọn file đã lưu để attach lại vào chat;
-- canonical read semantics;
-- nếu Master Plan sau audit xác nhận cần Agent file tool: thêm tool/capability qua GĐ3 canonical registry/execution/confirmation architecture, không bypass;
-- pagination/bounds phù hợp;
-- không generic filesystem;
-- không arbitrary path access;
-- không semantic search/RAG trong lượt này.
-
-Acceptance: người dùng quản lý và tái sử dụng file cá nhân; mọi read/list/attach đều owner-authorized; capability/tool nếu có đi qua canonical GĐ3 execution path.
-
----
-
-## 6.6. GĐ4 Lượt 5 — File Lifecycle Security, Delete, Recovery & Orphan Control
-
-**Trạng thái: PLANNED**
-
-Mục tiêu:
-
-- canonical delete lifecycle;
-- metadata/blob consistency;
-- idempotent delete/retry;
-- partial failure recovery;
-- orphan detection/cleanup strategy;
-- deleted/unavailable file fail-closed;
-- safe behavior khi chat/history còn reference tới file đã xóa;
-- authorization regression;
-- audit/error observability cần thiết cho single-user runtime;
-- không expose internal storage identity.
-
-Phải xác định rõ hard-delete/soft-delete semantics từ architecture hiện hữu trước implementation; không tự thêm recycle-bin feature nếu chưa cần.
-
----
-
-## 6.7. GĐ4 Lượt 6 — Final Integration + End-to-End Runtime Verification
-
-**Trạng thái: PLANNED**
-
-Đây trước hết là **VERIFY FIRST → FIX ONLY REPRODUCIBLE BLOCKERS → RE-VERIFY**.
-
-E2E tối thiểu:
-
-1. user upload file từ UI;
-2. server ingest/validate/store;
-3. canonical metadata tồn tại đúng owner;
-4. user attach file vào chat;
-5. server authorize/resolve;
-6. Gemini/Agent sử dụng file đúng turn;
-7. history/reload semantics đúng;
-8. file library/reuse đúng;
-9. delete/lifecycle đúng;
-10. foreign/spoof/malformed/oversized cases fail closed;
-11. cancellation/retry không tạo stale/duplicate state.
-
-Final gates:
-
-- clean dependency install;
-- production manifest;
-- TypeScript;
-- toàn bộ GĐ4 targeted suites;
-- GĐ1–GĐ3 regression suites;
-- full Vitest 0 fail / 0 unhandled;
-- canonical QA Stage 1–5;
-- production build;
-- final manifest;
-- runtime probe trong môi trường Firebase/Gemini hợp lệ nếu cần;
-- security architecture audit.
-
-Chỉ sau gate này mới ghi **GĐ4 FINAL PASS / LOCKED**.
-
----
-
-# 7. GĐ5 — SINGLE-USER PRODUCTION/RUNTIME HARDENING
-
-**Trạng thái: PLANNED — không mở trước khi GĐ4 LOCKED**
-
-Mục tiêu: xử lý các vấn đề vận hành còn lại trước release ổn định, không phát triển feature lớn.
-
-Các workstream phải được audit lại tại thời điểm mở GĐ5:
-
-1. dependency/security audit có kiểm soát;
-2. xử lý các vulnerability thực sự ảnh hưởng runtime, không dùng force upgrade mù quáng;
-3. Firebase IAM/Rules/Storage Rules verification trên môi trường phù hợp;
-4. secret/configuration separation giữa client/server;
-5. error handling/logging/observability tối thiểu;
-6. request/body/rate/resource bounds phù hợp single-user deployment;
-7. backup/recovery/configuration documentation cần thiết;
-8. production deployment configuration trên Firebase/Google AI Studio;
-9. smoke test sau deploy;
-10. regression toàn bộ GĐ1–GĐ4.
-
-### Backlog đã biết cần đánh giá tại GĐ5
-
-Tại các GitHub verification GĐ4 đã quan sát `npm ci` báo **7 dependency vulnerabilities (5 moderate, 2 high)**. Đây là backlog cần audit riêng; chưa được coi là source defect của GĐ4 và không được tự động `npm audit fix --force`.
-
-Production build cũng đã quan sát bundle JavaScript khoảng **1.216 MB trước gzip**. Đây là non-blocking performance observation, không phải blocker của GĐ4 Lượt 2; chỉ tối ưu sau audit ở workstream hardening phù hợp.
-
-GĐ5 phải tạo threat/risk assessment trước khi sửa dependency.
-
----
-
-# 8. GĐ6 — FINAL USER ACCEPTANCE + RELEASE READINESS
-
-**Trạng thái: PLANNED**
-
-Mục tiêu: chứng minh ứng dụng single-user hoàn chỉnh, ổn định và sẵn sàng sử dụng thực tế.
-
-Acceptance scenarios tối thiểu:
-
-- login/owner session;
-- settings/model/credential;
-- persistent chat;
-- temporary chat;
-- cancellation/timeout/recovery;
-- capability execution;
-- confirmation/HITL/resume;
-- mutation idempotency;
-- file upload;
-- file attach/document understanding;
-- file library/reuse;
-- file lifecycle/delete;
-- reload/restart recovery;
-- representative failure paths;
-- production smoke test.
-
-Final release gates:
-
-- source/manifest integrity;
-- full TypeScript/tests/QA/build;
-- runtime configuration verified;
-- no open BLOCKER/HIGH source defect;
-- known limitations documented;
-- deployment/runbook current;
-- final canonical commit recorded;
-- final checker verdict: **RELEASE READY** hoặc **FIX REQUIRED**.
-
----
-
-# 9. Deferred / Out of Current Scope
-
-Các mục sau không được tự động đưa vào implementation chỉ vì có liên quan:
-
-- multi-user/public SaaS;
-- organizations/teams;
-- project/workspace entity;
-- virtual filesystem;
-- generic cloud-drive behavior;
-- arbitrary external URL ingestion;
-- DOCX/XLSX/PPTX processing nếu chưa có design riêng;
-- OCR service riêng nếu chưa chứng minh cần;
-- embeddings/vector DB/RAG;
-- semantic file search;
-- public sharing;
-- autonomous broad file browsing;
-- mobile-native application;
-- enterprise administration.
-
-Mỗi mục chỉ được mở bằng discovery/design riêng sau khi core single-user application ổn định.
-
----
-
-# 10. Canonical verification matrix
-
-Mỗi lượt feature phải lựa chọn gate theo phạm vi, nhưng trước khi LOCK một giai đoạn lớn phải có đầy đủ:
-
-| Gate | Yêu cầu |
+| Exact installed ADK finding | Decision |
 |---|---|
-| Source integrity | baseline đúng, diff đúng scope |
-| Manifest | 100% matched, 0 missing/mismatch |
-| TypeScript | PASS |
-| Targeted tests | PASS, exact counts được ghi |
-| Prior-stage regression | PASS |
-| Full Vitest | 0 fail, 0 unhandled |
-| Canonical QA | Stage 1–5 PASS |
-| Production build | PASS |
-| Security audit | PASS hoặc limitation được phân loại |
-| Runtime verification | GitHub Actions/canonical environment PASS |
-| Final manifest | 100% matched |
+| Supported Runner DI + artifactService seam + native `LoadArtifactsTool`/`processLlmRequest` seam | Use native ADK; implement the smallest thin adapter. |
+| Native API is usable but needs small glue | Record NEW-CODE NECESSITY PROOF; implement thin adapter only. |
+| Required seam is private/internal/unsupported/incompatible with exact installed version | **STOP --- BLOCKED / ARCHITECTURE ESCALATION.** |
+| Solution requires Runner bypass, custom Gemini call loop, durable media-bearing history mutation, second artifact framework, second file authority or second Agent runtime | **STOP.** |
+| Upstream HEAD/docs differ from installed package | **Exact installed package wins.** |
 
-Không dùng local-only PASS để thay canonical runtime verification khi lượt đó thay production behavior.
+#### L3B runtime probe boundary
+
+L3B proves only the artifact/model runtime boundary:
+
+`known canonical uploaded file → current-run authorized artifact mapping → native ADK artifact loading → Gemini receives/reads attachment → content-dependent response`
+
+It must also prove same-owner unattached/foreign/stale-turn rejection,
+bounded lazy read, cancellation, no durable binary/base64, no
+storage-authority leakage, no Runner bypass, capability count 9, and no
+regression of persistent/temporary/HITL semantics.
+
+L3B is **not** the full browser-composer E2E.
+
+### 6.4 L3C --- Composer attachment UX
+
+L3C owns:
+
+`browser File → existing /api/files → canonical fileId → assistant-ui attachment lifecycle → chat request attachment reference`
+
+Required UX: Vietnamese; pending/complete/remove/retry;
+stale/abort/error handling; no browser base64 as canonical transport.
+
+### 6.5 L3D --- Full Firebase + Gemini E2E
+
+L3D is the full user workflow:
+
+`browser select → upload → fileId → composer attach → send → server authorization → run-scoped artifact materialization → Gemini understands file → SSE → reload/history`
+
+It additionally verifies temporary chat, cancellation,
+malformed/foreign/oversized cases, no binary/base64 or storage-path
+leak, and recovery/error behavior.
+
+L3D is primarily integration/verification, not a feature-building phase.
+
+## 7. MVP scope reconciliation
+
+Canonical MVP is exactly:
+
+**CORE WEBAPP + AGENT CHATBOX + TASK MODULE**
+
+The former GĐ4 planning for a standalone File Library, generic
+authorized file operations and a broad file-lifecycle product is
+**superseded for MVP execution** unless a concrete MVP acceptance
+blocker proves one is required. File security/lifecycle defects may be
+fixed inside the owning phase, but a File Library is not an MVP
+workstream.
+
+Post-MVP and not opened by this plan:
+
+-   Biên tập;
+-   Quản lý tài liệu;
+-   Research;
+-   Định dạng văn bản hành chính;
+-   RAG/vector DB;
+-   connector ecosystem;
+-   marketplace;
+-   multi-user administration;
+-   custom Agent runtime.
+
+## 8. Remaining MVP milestones
+
+Detailed phase/lượt decomposition is canonical in
+`docs/MVP_EXECUTION_PHASES.md`.
+
+-   **M1 --- Document → Agent:** L3B → L3C → L3D.
+-   **M2 --- Modular Foundation:** W4 composition/isolation hardening.
+-   **M3 --- Product UX:** W5 App Shell → W6 Home → W7 Agent → W8 Task →
+    W9 Settings/module management.
+-   **M4 --- Release:** W10 integrated acceptance → W11
+    security/operations hardening → W12 UAT/deployment/release.
+
+Canonical dependency spine:
+
+`L3B → L3C → L3D → W4 → W5 → W6 → W7 → W8 → W9 → W10 → W11 → W12`
+
+After W4, selected UX discovery may be parallelized, but the above
+remains the checker-controlled canonical execution order.
+
+## 9. Verification rule
+
+Documentation-only planning updates do not change production checkpoint,
+manifest, tests, dependencies, workflows or runtime.
+
+A production phase may be locked only after its defined
+application-owned tests, locked regressions, required live/runtime
+evidence and canonical CI have passed. `MVP FINAL PASS / LOCKED` is
+reserved for W12 after real UAT/deployment evidence.
