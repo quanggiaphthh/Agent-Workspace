@@ -1,314 +1,208 @@
-# AGENT-WORKSPACE — MVP COMPLETION PLAN (REUSE-FIRST)
+# AGENT-WORKSPACE --- MVP COMPLETION PLAN (REUSE-FIRST)
 
-> Canonical product target: **Core Webapp + Trợ lý AI + Công việc (Task)**  
-> Planning date: 2026-09-22  
-> Governing principle: **REUSE > CONFIGURE > ADAPT > BUILD**  
-> Historical checkpoint authority: `PROJECT_MASTER_PLAN.md`  
-> Progress tracker: `docs/MVP_IMPLEMENTATION_TRACKER.md`
+> **Authority:** MVP scope + critical path + reuse governance.\
+> **MVP:** Core Webapp + Trợ lý AI + Công việc (Task).\
+> **Current production checkpoint:**
+> `1ae1a7431b58d54b7996d3cded5093e26b534352` --- GĐ4 L3A FINAL PASS /
+> LOCKED.\
+> **Planning HEAD audited:**
+> `be6459f250242e5c1201c65680a4dc07d842993a`.\
+> Detailed execution decomposition: `docs/MVP_EXECUTION_PHASES.md`.\
+> Operational status: `docs/MVP_IMPLEMENTATION_TRACKER.md`.
 
-## 1. Product definition
+## 1. Product boundary
 
-Agent-Workspace is a single-user modular Agent web application. The stable Core provides authentication, application shell, navigation, settings, module lifecycle/composition, permissions, persistence, file infrastructure, shared UI and Agent runtime. The Agent Chatbox is the common interaction/orchestration surface. Business functions are supplied by independent modules that can be enabled, disabled, attached or removed without breaking Core or unrelated modules.
-
-MVP scope is intentionally limited to:
+Agent-Workspace is a single-user modular Agent webapp. MVP contains
+only:
 
 1. stable Core Webapp;
 2. usable Gemini/Google ADK Agent Chatbox;
 3. Task as the first complete reference business module.
 
-Post-MVP modules remain deferred: Biên tập, Quản lý tài liệu, Research, Định dạng văn bản hành chính and later extensions.
+Biên tập, Quản lý tài liệu, Research, Định dạng văn bản hành chính,
+RAG/vector DB, connector ecosystem, marketplace, multi-user
+administration and custom Agent runtime are post-MVP.
 
-## 2. Mandatory reuse policy
+## 2. Canonical reuse priority
 
-Every implementation task must prove the following decision sequence before new production code is written:
+`REUSE → CONFIGURE → ADOPT → ADAPT → BUILD NEW`
 
-1. Can verified Agent-Workspace code already satisfy the requirement?
-2. Can an already-installed dependency satisfy it?
-3. Does the official Google/Firebase/ADK/assistant-ui API already provide it?
-4. Is there a mature, compatible open-source implementation/pattern that can be adopted or adapted?
-5. Can the requirement be satisfied with a thin adapter/configuration layer?
-6. Only if all previous answers are no: build new application-owned implementation.
+Every workstream asks first:
 
-A new dependency is not justified merely because it is popular. It must remove more custom implementation/test burden than it adds, remain compatible with Google AI Studio/Firebase deployment, avoid a second authority/runtime, and belong to the owning module rather than Core where possible.
+> Chức năng này đã tồn tại ở đâu và phần nhỏ nhất Agent-Workspace thực
+> sự phải sở hữu là gì?
 
-## 3. Test minimization policy
+No significant production code is written without a NEW-CODE NECESSITY
+PROOF.
 
-Do not reproduce upstream unit tests for mature dependencies. Agent-Workspace tests must concentrate on application-owned boundaries and invariants:
+## 3. Canonical five-gate pre-code model
 
-- adapter input/output mapping;
-- authentication/authorization and authority boundaries;
-- policy enforcement;
-- cancellation/stale-run isolation;
-- persistence/history invariants;
-- module enable/disable isolation;
-- error mapping;
-- end-to-end user workflows with pinned versions.
+All remaining implementation workstreams use the same gates:
 
-Prefer a small number of high-value contract/integration/E2E tests over large suites that merely re-test ADK, Firebase, assistant-ui, Radix/shadcn or other upstream internals.
+- **A. SOURCE AUDIT:** fresh HEAD, relevant source, authorities, tests/integration, exact dependency versions.
+- **B. REUSE AUDIT:** current project code, installed packages, official APIs, mature upstream patterns, compatibility/license where relevant.
+- **C. NEW-CODE NECESSITY PROOF:** requirement, options checked, insufficiency of direct reuse/configuration, smallest owned code.
+- **D. TEST MINIMIZATION PLAN:** upstream behavior not re-tested, app-owned boundaries, locked regressions, runtime/E2E evidence.
+- **E. IMPLEMENTATION PLAN:** files/responsibilities, order, fail-closed/rollback, exit criteria, non-goals.
+
+Only after A--E:
+
+`IMPLEMENT → CHECKER → LIVE RUNTIME → CANONICAL CI → LOCK`
+
+"LIVE RUNTIME" is required when the phase exit gate depends on real
+Firebase/Gemini/device/deployment behavior.
 
 ## 4. Current verified state
 
-Locked foundation:
+GĐ1--GĐ3 and GĐ4 L1/L2/L3A are locked. L3A canonical production
+checkpoint is `1ae1a7431b58d54b7996d3cded5093e26b534352`, Actions
+`35658931580` SUCCESS, and capability count remains 9.
 
-- GĐ1: LOCKED — single-user owner/permission baseline;
-- GĐ2: LOCKED — Agent execution, SSE, cancellation/timeout, sessions/history, temporary chat and recovery;
-- GĐ3: LOCKED — capability contract/registry, execution gateway, validation, idempotency, HITL and native ADK tool bridge;
-- GĐ4 L1/L2A/L2B: LOCKED — canonical file authority, secure ingestion and end-user upload;
-- GĐ4 L3A: FINAL PASS / LOCKED.
+Current frontier:
 
-Canonical L3A production checkpoint:
+**GĐ4 L3B --- DESIGN APPROVED / PRE-IMPLEMENTATION REUSE AUDIT NEXT.**
 
-`1ae1a7431b58d54b7996d3cded5093e26b534352`
+Implementation has not started.
 
-Canonical L3A GitHub Actions:
+## 5. M1 --- Document → Agent
 
-`35658931580` — SUCCESS.
+### W1 / GĐ4 L3B --- Native ADK attachment materialization
 
-L3A evidence includes targeted 52/52 PASS, full Vitest 33/33 files and 347/347 tests PASS, Acceptance 13/13 PASS, QA Stage 1–5 PASS, production build PASS, manifest 141/141 PASS and capability count 9.
+Goal: prove current-turn canonical attachments can reach Gemini through
+a supported native ADK seam without durable binary/base64.
 
-Current implementation frontier: **GĐ4 L3B**.
+L3B is split into:
 
-## 5. Reuse map for remaining MVP
+- **L3B-0 --- EXACT ADK REUSE GATE:** A--E gates; exact installed package wins over upstream HEAD/docs.
+- **L3B-1 --- RUN-SCOPED ARTIFACT BRIDGE:** smallest thin adapter, current-run whitelist, lazy bounded read, abort, safe mapping.
+- **L3B-2 --- NATIVE ADK INTEGRATION:** supported Runner/artifactService/LoadArtifactsTool or equivalent native seam; preserve sessions/SSE/HITL.
+- **L3B-3 --- BOUNDARY VERIFICATION + RUNTIME PROBE:** app-owned tests, locked regressions, real Gemini content-dependent probe, checker and canonical CI.
 
-| Need | Preferred reuse | Decision |
-|---|---|---|
-| Agent runtime/tool lifecycle | installed Google ADK | ADOPT |
-| L3B document materialization | ADK `Runner`, artifact APIs, `LoadArtifactsTool` | ADAPT with thin run-scoped adapter |
-| Canonical file authority | existing `UserFileService` + file policy | REUSE |
-| Upload | existing `/api/files`, `FileIngestionService`, `fileUploadClient` | REUSE |
-| L3C attachment lifecycle/UI | installed assistant-ui attachment/composer primitives | ADAPT thin canonical-fileId adapter |
-| Chat/thread UI | existing assistant-ui integration | REUSE |
-| Auth/DB/blob storage | Firebase | REUSE |
-| Runtime validation | existing Zod contracts | REUSE |
-| Capability execution/HITL | existing registry, `CapabilityExecutionService`, `ConfirmationService` | REUSE |
-| Routing | existing TanStack Router | REUSE |
-| Client state | existing state solution/Zustand where already used | REUSE |
-| Core UI | existing local primitives; selectively reuse shadcn/Radix patterns/components | REUSE/ADAPT |
-| Tool/HITL presentation | existing UI first; assistant-ui/tool-ui only if it removes custom presentation code | EVALUATE |
-| Task async caching | current fetch/state first; TanStack Query only if repeated cache/refetch complexity is demonstrated | DEFER |
-| Task drag/reorder | dnd-kit only if Kanban/reorder is accepted into MVP | CONDITIONAL |
-| Complex forms | React Hook Form + Zod only if Task forms become materially complex | DEFER |
-| Post-MVP document parsing/editing | module-local mature libraries/repositories | DEFER |
+#### Mandatory decision table
 
-## 6. Critical path to MVP
+| Finding | Action |
+|---|---|
+| Supported Runner DI + artifactService + native loading seam | Native ADK + smallest thin adapter |
+| Usable native API needs minor glue | NEW-CODE NECESSITY PROOF + thin adapter only |
+| Seam private/internal/unsupported/incompatible | STOP --- BLOCKED / ARCHITECTURE ESCALATION |
+| Requires Runner bypass/custom Gemini loop/durable media history/second artifact or file authority/runtime | STOP |
+| Upstream differs from installed version | Exact installed package wins |
 
-### M1 — Complete Agent document input
+#### L3B exit boundary
 
-#### W1 — GĐ4 L3B: native ADK attachment materialization
+Known canonical uploaded file → authorized current-run mapping → native
+ADK loading → real Gemini content-dependent understanding.
 
-Goal: Gemini can read current-turn canonical attachments without durable binary/base64 persistence.
+Also prove same-owner unattached, foreign and stale-turn blocked;
+bounded lazy read; AbortSignal; no durable binary/base64; no
+storage-path/authority leakage; no Runner bypass; capability count 9;
+persistent/temporary/HITL regressions preserved.
 
-Reuse-first implementation:
+**L3B does not own browser composer E2E.**
 
-- inspect exact installed `@google/adk` 2.1.0;
-- reuse native `Runner` constructor injection;
-- reuse native artifact APIs and `LoadArtifactsTool` if exact installed source supports the approved seam;
-- reuse `UserFileService` authorization/bounded read;
-- write only a thin current-run read-only artifact adapter if necessary;
-- do not build a custom Gemini document loop, second file authority or second Agent runtime.
+### W2 / GĐ4 L3C --- Composer attachment UX
 
-Required application tests only: current-run whitelist, foreign/same-owner-unattached rejection, bounded lazy read, cancellation, no durable binary/base64, persistent/temporary semantics and locked regressions.
+Split into:
 
-Exit gate: checker + real runtime evidence + canonical CI. Do not call FINAL PASS before those gates.
+- **L3C-0:** exact installed assistant-ui reuse audit + A--E.
+- **L3C-1:** canonical `AttachmentAdapter` integration over existing `fileUploadClient` + `/api/files`.
+- **L3C-2:** Vietnamese composer UX, pending/complete/remove/retry, stale/abort/error/recovery.
+- **L3C-3:** targeted verification + locked regressions.
 
-#### W2 — GĐ4 L3C: composer attachment UX
+Boundary:
 
-Goal: Vietnamese user flow `Đính kèm -> chọn tệp -> gửi -> hỏi tài liệu`.
+`browser File → /api/files → canonical fileId → assistant-ui lifecycle → chat attachment reference`
 
-Reuse-first implementation:
+No browser base64/data URL as canonical transport; no second attachment
+state machine where installed assistant-ui can supply it.
 
-- inspect exact installed assistant-ui attachment/runtime API before coding;
-- reuse its pending/complete attachment lifecycle, composer/thread primitives and accessibility behavior;
-- reuse existing `fileUploadClient` and `/api/files`;
-- implement only canonical `fileId` mapping, Vietnamese presentation and Agent-Workspace-specific error/stale/abort wiring;
-- never adopt data-URL/base64 attachment storage as canonical chat state.
+### W3 / GĐ4 L3D --- Real Firebase + Gemini full E2E
 
-Do not hand-build a second attachment state machine if assistant-ui can provide it.
+Primarily integration/verification:
 
-#### W3 — GĐ4 L3D: live Firebase/Gemini E2E
+`browser select → upload → fileId → attach → send → authorize → run-scoped materialize → Gemini understands → SSE → reload/history`
 
-Goal: prove the real workflow:
+Also verify temporary chat, cancellation, malformed/foreign/oversized
+rejection, no binary/base64/storage-path leak and recovery/error
+behavior.
 
-`upload -> attach -> authorize -> bounded read -> Gemini understands content -> SSE -> reload/history`.
+Do not create a new abstraction merely to make L3D testable.
 
-Also verify temporary chat, cancellation, malformed/foreign/oversized rejection and no binary/base64/storage-path leakage.
+## 6. M2 --- Modular Foundation
 
-Prefer runtime/E2E evidence; do not create another abstraction merely to make this phase testable.
+### W4 --- Module composition + isolation hardening
 
-### M2 — Prove modular product foundation
+Execution decomposition:
 
-#### W4 — module composition/isolation hardening
+- **W4A:** current module architecture/source audit + reuse/reference decision + A--E.
+- **W4B:** client/server composition boundary hardening.
+- **W4C:** Task enable/disable/re-enable, capability/UI isolation, failure containment.
+- **W4D:** canonical module-isolation verification.
 
-Task is the reference optional module. Required behavior:
+Do not build marketplace, remote plugin loader, generic DI framework or
+second registry.
 
-- enable;
-- disable;
-- re-enable;
-- UI contribution disappears/returns;
-- Task capability disappears/returns;
-- Core and Agent remain healthy;
-- failure in Task does not create a second registry/authority or break unrelated Core paths.
+## 7. M3 --- Product UX
 
-Reuse strategy:
+- **W5 --- Core App Shell UX:** Vietnamese, responsive, iPad-first, basic iPhone, stable navigation, reuse existing UI primitives.
+- **W6 --- Home UX:** daily-use Home, Task summary and Agent affordance; remove architecture/demo surface; no new business authority.
+- **W7 --- Agent UX:** Vietnamese surface, history, temporary chat, attachments, HITL, loading/error/recovery, responsive/collapsible panel.
+- **W8 --- Task Reference Module:** complete usable Task domain/UX and Agent parity.
+- **W9 --- Settings + Module Management UX:** Task enable/disable/re-enable and relevant settings; no marketplace.
 
-- harden existing module catalog/registry/composition first;
-- use researched xNet/NanoGemClaw concepts only as source-level references for lifecycle/contributions;
-- do not import a second plugin runtime;
-- do not build marketplace, remote plugins or generic dependency-injection framework for MVP.
+W8 may decompose into W8A audit/contract, W8B
+CRUD/status/deadline/priority/persistence, W8C
+today/overdue/upcoming/search/filter UX, W8D Agent parity/HITL, W8E
+verification.
 
-Only add module contract fields that are required by Task and immediately exercised.
+Optional packages such as TanStack Query, dnd-kit, React Hook Form or
+date-fns require concrete net-code/test-reduction proof.
 
-### M3 — Product UX consolidation
+## 8. M4 --- Release
 
-#### W5 — Core/App Shell
+### W10 --- MVP integrated acceptance
 
-Goal: stable, responsive, Vietnamese shell suitable for daily personal use.
+Canonical workflows: login/open/reload; Home; Task UI; Agent
+query/mutate Task; HITL; Task disable/re-enable; persistent and
+temporary chat; document attachment; cancellation; recovery/error
+handling.
 
-Reuse existing local UI. Add missing shadcn/Radix-style primitives selectively rather than building custom button/dialog/sidebar systems. No wholesale frontend rewrite.
+### W11 --- Security + operations hardening
 
-Acceptance: iPad landscape/portrait, basic iPhone usability, keyboard/touch usability, consistent loading/error/empty states and collapsible Agent panel.
+Only justified single-user hardening: Firebase rules, server auth,
+secrets/config, dependency exploitability, logging/diagnostics,
+backup/recovery. App Check only if threat model proves need.
 
-#### W6 — Home
+### W12 --- UAT + deployment + release
 
-Replace architecture/demo-oriented surfaces with user-oriented daily summary/actions. Reuse existing Task/file/Agent services; Home must not become a new business authority.
+Real iPad; iPhone smoke; desktop smoke; clean build/deploy
+reproducibility; production deployment; final canonical Actions; final
+docs reconciliation.
 
-#### W7 — Agent panel
+Only W12 may conclude **MVP FINAL PASS / LOCKED**, and only with real
+evidence.
 
-Consolidate existing assistant-ui integration. User-facing language must be Vietnamese and implementation jargon removed. Reuse upstream thread/composer/message/tool primitives where compatible.
+## 9. Dependency DAG
 
-#### W8 — Task reference module
+Canonical checker-controlled order:
 
-Goal: first complete business module and proof of the modular architecture.
+`L3B → L3C → L3D → W4 → W5 → W6 → W7 → W8 → W9 → W10 → W11 → W12`
 
-Minimum user capability:
+After W4, some UX discovery may run in parallel when it does not modify
+shared boundaries, but production checkpoint order remains explicit.
 
-- view tasks;
-- create/edit/complete/archive or delete according to existing domain contract;
-- priority/status/deadline where already supported or clearly required;
-- useful filtering such as today/overdue/upcoming if supported without unnecessary framework expansion;
-- Agent query/create/update parity through canonical capabilities;
-- persistence/reload;
-- enable/disable lifecycle proof.
+## 10. Superseded pre-MVP file-library planning
 
-Reuse existing Task source and capability contracts first. Do not rewrite Task merely to fit a new framework. Add TanStack Query, dnd-kit, React Hook Form or date-fns only after a concrete audit proves they reduce net owned code/test burden.
+A standalone File Library/generic file-operations phase is not part of
+the current MVP. Canonical file authority and secure upload remain
+platform foundations; document attachment is completed through L3B--L3D.
+Broader document management belongs post-MVP unless a concrete MVP
+acceptance blocker requires a narrowly scoped correction.
 
-#### W9 — Settings/module management
+## 11. Completion definition
 
-Provide a simple Vietnamese surface for Task enable/disable/re-enable and relevant Agent/application settings. Reuse canonical module state and settings authorities. No plugin marketplace.
+MVP is complete only when the deployed application reliably supports:
 
-### M4 — MVP integration and release
+`Đăng nhập → giao diện tiếng Việt → persistent/temporary Agent chat → upload/attach document → Gemini reads it → create/update Task through Agent/HITL → Task UI reflects state → reload preserves correct state → disable/re-enable Task without breaking Core/Agent → recover from common errors.`
 
-#### W10 — integrated acceptance
-
-Required user workflows:
-
-1. Login/open/reload.
-2. View Home task summary.
-3. Create Task via UI.
-4. Query tasks via Agent.
-5. Create/update Task via Agent.
-6. Complete risky mutation through canonical HITL where applicable.
-7. Disable Task and verify UI/tool disappearance while Core/Agent remain healthy.
-8. Re-enable Task and verify recovery.
-9. Persistent chat reload.
-10. Temporary chat non-persistence.
-11. Attach document and ask a content-dependent question.
-12. Stop/cancel generation.
-13. Recover from network/history/file errors.
-
-Prefer these E2E workflows over duplicative low-level tests.
-
-#### W11 — security/operations hardening
-
-Only justified hardening required for the single-user MVP:
-
-- Firebase/security rules and server authorization review;
-- secret/config separation;
-- dependency/security review with exploitability assessment rather than blind upgrades;
-- App Check only if deployment threat model and environment justify it;
-- logging/diagnostics sufficient to recover a personal deployment;
-- no unnecessary observability platform or second backend.
-
-#### W12 — single-user UAT/release readiness
-
-- real iPad/iPhone/desktop smoke tests;
-- backup/export/recovery path for important user data as justified;
-- production deployment configuration;
-- clean install/build/deploy reproducibility;
-- final canonical GitHub Actions evidence;
-- update Master Plan and tracker;
-- declare `MVP FINAL PASS / LOCKED` only after real user workflows pass.
-
-## 7. Explicitly out of MVP
-
-Do not start before MVP lock:
-
-- Quản lý tài liệu;
-- Biên tập;
-- Research;
-- Định dạng văn bản hành chính;
-- RAG/vector database;
-- generic connector ecosystem;
-- remote plugin marketplace;
-- multi-user/organization administration;
-- custom agent/orchestration framework;
-- custom document parser/office editor unless required by an accepted MVP workflow.
-
-Each post-MVP module begins with a new reuse audit and must pass the same module-isolation contract.
-
-## 8. Development governance for every remaining workstream
-
-Every workstream must follow:
-
-`USER NEED -> CURRENT SOURCE AUDIT -> INSTALLED DEPENDENCY AUDIT -> OFFICIAL SDK/API AUDIT -> MATURE GITHUB REUSE AUDIT -> REUSE/CONFIGURE/ADAPT/BUILD DECISION -> MINIMAL CHANGE -> APP-OWNED CONTRACT/INTEGRATION TESTS -> USER E2E -> CHECKER -> AI STUDIO REAL RUNTIME -> GITHUB CI -> LOCK`
-
-Before writing new production code, the implementation report must contain a short **New-code necessity proof**:
-
-- requirement;
-- existing code checked;
-- installed package/API checked;
-- upstream implementation checked;
-- why direct reuse is insufficient;
-- smallest new adapter/domain code required;
-- tests that are genuinely Agent-Workspace-owned.
-
-If that proof is absent, implementation should stop at design review.
-
-## 9. GitHub progress management
-
-`PROJECT_MASTER_PLAN.md` remains the authority for historical/canonical technical checkpoints.
-
-`docs/MVP_IMPLEMENTATION_TRACKER.md` is the operational MVP tracker and must be updated after each locked workstream.
-
-This plan defines scope/order/reuse policy and should change only when product scope or architecture governance changes.
-
-For each checkpoint record:
-
-- Workstream;
-- Baseline;
-- Canonical HEAD;
-- Reused upstream components/APIs;
-- New-code necessity proof;
-- Files changed;
-- Production changes;
-- Targeted application-owned tests;
-- Locked regressions;
-- Full tests/build/manifest;
-- Runtime/live probe;
-- Known limitations;
-- Verdict;
-- Next action.
-
-## 10. MVP completion definition
-
-MVP is complete when a user can reliably perform this real workflow in the deployed application:
-
-`Đăng nhập -> giao diện tiếng Việt -> chat với Agent -> persistent/temporary conversation -> upload/attach a document -> Gemini reads it -> ask Agent to create/update work -> Task UI reflects the change -> reload preserves the correct state -> disable Task without breaking Core/Agent -> re-enable Task -> recover from common errors.`
-
-Passing test counts alone do not constitute MVP completion.
-
-## 11. Immediate next action
-
-**W1 / GĐ4 L3B** is the next implementation workstream.
-
-Before any L3B production code, prove the exact installed ADK 2.1.0 seam and prefer native `Runner` + artifact APIs + `LoadArtifactsTool`. The intended Agent-Workspace-owned implementation is only the smallest run-scoped adapter needed to connect canonical `UserFileService` authority to that upstream mechanism.
+Passing test counts alone is insufficient.
