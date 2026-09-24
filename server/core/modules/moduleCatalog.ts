@@ -27,28 +27,3 @@ class ServerModuleCatalog {
 }
 
 export const serverModuleCatalog = new ServerModuleCatalog();
-
-// Seed Core Modules
-serverModuleCatalog.register({
-  id: 'home',
-  name: 'Home Dashboard',
-  enabled: true,
-  canDisable: false,
-  version: '1.0.0',
-});
-
-serverModuleCatalog.register({
-  id: 'settings',
-  name: 'Module Manager & Settings',
-  enabled: true,
-  canDisable: false,
-  version: '1.0.0',
-});
-
-serverModuleCatalog.register({
-  id: 'tasks',
-  name: 'Task Management',
-  enabled: true,
-  canDisable: true,
-  version: '1.0.0',
-});
