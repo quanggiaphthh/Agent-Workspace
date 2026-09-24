@@ -1,10 +1,11 @@
 # AGENT-WORKSPACE — PROJECT MASTER PLAN & PROGRESS TRACKER
 
 > **Authority:** canonical technical checkpoints and locked evidence.  
-> **Canonical production/clean HEAD:** `3e512e2279c9f1793d18082f0d7fcabc33247453`.  
-> **Canonical GitHub Actions:** `35946098473` — run #43 — SUCCESS.  
-> **Current milestone:** M1 Document → Agent — FINAL PASS / LOCKED.  
-> **Next:** M2 / W4 — Modular Foundation.
+> **Canonical production/deployed checkpoint:** `3cb25f3c38917577e6b0106324b136a099883d9a`.  
+> **Canonical GitHub Actions for production checkpoint:** `36015708311` — run #96 — SUCCESS.  
+> **Current milestone:** **MVP FINAL PASS / LOCKED**.  
+> **Next:** none inside MVP; any new feature must open a post-MVP bounded workstream.  
+> Documentation-only commits may advance repository HEAD after the production checkpoint without creating a new production checkpoint.
 
 ## 1. Canonical authority model
 
@@ -12,7 +13,7 @@
 - `PROJECT_MASTER_PLAN.md` — locked technical checkpoints and evidence.
 - `docs/MVP_COMPLETION_PLAN_REUSE_FIRST.md` — MVP scope, critical path and reuse governance.
 - `docs/MVP_IMPLEMENTATION_TRACKER.md` — operational current status.
-- `docs/MVP_EXECUTION_PHASES.md` — detailed remaining execution sequence.
+- `docs/MVP_EXECUTION_PHASES.md` — detailed execution sequence/history.
 - `docs/ARCHITECTURE_GUARDRAILS.md` — mandatory architecture constraints.
 - `docs/CANONICAL_REUSE_MATRIX_SOURCE_LEVEL.md` — source/package/API reuse decisions.
 
@@ -31,12 +32,14 @@ The following remain canonical and must not be duplicated:
 - Google ADK — Agent runtime.
 - Gemini — AI provider.
 - Current Firebase stack — persistence/storage stack.
+- `LocalModuleRegistry` — canonical client module-state authority.
+- `ServerModuleCatalog` — canonical server module-state authority.
 
-No second Agent runtime, file authority, capability registry/gateway, confirmation engine or storage subsystem may be introduced without architecture escalation.
+No second Agent runtime, file authority, capability registry/gateway, confirmation engine, module-state authority or storage subsystem may be introduced without architecture escalation.
 
-## 3. Canonical pre-code governance
+## 3. Canonical implementation governance
 
-Every remaining implementation workstream must pass:
+Every future bounded implementation workstream uses:
 
 **A. SOURCE AUDIT → B. REUSE AUDIT → C. NEW-CODE NECESSITY PROOF → D. TEST MINIMIZATION PLAN → E. IMPLEMENTATION PLAN**
 
@@ -46,7 +49,7 @@ Then:
 
 Reuse priority:
 
-`REUSE → CONFIGURE → ADOPT → ADAPT → BUILD NEW`
+`REUSE_LOCAL → EXTEND_LOCAL → REUSE_DEPENDENCY → ADAPT_EXTERNAL → BUILD MINIMUM NEW CODE`
 
 A gate failure or unsupported seam requires STOP, not an architectural workaround. Do not re-test generic upstream behavior or unrelated locked areas unless the current change can affect them.
 
@@ -61,63 +64,100 @@ A gate failure or unsupported seam requires STOP, not an architectural workaroun
 | GĐ4 L3A | FINAL PASS / LOCKED | attachment contract, authorization, bounded read, safe durable metadata |
 | GĐ4 L3B | FINAL PASS / LOCKED | native ADK artifact materialization + run-scoped bridge + real Gemini runtime proof |
 | GĐ4 L3C | FINAL PASS / LOCKED | composer attachment integration over canonical `/api/files` + `fileId` |
-| GĐ4 L3D / M1 | **FINAL PASS / LOCKED** | real Firebase + Gemini full Document → Agent E2E; canonical Actions #43 SUCCESS |
-| M2 / W4 | **NEXT** | module composition/isolation hardening |
-| W5–W12 | PLANNED | governed by Completion Plan + Execution Phases |
+| GĐ4 L3D / M1 | FINAL PASS / LOCKED | real Firebase + Gemini full Document → Agent E2E |
+| W4 | FINAL PASS / LOCKED | modular composition/isolation, lifecycle ordering, Task ownership |
+| W5 | FINAL PASS / LOCKED | Core/App Shell UX |
+| W6 | FINAL PASS / LOCKED | Home daily-dashboard UX |
+| W7 | FINAL PASS / LOCKED | Agent UX |
+| W8 | FINAL PASS / LOCKED | Task completion UX |
+| W9 | FINAL PASS / LOCKED | Settings + local module management UX |
+| W10 | FINAL PASS / LOCKED | integrated live MVP acceptance |
+| W11 | FINAL PASS / LOCKED | security + operations hardening |
+| W12 | **FINAL PASS / LOCKED** | production deployment, release smoke and final Task-modal corrective |
 
-Capability count remains **9** business capabilities through M1.
+Current business capability count: **10**.
 
-## 5. M1 — Document → Agent — FINAL PASS / LOCKED
+## 5. Locked MVP scope
 
-Canonical user path is proven:
-
-`browser File → /api/files → canonical fileId → composer attachment → /api/agent/chat → authorized current-run artifact → native ADK LoadArtifactsTool → Gemini → SSE → reload/history`
-
-Locked properties include:
-
-- opaque canonical `fileId` attachment references;
-- current-run whitelist and same-owner-unattached/foreign/stale rejection;
-- lazy bounded binary reads with cancellation propagation;
-- native public ADK Runner/artifact integration; no Runner bypass or second Gemini loop;
-- composer upload reuses existing `fileUploadClient` and `/api/files`;
-- no browser base64/data URL canonical transport;
-- no durable binary/base64/storage authority leakage;
-- persistent and temporary chat semantics preserved;
-- real Gemini content-dependent document read proven;
-- canonical GitHub Actions run `35946098473` (#43) SUCCESS on clean HEAD `3e512e2279c9f1793d18082f0d7fcabc33247453`.
-
-M1 is closed. L3A–L3D are not reopened without a reproducible regression/blocker.
-
-## 6. MVP scope
-
-Canonical MVP remains exactly:
+Canonical MVP is exactly:
 
 **CORE WEBAPP + AGENT CHATBOX + TASK MODULE**
 
-Deferred post-MVP: Biên tập; Quản lý tài liệu; Research; Định dạng văn bản hành chính; RAG/vector DB; connector ecosystem; marketplace; multi-user administration; custom Agent runtime.
+The deployed product is a **single-user personal app, not public**.
+
+Deferred post-MVP: Biên tập; Quản lý tài liệu; Research; Định dạng văn bản hành chính; RAG/vector DB; connector ecosystem; marketplace/public plugin ecosystem; multi-user/team/org/billing; custom Agent runtime.
 
 A standalone File Library is not an MVP workstream.
 
-## 7. Remaining milestones
+## 6. Locked end-user path
 
-- **M2 — Modular Foundation:** W4 composition/isolation hardening.
-- **M3 — Product UX:** W5 App Shell → W6 Home → W7 Agent → W8 Task → W9 Settings/module management.
-- **M4 — Release:** W10 integrated acceptance → W11 security/operations hardening → W12 UAT/deployment/release.
+The deployed application has proven:
 
-Canonical remaining dependency spine:
+`Firebase owner login → Vietnamese Core Shell/Home/Agent/Task/Settings → persistent/temporary Agent chat → browser upload → canonical fileId attachment → authorized run-scoped ADK artifact → Gemini reads document → Agent list/create/update Task → HITL deny/approve → Task UI update → reload persistence → cancellation without stale completion → Task disable/re-enable with durable data preservation → recoverable-error continuation`
 
-`W4 → W5 → W6 → W7 → W8 → W9 → W10 → W11 → W12`
+Locked properties include:
 
-## 8. Current next action — W4A
+- production `OWNER_UID` fail-closed owner binding;
+- canonical permission allowlisting; no arbitrary custom permission expansion;
+- deny-all direct browser Firestore and Storage access;
+- server-authoritative module state across Agent capabilities and Task REST APIs;
+- secure file ownership and bounded reads; no durable binary/base64 history persistence;
+- encrypted personal AI credentials with secret redaction;
+- production diagnostic Firebase test route unavailable;
+- strict Task due-date validation (`YYYY-MM-DD` or empty);
+- Task update through `system.tasks.update` requires server-authoritative confirmation;
+- Task module disable hides navigation/widgets/capabilities and blocks Task REST operations while preserving data;
+- Task create/edit modal respects `isOpen`, does not auto-open on route entry, and closes correctly via cancel/backdrop/save;
+- dependency security policy and W11 Security QA included in canonical CI.
 
-Perform source/architecture/reuse audit of the existing module composition and Task ownership boundaries. Reuse current registries and module infrastructure. Do not introduce a marketplace, remote plugin loader, generic DI framework, second registry or second runtime.
+## 7. Release evidence
 
-W4 must prove Task can be enabled, disabled and re-enabled without breaking Core or Agent, while preserving Task durable data and capability/UI isolation.
+### 7.1 Production checkpoint
 
-## 9. Final completion rule
+- Exact deployed source commit: `3cb25f3c38917577e6b0106324b136a099883d9a`.
+- Production URL: `https://ais-pre-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
+- Development URL: `https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
+- Firestore and Storage rules deployment: SUCCESS.
 
-MVP is complete only when the deployed application reliably supports:
+### 7.2 Canonical CI
 
-`Đăng nhập → UI tiếng Việt → persistent/temporary Agent chat → upload/attach document → Gemini reads it → Agent create/update Task through canonical gateway/HITL → Task UI reflects state → reload preserves state → disable/re-enable Task without breaking Core/Agent → common-error recovery.`
+GitHub Actions run `36015708311` (#96) succeeded on the exact deployed production checkpoint, including:
 
-Only W12 with real UAT/deployment evidence may conclude **MVP FINAL PASS / LOCKED**.
+- dependency policy;
+- production manifest verification;
+- TypeScript;
+- targeted GĐ4 regressions;
+- full Vitest;
+- QA Stage 1–5;
+- W11 Security QA;
+- production build;
+- final manifest verification.
+
+### 7.3 Live release verification
+
+W10 live acceptance passed the full end-user flow. W12 production smoke then proved release/security boundaries. A final reproducible Task-modal regression was corrected in commit `3cb25f3c...`, deployed, and passed six focused browser scenarios: no auto-open on Task entry; create opens; cancel closes; backdrop closes; edit opens correct data and cancels safely; successful create saves and closes.
+
+## 8. Rollback / operations anchor
+
+- Stable production checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
+- Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and all production secrets across redeploy/rollback.
+- Source rollback does not automatically delete or revert Firestore/Storage data.
+- Security rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
+- Keep the narrow ADK→adm-zip dependency exception under its documented expiry/review policy; do not use `npm audit fix --force` as a release shortcut.
+
+## 9. Post-MVP boundary
+
+MVP is closed. Do not reopen W4–W12 for enhancement work.
+
+Future work must be explicitly classified as one of:
+
+1. reproducible MVP regression/security corrective; or
+2. a new post-MVP bounded workstream/module.
+
+Static packaged module composition remains intentional. Do not introduce marketplace/remote plugin loading merely to replace static imports.
+
+## 10. Final completion rule — satisfied
+
+The final completion rule has been met on the deployed production checkpoint.
+
+**AGENT-WORKSPACE MVP — FINAL PASS / LOCKED.**
