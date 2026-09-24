@@ -15,20 +15,22 @@ export interface RecoveredConfirmation {
   toolCallId: string;
   name: string;
   args: unknown;
+  recovered: true;
   confirmation: { hint?: string; payload?: unknown };
 }
 
 /**
- * A hydrated confirmation is actionable only when durable history proves there
- * is a stable ADK confirmation call and no matching response/result. Hydration
- * itself never executes a tool or sends a FunctionResponse.
+ * Durable transcript reconstruction identifies only a candidate pending HITL
+ * request. It never proves the server challenge is still unexpired/unconsumed;
+ * the canonical ConfirmationService revalidates all bindings when the user
+ * approves or rejects it.
  */
 export function reconstructPendingConfirmations(messages: PersistedChatMessage[]): RecoveredConfirmation[] {
   const answered = new Set<string>();
   for (const message of messages) {
     if (!Array.isArray(message.content)) continue;
     for (const part of message.content) {
-      if (part.type === 'tool-response' && part.toolCallId) answered.add(part.toolCallId);
+      if ((part.type === 'tool-response' || part.type === 'error') && part.toolCallId) answered.add(part.toolCallId);
     }
   }
 
@@ -44,6 +46,7 @@ export function reconstructPendingConfirmations(messages: PersistedChatMessage[]
         toolCallId: part.toolCallId,
         name: part.toolName,
         args: part.args ?? {},
+        recovered: true,
         confirmation: {
           hint: typeof args.hint === 'string' ? args.hint : undefined,
           payload: args.payload,
