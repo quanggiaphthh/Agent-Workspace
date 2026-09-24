@@ -11,6 +11,7 @@ const protector = read('server/core/ai/credentialSecretProtector.ts');
 const audit = read('server/core/audit/auditRedaction.ts');
 const server = read('server.ts');
 const filePolicy = read('server/core/files/filePolicy.ts');
+const rootAgent = read('server/agent/adk/RootAgent.ts');
 const gitignore = read('.gitignore');
 const firebase = JSON.parse(read('firebase.json'));
 
@@ -18,7 +19,8 @@ check('Firestore client access remains fail-closed', /match \/\{document=\*\*\}/
 check('Storage client access is explicitly denied', /service firebase\.storage/.test(storageRules) && /allow read, write: if false/.test(storageRules));
 check('Firebase deployment config wires both rulesets', firebase.firestore?.some?.((entry) => entry.rules === 'firestore.rules') && firebase.storage?.rules === 'storage.rules');
 check('server identity still requires verified Firebase tokens', identity.includes('adminAuth.verifyIdToken(token)'));
-check('optional configured owner UID is enforced server-side', identity.includes('process.env.OWNER_UID') && identity.includes('OWNER_MISMATCH'));
+check('production requires configured owner UID', identity.includes("process.env.NODE_ENV === 'production'") && identity.includes('OWNER_NOT_CONFIGURED'));
+check('configured owner UID is enforced server-side', identity.includes('process.env.OWNER_UID') && identity.includes('OWNER_MISMATCH'));
 check('token verifier details are not reflected to callers', identity.includes("new Error('Unauthorized: Token verification failed')") && !identity.includes('Token verification failed: ${err.message}'));
 check('personal credentials remain AES-256-GCM protected', protector.includes("'aes-256-gcm'") && protector.includes('CREDENTIAL_ENCRYPTION_KEY'));
 check('audit redaction covers bearer, token, credential and secret material', /bearer/i.test(audit) && /token/i.test(audit) && /credential/i.test(audit) && /secret/i.test(audit));
@@ -26,6 +28,7 @@ check('production HTTP guards remain present', server.includes('helmet(') && ser
 check('authenticated JSON payloads remain bounded', server.includes("express.json({ limit: '1mb' })"));
 check('expensive provider/Agent requests retain per-user limiting', server.includes('expensiveUserLimiter') && server.includes("user:${(req as any).user?.id || 'missing-auth'}"));
 check('file ingestion does not accept ZIP archives', !filePolicy.includes('application/zip'));
+check('Agent construction does not enable an ADK skills loader', !/skill(?:s|Loader|Toolset)/i.test(rootAgent));
 check('environment files remain ignored except the template', gitignore.includes('.env*') && gitignore.includes('!.env.example'));
 
 let failures = 0;

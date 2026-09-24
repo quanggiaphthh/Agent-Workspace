@@ -8,9 +8,9 @@ export class ServerIdentityProvider {
    * Resolves identity exclusively from a Firebase token verified by Admin SDK.
    * Client-provided role/permission state is never trusted here.
    *
-   * OWNER_UID is an optional deployment allowlist during W11. When configured,
-   * even a valid Firebase identity must match it before receiving owner access.
-   * W12 release verification requires production to configure this value.
+   * OWNER_UID is the production single-owner allowlist. Production fails closed
+   * when it is missing; non-production environments may omit it for hermetic
+   * tests and local development.
    */
   public static async getIdentity(req: any): Promise<UserContext> {
     const authHeader = req.headers.authorization || req.headers.Authorization;
@@ -41,6 +41,12 @@ export class ServerIdentityProvider {
     }
 
     const ownerUid = process.env.OWNER_UID?.trim();
+    if (process.env.NODE_ENV === 'production' && !ownerUid) {
+      const configErr = new Error('Service owner configuration is unavailable.');
+      (configErr as any).status = 503;
+      (configErr as any).code = 'OWNER_NOT_CONFIGURED';
+      throw configErr;
+    }
     if (ownerUid && decodedToken.uid !== ownerUid) {
       const ownerErr = new Error('Forbidden: authenticated account is not the configured owner.');
       (ownerErr as any).status = 403;

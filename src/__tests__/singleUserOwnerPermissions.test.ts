@@ -17,6 +17,7 @@ import { ServerIdentityProvider } from '../../server/core/auth/identityProvider'
 
 const ownerPermissions = [...SINGLE_USER_OWNER_PERMISSIONS];
 const originalOwnerUid = process.env.OWNER_UID;
+const originalNodeEnv = process.env.NODE_ENV;
 
 function requestWithToken(extra: Record<string, unknown> = {}) {
   return {
@@ -29,11 +30,14 @@ describe('single-user owner permission baseline', () => {
   beforeEach(() => {
     verifyIdToken.mockReset();
     delete process.env.OWNER_UID;
+    process.env.NODE_ENV = 'test';
   });
 
   afterEach(() => {
     if (originalOwnerUid === undefined) delete process.env.OWNER_UID;
     else process.env.OWNER_UID = originalOwnerUid;
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
   });
 
   it('gives an authenticated normal user the complete owner permission set', () => {
@@ -108,6 +112,13 @@ describe('single-user owner permission baseline', () => {
     verifyIdToken.mockRejectedValue(new Error('sensitive-verifier-detail'));
     await expect(ServerIdentityProvider.getIdentity(requestWithToken()))
       .rejects.toMatchObject({ status: 401, message: 'Unauthorized: Token verification failed' });
+  });
+
+  it('fails closed in production when OWNER_UID is not configured', async () => {
+    process.env.NODE_ENV = 'production';
+    verifyIdToken.mockResolvedValue({ uid: 'owner-1', email: 'owner@example.test' });
+    await expect(ServerIdentityProvider.getIdentity(requestWithToken()))
+      .rejects.toMatchObject({ status: 503, code: 'OWNER_NOT_CONFIGURED' });
   });
 
   it('rejects a valid Firebase identity that does not match configured OWNER_UID', async () => {
