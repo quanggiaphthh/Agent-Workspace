@@ -66,7 +66,6 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
           isMobile ? 'w-full' : 'w-[340px] xl:w-[380px] 2xl:w-[420px]'
         }`}
       >
-        {/* Top Header with Context Badges */}
         <div className="p-3.5 border-b border-neutral-200 bg-neutral-50/70 space-y-2 shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -104,7 +103,6 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
             </div>
           )}
 
-          {/* Live Context Bridge Status Bar */}
           <div className="p-2 rounded bg-white border border-neutral-200/80 text-[11px] space-y-1" aria-label="Ngữ cảnh hiện tại">
             <div className="flex items-center justify-between text-neutral-500">
               <span className="flex items-center gap-1">
@@ -135,7 +133,6 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
             )}
           </div>
 
-          {/* Persistent Sidebar Tabs: Chat, Memory & History */}
           <div className="flex bg-neutral-200/70 p-0.5 rounded-lg text-xs font-medium" role="tablist" aria-label="Các khu vực Trợ lý">
             <button
               type="button"
@@ -143,11 +140,7 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
               role="tab"
               aria-selected={activeTab === 'chat'}
               aria-controls="agent-panel-content"
-              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${
-                activeTab === 'chat'
-                  ? 'bg-white text-neutral-900 shadow-2xs font-bold'
-                  : 'text-neutral-600 hover:text-neutral-900'
-              }`}
+              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${activeTab === 'chat' ? 'bg-white text-neutral-900 shadow-2xs font-bold' : 'text-neutral-600 hover:text-neutral-900'}`}
             >
               <MessageSquare className="h-3.5 w-3.5" />
               <span>Trò chuyện</span>
@@ -158,11 +151,7 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
               role="tab"
               aria-selected={activeTab === 'memory'}
               aria-controls="agent-panel-content"
-              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${
-                activeTab === 'memory'
-                  ? 'bg-white text-neutral-900 shadow-2xs font-bold'
-                  : 'text-neutral-600 hover:text-neutral-900'
-              }`}
+              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${activeTab === 'memory' ? 'bg-white text-neutral-900 shadow-2xs font-bold' : 'text-neutral-600 hover:text-neutral-900'}`}
             >
               <Brain className="h-3.5 w-3.5" />
               <span>Bộ nhớ AI</span>
@@ -173,11 +162,7 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
               role="tab"
               aria-selected={activeTab === 'history'}
               aria-controls="agent-panel-content"
-              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${
-                activeTab === 'history'
-                  ? 'bg-white text-neutral-900 shadow-2xs font-bold'
-                  : 'text-neutral-600 hover:text-neutral-900'
-              }`}
+              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${activeTab === 'history' ? 'bg-white text-neutral-900 shadow-2xs font-bold' : 'text-neutral-600 hover:text-neutral-900'}`}
             >
               <History className="h-3.5 w-3.5" />
               <span>Nhật ký</span>
@@ -185,14 +170,13 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
           </div>
         </div>
 
-        {/* Content View */}
         <div id="agent-panel-content" role="tabpanel" className="min-h-0 flex-1 flex flex-col overflow-hidden relative">
           {activeTab === 'chat' ? (
             <AgentChatThread />
           ) : activeTab === 'memory' ? (
             <AgentMemoryPanel />
           ) : (
-            <AgentCoordinationHistory />
+            <AgentCoordinationHistory onOpenChat={() => setActiveTab('chat')} />
           )}
         </div>
       </aside>
