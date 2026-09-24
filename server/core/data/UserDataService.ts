@@ -191,8 +191,20 @@ export class UserDataService {
     return { tasks, ...(nextCursor ? { nextCursor } : {}) };
   }
 
+  /**
+   * Compatibility path for the current Tasks UI/REST surface, which expects a
+   * complete list. Each Firestore read is still database-bounded; Agent tools
+   * use listTasksPage directly so they never mistake one page for all data.
+   */
   public static async listTasks(userId: string, status: TaskStatus | 'all' = 'all'): Promise<TaskRecord[]> {
-    return (await this.listTasksPage(userId, { status, limit: DEFAULT_TASK_PAGE_SIZE })).tasks;
+    const tasks: TaskRecord[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await this.listTasksPage(userId, { status, limit: DEFAULT_TASK_PAGE_SIZE, ...(cursor ? { cursor } : {}) });
+      tasks.push(...page.tasks);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return tasks;
   }
 
   public static async resolveTasksByExactTitle(userId: string, title: string): Promise<TaskTitleResolution> {
