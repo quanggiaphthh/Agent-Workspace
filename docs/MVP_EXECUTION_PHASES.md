@@ -19,6 +19,8 @@ Verification is proportional to the change surface. Do not re-run generic upstre
 
 Checkpoint: candidate/source diff → checker → required live/runtime verification → canonical CI → lock.
 
+Single-user MVP rule: local packaged-module composition is required; marketplace/public plugin ecosystem, remote loading/installation, multi-user administration, billing/licensing and public developer/distribution infrastructure are not.
+
 ## 2. Completed M1 — Document → Agent
 
 The following are **FINAL PASS / LOCKED** and are historical execution steps, not pending work:
@@ -49,7 +51,7 @@ After W4D, read-only UX discovery may run in parallel, but shared production cha
 
 ### W4A — MODULE SOURCE/ARCHITECTURE + REUSE AUDIT — NEXT
 
-**Outcome:** exact current module composition and Task ownership are understood before code.
+**Outcome:** exact current module composition and Task ownership are understood before code, and unnecessary platform scope is removed from the implementation plan.
 
 **Audit:**
 - current client module catalog/state/lifecycle;
@@ -58,15 +60,22 @@ After W4D, read-only UX discovery may run in parallel, but shared production cha
 - enable/disable persistence semantics;
 - existing isolation/lifecycle tests;
 - exact installed dependencies that can be reused;
-- existing research/reference patterns (xNet, NanoGemClaw) only where applicable.
+- mature public GitHub implementations researched **by capability** at source/test/license level;
+- existing research/reference patterns (including xNet and NanoGemClaw) evaluated against better candidates rather than assumed as preferred;
+- current UI/source surfaces that resemble marketplace/public ecosystem behavior;
+- classify relevant non-essential surfaces `KEEP / SIMPLIFY / DEFER / REMOVE` for the single-user MVP.
 
-**Required output:** A–E in one bounded audit: source findings, reuse decision, new-code necessity proof, minimized test plan and smallest implementation plan.
+**GitHub research capabilities:** packaged module registry/manifest, enable-disable-re-enable lifecycle, route/navigation/widget contribution composition, capability/tool contribution, persistent enabled state, module isolation/failure containment, dependency boundaries and focused lifecycle/isolation tests.
+
+**Candidate gate:** maturity/maintenance + compatible license + security + stack compatibility + low dependency/integration cost + measurable reduction in Agent-Workspace-owned code/tests. Inspect implementation files, not README alone.
+
+**Required output:** A–E in one bounded audit: source findings, ranked reuse decisions, provenance/license, new-code necessity proof, minimized test plan and smallest implementation plan.
 
 **No production code.**
 
-**STOP:** proposal requires second registry/runtime, generic DI framework, marketplace, remote plugin loader, or broad unrelated refactor.
+**STOP:** proposal requires second registry/runtime, generic DI framework, marketplace, remote plugin loader, micro-frontend, public plugin ecosystem, or broad unrelated refactor.
 
-**Exit:** checker approves smallest hardening plan. **Next:** W4B.
+**Exit:** checker approves smallest local-module hardening plan. **Next:** W4B.
 
 ### W4B — CLIENT/SERVER COMPOSITION BOUNDARY HARDENING
 
@@ -76,13 +85,13 @@ After W4D, read-only UX discovery may run in parallel, but shared production cha
 
 **Tests:** only changed composition mapping, module contribution visibility and directly affected regressions.
 
-**Non-goals:** generic plugin framework, new runtime, new registry, post-MVP modules.
+**Non-goals:** generic plugin framework, new runtime, new registry, marketplace, remote plugin loader, public plugin discovery/install/update.
 
 **Exit:** Task knowledge is bounded to appropriate module contribution seams; Core/Agent regressions relevant to the boundary pass. **Next:** W4C.
 
 ### W4C — TASK ISOLATION + LIFECYCLE
 
-**Outcome:** Task behaves as the reference detachable module.
+**Outcome:** Task behaves as the reference detachable local module.
 
 Prove:
 - enable Task → UI/capabilities available;
@@ -100,13 +109,13 @@ Reuse canonical module state, capability registry/gateway, confirmation and pers
 
 Run canonical application-owned module-isolation tests, only affected locked regressions, TypeScript/build/manifest/CI as applicable. Live runtime only if the exit criterion cannot be established without it.
 
-**Exit:** W4 FINAL PASS / LOCKED; no second registry/runtime. **Next:** W5.
+**Exit:** W4 FINAL PASS / LOCKED; no second registry/runtime and no marketplace dependency. **Next:** W5.
 
 ## 5. M3 — Product UX
 
 ### W5 — CORE APP SHELL UX
 
-Outcome: Vietnamese stable navigation, iPad-first responsive shell, basic iPhone/desktop support and collapsible Agent surface. Reuse existing UI primitives; no frontend rewrite.
+Outcome: Vietnamese stable navigation, iPad-first responsive shell, basic iPhone/desktop support and collapsible Agent surface. Reuse existing UI primitives; no frontend rewrite. Hide/defer non-MVP public-platform navigation rather than building it out.
 
 ### W6 — HOME UX
 
@@ -136,9 +145,9 @@ Agent query/create/update through existing capabilities/gateway/HITL; no duplica
 
 Targeted Task behavior + module lifecycle + Agent parity + affected regressions + CI. Exit: Task reference module lock.
 
-### W9 — SETTINGS + MODULE MANAGEMENT UX
+### W9 — SETTINGS + LOCAL MODULE MANAGEMENT UX
 
-Vietnamese settings and visible Task enable/disable/re-enable over canonical module state. No marketplace.
+Vietnamese settings and visible Task enable/disable/re-enable over canonical module state. This is a simple personal module-management surface, **not a marketplace**. No public discovery, remote install/load, ratings, publishing, billing/licensing or developer ecosystem.
 
 ## 6. M4 — Release
 
@@ -148,7 +157,7 @@ Verify login/open/reload; Home; Task UI; Agent Task query/mutation; HITL; disabl
 
 ### W11 — SECURITY + OPERATIONS HARDENING
 
-Audit Firebase rules/server auth/secrets/config/dependency exploitability/logging/diagnostics/backup-recovery. App Check only if threat model justifies it.
+Audit Firebase rules/server auth/secrets/config/dependency exploitability/logging/diagnostics/backup-recovery. App Check only if threat model justifies it. Do not introduce enterprise/multi-user controls without a demonstrated single-user threat-model need.
 
 ### W12 — UAT + DEPLOYMENT + RELEASE
 
