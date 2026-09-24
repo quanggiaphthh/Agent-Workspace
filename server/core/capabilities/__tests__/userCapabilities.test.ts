@@ -8,6 +8,8 @@ import { storage } from '../../../infrastructure/storage';
 import { serverModuleCatalog } from '../../modules/moduleCatalog';
 import { AIConfigSchema } from '../../../../shared/contracts/ai';
 import { filterAgentCapabilitiesForConfig } from '../../../agent/adk/RootAgent';
+import { registerPackagedServerModules } from '../../../bootstrap';
+import { registerTasksCapabilities } from '../../../modules/tasks/registration';
 
 const user = { id:'owner-1', email:'owner@test.local', name:'Owner', roles:['owner'], permissions:['memory.read','memory.write','tasks.read','tasks.write','web.search'] };
 const aiConfig = AIConfigSchema.parse({ webSearchEnabled:true, memoryEnabled:true });
@@ -18,7 +20,7 @@ const memory = (id='m1') => ({ id, userId:user.id, content:'Remember me', catego
 async function run(id:string,input:any,ctx:any=context){ return ServerCapabilityRegistry.execute(id,input,ctx); }
 
 describe('GĐ3 Lượt 5 existing user capability hardening',()=>{
-  beforeEach(()=>{ ServerCapabilityRegistry.reset(); storage.initialize(serverModuleCatalog.listAll(), true); registerSystemCapabilities(); registerUiCapabilities(); vi.spyOn(storage,'refreshModuleSettings').mockResolvedValue(); });
+  beforeEach(()=>{ ServerCapabilityRegistry.reset(); serverModuleCatalog.reset(); registerPackagedServerModules(); storage.initialize(serverModuleCatalog.listAll(), true); registerSystemCapabilities(); registerTasksCapabilities(); registerUiCapabilities(); vi.spyOn(storage,'refreshModuleSettings').mockResolvedValue(); });
   afterEach(()=>{ vi.restoreAllMocks(); ServerCapabilityRegistry.reset(); });
 
   it('1 enabled search is discoverable',()=>expect(filterAgentCapabilitiesForConfig(ServerCapabilityRegistry.listAll(),aiConfig).some(c=>c.id==='system.web.search')).toBe(true));
