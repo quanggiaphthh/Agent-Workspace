@@ -9,13 +9,19 @@
 
 ## 1. Product boundary
 
-Agent-Workspace is a single-user modular Agent webapp. MVP contains only:
+Agent-Workspace is a **single-user personal modular Agent webapp**, not currently a public multi-user SaaS or third-party plugin ecosystem. MVP contains only:
 
 1. stable Core Webapp;
 2. usable Gemini/Google ADK Agent Chatbox;
 3. Task as the first complete reference business module.
 
 Biên tập, Quản lý tài liệu, Research, Định dạng văn bản hành chính, RAG/vector DB, connector ecosystem, marketplace, multi-user administration and custom Agent runtime are post-MVP.
+
+For MVP, **local module management is required; marketplace is not**. Keep only the modular mechanisms needed to compose packaged first-party modules safely: manifest/registry, enable-disable-re-enable state, UI/capability contributions, isolation and durable data preservation.
+
+Defer public module discovery, remote plugin install/load, publish/share, ratings/reviews/download counts, developer portal, third-party licensing/entitlement/billing, organization/team administration and marketplace update/distribution infrastructure.
+
+Existing deferred code is not automatically deleted. W4A must classify relevant surfaces as `KEEP / SIMPLIFY / DEFER / REMOVE`; removal requires source-level evidence that it is safe and materially reduces complexity.
 
 ## 2. Reuse governance
 
@@ -32,6 +38,8 @@ Mandatory gates:
 - **E. IMPLEMENTATION PLAN** — minimal files/dependencies/tests, order, rollback/stop conditions and exit criteria.
 
 Then: `IMPLEMENT → CHECKER → LIVE RUNTIME when required → CANONICAL CI → LOCK`.
+
+External research is capability-driven and source-level. A mature repository is useful only when it fills a proven local gap with acceptable license, maintenance, security, dependency and integration cost. Do not import a platform merely because it is mature.
 
 ## 3. M1 — Document → Agent — FINAL PASS / LOCKED
 
@@ -58,19 +66,22 @@ Do not reopen L3B/L3C/L3D absent a reproducible regression.
 
 ### W4A — Source/architecture/reuse audit — NEXT
 
-Audit existing client/server composition, module state/catalog, Task ownership, canonical capability registry/gateway and existing lifecycle tests. Complete A–E before production code.
+Audit existing client/server composition, module state/catalog, Task ownership, canonical capability registry/gateway and existing lifecycle tests. Research mature public GitHub implementations by capability and inspect source/tests/license where they may reduce the remaining owned delta. Complete A–E before production code.
+
+W4A must also identify non-essential platform surfaces for the personal-use MVP and classify them `KEEP / SIMPLIFY / DEFER / REMOVE` without speculative deletion.
 
 Reuse/reference order:
 
 1. existing Agent-Workspace module infrastructure;
 2. existing canonical registries/services;
 3. installed dependencies;
-4. researched xNet contribution/module patterns and NanoGemClaw lifecycle/manifest patterns as references only when they reduce owned code;
-5. new code only for proven gaps.
+4. mature public GitHub source-level implementations/patterns that solve a proven gap with compatible license and low integration cost;
+5. previously researched xNet contribution/module patterns and NanoGemClaw lifecycle/manifest patterns as candidates/reference, not privileged choices;
+6. new code only for proven gaps.
 
 ### W4B — Client/server composition boundary hardening
 
-Move only necessary packaged-module knowledge to existing composition boundaries. Do not introduce a second registry, generic DI/plugin framework or remote plugin loader.
+Move only necessary packaged-module knowledge to existing composition boundaries. Do not introduce a second registry, generic DI/plugin framework, marketplace or remote plugin loader.
 
 ### W4C — Task isolation + lifecycle
 
@@ -86,7 +97,7 @@ Run targeted application-owned lifecycle/isolation checks, only affected locked 
 - **W6 Home UX:** daily-use Home, Task summary and Agent affordance; no new business authority.
 - **W7 Agent UX:** Vietnamese history/temporary chat/attachments/HITL/loading/error/recovery; preserve locked runtime semantics.
 - **W8 Task Reference Module:** complete usable Task domain/UX and Agent parity through canonical capability gateway/HITL.
-- **W9 Settings + Module Management UX:** usable Task enable/disable/re-enable over canonical module state; no marketplace.
+- **W9 Settings + Local Module Management UX:** simple Task enable/disable/re-enable over canonical module state; **no marketplace/public plugin discovery or installation**.
 
 W8 decomposes into W8A audit/contract, W8B core completion, W8C daily-use UX, W8D Agent parity/HITL, W8E verification.
 
