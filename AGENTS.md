@@ -4,7 +4,7 @@ This file is the repository entry point for coding agents. Keep it short, stable
 
 ## 1. Product and MVP
 
-Agent-Workspace is a single-user personal modular Agent webapp built with React/Vite, TypeScript, Firebase, Gemini, and Google ADK.
+Agent-Workspace is a **single-user personal modular Agent webapp** built with React/Vite, TypeScript, Firebase, Gemini, and Google ADK. It is not currently a public multi-user SaaS or third-party plugin platform.
 
 Canonical MVP scope is exactly:
 
@@ -13,6 +13,12 @@ Canonical MVP scope is exactly:
 Post-MVP modules such as Biên tập, Quản lý tài liệu, Research, and Định dạng văn bản hành chính stay deferred until MVP is locked.
 
 User-facing UI is Vietnamese-first and should avoid implementation jargon.
+
+For the personal-use MVP, do **not** build or expand marketplace/public ecosystem features: public module discovery, remote plugin installation/loading, publish/share flows, ratings/reviews/download counts, developer portal, third-party entitlement/licensing/billing, organization/team administration, or marketplace update/distribution infrastructure.
+
+Do preserve the minimal local modular foundation required by the product: packaged module registry/manifest, enable-disable-re-enable state, UI contributions, capability contributions, isolation, durable data preservation, and a simple module-management surface. **Module management is not a marketplace.**
+
+Do not delete existing non-MVP code merely because it is deferred. First classify it as `KEEP / SIMPLIFY / DEFER / REMOVE`; remove only when source audit proves safe removal reduces real complexity without reopening locked behavior.
 
 ## 2. Determine current state before work
 
@@ -45,6 +51,8 @@ Always decide in this order:
 Before significant new code, prove why the current source, installed dependencies, official SDK/framework APIs, and suitable mature implementations are insufficient.
 
 Do not create duplicate abstractions or subsystems when an equivalent authority already exists.
+
+External GitHub research must be capability-driven and source-level. Prefer mature, maintained, license-compatible implementations/patterns with low integration and dependency cost. Research is for filling proven gaps, not importing a larger platform than this single-user product needs.
 
 ## 4. Canonical authorities — do not duplicate
 
@@ -84,6 +92,7 @@ Prefer the smallest independently verifiable outcome, not micro-steps and not ov
 - Do not introduce cross-module implementation imports; use shared contracts/events/capabilities.
 - Do not expose storage paths, owner authority, binary/base64, or provider-specific file identity to the browser or durable chat history.
 - Keep model materialization run-scoped and authorization-first.
+- Do not expand single-user MVP scope into marketplace, remote plugins, multi-user administration, collaboration, billing, public developer APIs, or post-MVP business modules.
 
 ## 7. Verification by blast radius
 
