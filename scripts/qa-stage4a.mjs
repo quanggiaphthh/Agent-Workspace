@@ -4,7 +4,8 @@ const read = p => fs.readFileSync(p, 'utf8');
 const checks = [];
 const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
 
-const catalog = read('server/core/modules/moduleCatalog.ts');
+const bootstrap = read('server/bootstrap.ts');
+const tasksRegistration = read('server/modules/tasks/registration.ts');
 const registry = read('src/core/modules/moduleRegistry.ts');
 const router = read('src/router.tsx');
 const sidebar = read('src/app/shell/ModuleSidebar.tsx');
@@ -15,9 +16,8 @@ const tasksManifest = read('src/modules/tasks/manifest.ts');
 const settingsModule = read('src/modules/settings/SettingsModule.tsx');
 const permissions = read('shared/security/permissions.ts');
 const serverRegistry = read('server/core/capabilities/serverCapabilityRegistry.ts');
-const systemCaps = read('server/core/capabilities/systemCapabilities.ts');
 
-check('server catalog registers tasks', /id:\s*['"]tasks['"]/.test(catalog));
+check('server packaged composition includes tasks module', /packagedServerModules[\s\S]*?tasksServerModule/.test(bootstrap));
 check('settings manifest no stale admin.manage permission', !settingsManifest.includes('admin.manage'));
 check('settings manifest uses settings.read', settingsManifest.includes('settings.read'));
 check('tasks manifest route requires only tasks.read', /permissions:\s*\[\s*['"]tasks\.read['"]\s*\]/.test(tasksManifest));
@@ -36,7 +36,7 @@ check('home widgets are filtered by user', /moduleRegistry\.getWidgets\(user\)/.
 check('home module links are filtered by user', /listEnabledFor\(user\)/.test(home));
 check('settings module gates module manager by module.manage', settingsModule.includes('module.manage'));
 check('settings module gates audit tab by audit.read', settingsModule.includes('audit.read'));
-check('task capabilities are owned by tasks module', /id:\s*['"]system\.tasks\.(?:create|list)['"][\s\S]*?moduleId:\s*['"]tasks['"]/.test(systemCaps));
+check('task capabilities are owned by tasks module', /id:\s*['"]system\.tasks\.(?:create|list)['"][\s\S]*?moduleId:\s*['"]tasks['"]/.test(tasksRegistration));
 check('server registry enforces disabled module before capability discovery/execution', /moduleSetting[\s\S]*?!moduleSetting\.enabled/.test(serverRegistry));
 
 let failed = 0;
