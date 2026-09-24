@@ -32,26 +32,35 @@ class LocalModuleRegistry {
     this.enabledMap.clear();
   }
 
-  public enable(moduleId: string): void {
-    const manifest = this.manifests.get(moduleId);
-    if (manifest) {
-      this.enabledMap.set(moduleId, true);
-      manifest.lifecycle?.onEnable?.();
-      eventBus.emit('module.statusChanged', { moduleId, enabled: true });
-    }
+  public async enable(moduleId: string, persist?: () => Promise<void>): Promise<void> {
+    return this.setEnabled(moduleId, true, persist);
   }
 
-  public disable(moduleId: string): void {
-    if (moduleId === 'home' || moduleId === 'settings') {
+  public async disable(moduleId: string, persist?: () => Promise<void>): Promise<void> {
+    return this.setEnabled(moduleId, false, persist);
+  }
+
+  /**
+   * Runs a module lifecycle transition in the only order allowed by the
+   * local module contract: callback, durable persistence, then local commit.
+   * A failed callback or persistence operation therefore leaves both the
+   * local state and status event unchanged for the caller to handle.
+   */
+  public async setEnabled(moduleId: string, enabled: boolean, persist?: () => Promise<void>): Promise<void> {
+    if (!enabled && (moduleId === 'home' || moduleId === 'settings')) {
       console.warn(`Core module "${moduleId}" cannot be disabled.`);
       return;
     }
+
     const manifest = this.manifests.get(moduleId);
-    if (manifest) {
-      this.enabledMap.set(moduleId, false);
-      manifest.lifecycle?.onDisable?.();
-      eventBus.emit('module.statusChanged', { moduleId, enabled: false });
-    }
+    if (!manifest || this.isEnabled(moduleId) === enabled) return;
+
+    const lifecycle = enabled ? manifest.lifecycle?.onEnable : manifest.lifecycle?.onDisable;
+    await lifecycle?.();
+    await persist?.();
+
+    this.enabledMap.set(moduleId, enabled);
+    eventBus.emit('module.statusChanged', { moduleId, enabled });
   }
 
   public isEnabled(moduleId: string): boolean {

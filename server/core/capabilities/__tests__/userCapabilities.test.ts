@@ -76,4 +76,23 @@ describe('GĐ3 Lượt 5 existing user capability hardening',()=>{
   it('46 oversized output is bounded by canonical gateway',async()=>{vi.spyOn(UserDataService,'listTasks').mockResolvedValue([task('x'.repeat(300)) as any]);expect(await run('system.tasks.list',{})).toMatchObject({success:false,errorCode:'INVALID_OUTPUT'});});
   it('47 provider credential failure does not expose credentials through capability output',async()=>{vi.spyOn(WebSearchService,'search').mockRejectedValue(new Error('credential unavailable'));const r=await run('system.web.search',{query:'credential test'});expect(r.success).toBe(false);expect(JSON.stringify(r)).not.toContain('apiKey');});
   it('48 cancellation signal is passed to web provider when not already aborted',async()=>{const c=new AbortController();const s=vi.spyOn(WebSearchService,'search').mockResolvedValue({answer:'A',sources:[],searchQueries:[]});await run('system.web.search',{query:'cancel propagation'},{...context,abortSignal:c.signal});expect(s.mock.calls[0][3]).toBe(c.signal);});
+
+  it('49 disabled Task capabilities are undiscoverable and re-enable preserves durable Task data',async()=>{
+    const persistedTasks=[task('persisted-task')];
+    const listTasks=vi.spyOn(UserDataService,'listTasks').mockResolvedValue(persistedTasks);
+    const auditUser={id:user.id,email:user.email,roles:user.roles,permissions:user.permissions};
+    expect((await ServerCapabilityRegistry.listForContext(context)).some(cap=>cap.id==='system.tasks.list')).toBe(true);
+
+    await storage.toggleModuleEnabledWithAudit('tasks', auditUser);
+    const disabledCapabilities = await ServerCapabilityRegistry.listForContext(context);
+    expect(disabledCapabilities.some(cap=>cap.id==='system.tasks.list')).toBe(false);
+    expect(disabledCapabilities.some(cap=>cap.id==='system.web.search')).toBe(true);
+    expect(disabledCapabilities.some(cap=>cap.id==='system.memory.query')).toBe(true);
+    expect(await run('system.tasks.list',{})).toMatchObject({success:false,errorCode:'MODULE_DISABLED'});
+
+    await storage.toggleModuleEnabledWithAudit('tasks', auditUser);
+    expect((await ServerCapabilityRegistry.listForContext(context)).some(cap=>cap.id==='system.tasks.list')).toBe(true);
+    expect(await run('system.tasks.list',{})).toMatchObject({success:true,result:{tasks:persistedTasks}});
+    expect(listTasks).toHaveBeenCalledTimes(1);
+  });
 });

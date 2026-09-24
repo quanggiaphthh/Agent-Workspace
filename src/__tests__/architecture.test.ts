@@ -9,6 +9,7 @@ import { CapabilityToolNameRegistry } from '../../server/core/capabilities/capab
 import { z } from 'zod';
 import { ExecutionContext } from '../../shared/contracts/capability';
 import { packagedClientModules, registerPackagedClientModules } from '../moduleComposition';
+import { eventBus } from '../core/events/eventBus';
 
 /**
  * P1 PREFLIGHT & P0.3 ARCHITECTURAL INVARIANT TESTS
@@ -213,6 +214,91 @@ describe('Architectural Invariants P1 Preflight', () => {
       const id = '123.tool';
       const name = CapabilityToolNameRegistry.getToolName(id);
       expect(/^[a-zA-Z]/.test(name)).toBe(true);
+    });
+  });
+
+  describe('5. Packaged module lifecycle ordering and isolation', () => {
+    it('Task contributions disappear on disable and return on re-enable after persistence', async () => {
+      registerPackagedClientModules();
+      const user = {
+        id: 'owner-1',
+        email: 'owner@test.local',
+        name: 'Owner',
+        roles: ['owner'],
+        permissions: ['tasks.read', 'settings.read'],
+      };
+      const persisted = vi.fn(async () => undefined);
+      const statusEvents: Array<{ moduleId: string; enabled: boolean }> = [];
+      const unsubscribe = eventBus.on('module.statusChanged', (payload: any) => {
+        if (payload.moduleId === 'tasks') statusEvents.push(payload);
+      });
+
+      expect(moduleRegistry.getNavigation(user).some(item => item.id === 'tasks-nav')).toBe(true);
+      expect(moduleRegistry.getRoutes(user).some(route => route.path === '/tasks')).toBe(true);
+      expect(moduleRegistry.getWidgets(user).some(widget => widget.id === 'tasks-stats')).toBe(true);
+
+      await moduleRegistry.setEnabled('tasks', false, persisted);
+
+      expect(moduleRegistry.isEnabled('tasks')).toBe(false);
+      expect(moduleRegistry.getNavigation(user).some(item => item.id === 'tasks-nav')).toBe(false);
+      expect(moduleRegistry.getRoutes(user).some(route => route.path === '/tasks')).toBe(false);
+      expect(moduleRegistry.getWidgets(user).some(widget => widget.id === 'tasks-stats')).toBe(false);
+      expect(moduleRegistry.getNavigation(user).some(item => item.id === 'home-nav')).toBe(true);
+      expect(moduleRegistry.getNavigation(user).some(item => item.id === 'settings-nav')).toBe(true);
+
+      await moduleRegistry.setEnabled('tasks', true, persisted);
+
+      expect(moduleRegistry.isEnabled('tasks')).toBe(true);
+      expect(moduleRegistry.getNavigation(user).some(item => item.id === 'tasks-nav')).toBe(true);
+      expect(moduleRegistry.getRoutes(user).some(route => route.path === '/tasks')).toBe(true);
+      expect(moduleRegistry.getWidgets(user).some(widget => widget.id === 'tasks-stats')).toBe(true);
+      expect(persisted).toHaveBeenCalledTimes(2);
+      expect(statusEvents.map(event => event.enabled)).toEqual([false, true]);
+      unsubscribe();
+    });
+
+    it('runs lifecycle before persistence and does not commit failed lifecycle state', async () => {
+      const order: string[] = [];
+      const statusEvents: any[] = [];
+      const unsubscribe = eventBus.on('module.statusChanged', (payload: any) => {
+        if (payload.moduleId === 'lifecycle-ordering') statusEvents.push(payload);
+      });
+      moduleRegistry.register({
+        id: 'lifecycle-ordering',
+        version: '1.0.0',
+        meta: { name: 'Lifecycle ordering' },
+        routes: [],
+        lifecycle: {
+          onDisable: async () => { order.push('lifecycle'); },
+        },
+      });
+
+      await moduleRegistry.setEnabled('lifecycle-ordering', false, async () => { order.push('persist'); });
+      expect(order).toEqual(['lifecycle', 'persist']);
+      expect(moduleRegistry.isEnabled('lifecycle-ordering')).toBe(false);
+      expect(statusEvents).toEqual([{ moduleId: 'lifecycle-ordering', enabled: false }]);
+
+      moduleRegistry.register({
+        id: 'lifecycle-failure',
+        version: '1.0.0',
+        meta: { name: 'Lifecycle failure' },
+        routes: [],
+        lifecycle: {
+          onDisable: async () => { throw new Error('disable failed'); },
+        },
+      });
+      const failedStatusEvents: any[] = [];
+      const unsubscribeFailure = eventBus.on('module.statusChanged', (payload: any) => {
+        if (payload.moduleId === 'lifecycle-failure') failedStatusEvents.push(payload);
+      });
+      const persistAfterFailure = vi.fn(async () => undefined);
+
+      await expect(moduleRegistry.setEnabled('lifecycle-failure', false, persistAfterFailure)).rejects.toThrow('disable failed');
+      expect(moduleRegistry.isEnabled('lifecycle-failure')).toBe(true);
+      expect(persistAfterFailure).not.toHaveBeenCalled();
+      expect(failedStatusEvents).toEqual([]);
+      unsubscribe();
+      unsubscribeFailure();
     });
   });
 });

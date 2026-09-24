@@ -35,19 +35,13 @@ export function ModuleManagerTab() {
 
     try {
       setToggling(manifest.id);
-      // Toggle on server
-      const res = await authFetch(`/api/modules/${manifest.id}/toggle`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Chuyển đổi trạng thái thất bại');
-      }
-
-      // Toggle in local registry
-      if (isCurrentlyEnabled) {
-        moduleRegistry.disable(manifest.id);
-      } else {
-        moduleRegistry.enable(manifest.id);
-      }
+      await moduleRegistry.setEnabled(manifest.id, !isCurrentlyEnabled, async () => {
+        const res = await authFetch(`/api/modules/${manifest.id}/toggle`, { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Chuyển đổi trạng thái thất bại');
+        }
+      });
 
       refreshList();
 
