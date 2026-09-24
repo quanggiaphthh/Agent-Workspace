@@ -38,6 +38,11 @@ export function AdkConfirmation() {
                 {risk && (
                   <p className="text-[10px] text-amber-700 mt-1 font-medium">{risk}</p>
                 )}
+                {tc.recovered === true && (
+                  <p className="text-[10px] text-amber-700 mt-1.5 leading-relaxed">
+                    Yêu cầu này được khôi phục từ lịch sử. Máy chủ sẽ kiểm tra lại hiệu lực và phạm vi trước khi thực hiện quyết định của bạn.
+                  </p>
+                )}
               </div>
             </div>
 
