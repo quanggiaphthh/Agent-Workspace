@@ -13,7 +13,7 @@
 - W11 static/security checkpoint before documentation lock: `bfd417d3d9d90f2bb7a9ca41998801c52a27aefe`.
 - W11 canonical Actions: `36010878105` — run #91 — **SUCCESS**.
 - GĐ1–GĐ4 / M1 and W4–W11: **FINAL PASS / LOCKED**.
-- Current next workstream: **W12 — UAT / Deployment / Release**.
+- Current next workstream: **None. MVP is fully complete and locked.**
 - Current capability count: **10**.
 - Product mode: **single-user personal app, not public**.
 - Post-MVP modules and marketplace/public plugin ecosystem remain deferred.
@@ -45,7 +45,7 @@ Do not re-run unrelated locked tests unless the current change can affect their 
 | W9 | Settings/local module management UX | FINAL PASS / LOCKED | closed |
 | W10 | MVP integrated acceptance | FINAL PASS / LOCKED | closed |
 | W11 | security/operations hardening | **FINAL PASS / LOCKED** | closed |
-| W12 | UAT/deployment/release | **NEXT** | deployment preflight + live release gate |
+| W12 | UAT/deployment/release | **FINAL PASS / LOCKED** | closed |
 
 ## 4. Locked MVP foundation through W11
 
