@@ -9,6 +9,23 @@ const taskSchema = z.object({
   category: z.string().max(100), dueDate: z.string().max(64), createdAt: z.string().nullable(), updatedAt: z.string().nullable(),
 }).strict();
 
+const taskUpdateInputSchema = z.object({
+  id: z.string().trim().min(1).max(256),
+  title: z.string().trim().min(1).max(300).optional(),
+  description: z.string().max(5000).optional(),
+  status: z.enum(['todo', 'in-progress', 'completed']).optional(),
+  priority: z.enum(['low', 'medium', 'high']).optional(),
+  category: z.string().trim().min(1).max(100).optional(),
+  dueDate: z.string().max(64).optional(),
+}).strict().refine((value) => (
+  value.title !== undefined ||
+  value.description !== undefined ||
+  value.status !== undefined ||
+  value.priority !== undefined ||
+  value.category !== undefined ||
+  value.dueDate !== undefined
+), { message: 'At least one task field must be updated.' });
+
 export const tasksModuleMetadata: ModuleMetadata = {
   id: 'tasks',
   name: 'Task Management',
@@ -42,6 +59,20 @@ export function registerTasksCapabilities(): void {
     execute: async (input, context) => {
       const { user } = context; if (!user) throw new Error('Unauthorized');
       return { tasks: await UserDataService.listTasks(user.id, input.status) };
+    },
+  });
+
+  ServerCapabilityRegistry.register({
+    id: 'system.tasks.update', moduleId: 'tasks', description: 'Cập nhật một nhiệm vụ đã tồn tại của người dùng hiện tại bằng task id đã biết, ví dụ đổi tiêu đề, mô tả, trạng thái, mức ưu tiên, nhóm hoặc hạn hoàn thành. Khi chưa biết id, hãy liệt kê nhiệm vụ trước. Hành động này thay đổi dữ liệu đã lưu và cần người dùng xác nhận.',
+    inputSchema: taskUpdateInputSchema,
+    outputSchema: z.object({ success: z.literal(true), taskId: z.string(), task: taskSchema }).strict(),
+    risk: 'medium', sideEffect: 'mutation', confirmationPolicy: 'required', permissions: ['tasks.write'],
+    effects: ['Cập nhật nội dung hoặc trạng thái của một công việc đã lưu.'],
+    execute: async (input, context) => {
+      const { user } = context; if (!user) throw new Error('Unauthorized');
+      const { id, ...patch } = input;
+      const task = await UserDataService.updateTask(user.id, id, patch);
+      return { success: true as const, taskId: task.id, task };
     },
   });
 }
