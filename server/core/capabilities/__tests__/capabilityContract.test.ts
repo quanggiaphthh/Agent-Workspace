@@ -44,20 +44,58 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
     expect(ServerCapabilityRegistry.listAll().some(capability => capability.id.startsWith('system.tasks.'))).toBe(false);
     registerTasksCapabilities();
     expect(ServerCapabilityRegistry.listAll().filter(capability => capability.moduleId === 'tasks').map(capability => capability.id).sort())
-      .toEqual(['system.tasks.create', 'system.tasks.list', 'system.tasks.update']);
+      .toEqual(['system.tasks.create', 'system.tasks.list', 'system.tasks.search', 'system.tasks.update']);
   });
 
-  it('extends the locked M1 nine-capability baseline only with Task update parity', () => {
+  it('extends the locked M1 nine-capability baseline with bounded Task update/search parity', () => {
     bootstrapServer();
     const caps = ServerCapabilityRegistry.listAll();
     const lockedM1Ids = [
       'system.memory.add','system.memory.query','system.tasks.create','system.tasks.list','system.web.search',
       'ui.openEntity','ui.openModule','ui.refresh','ui.showNotification',
     ];
-    expect(caps.map(c => c.id).sort()).toEqual([...lockedM1Ids, 'system.tasks.update'].sort());
-    expect(caps).toHaveLength(10);
+    expect(caps.map(c => c.id).sort()).toEqual([...lockedM1Ids, 'system.tasks.search', 'system.tasks.update'].sort());
+    expect(caps).toHaveLength(11);
     expect(caps.every(c => !!c.sideEffect && ['none','mutation','ui-local'].includes(c.sideEffect))).toBe(true);
     expect(caps.every(c => !!c.confirmationPolicy && ['none','required'].includes(c.confirmationPolicy))).toBe(true);
+  });
+
+  it('pages Task listing without claiming the first page is exhaustive', async () => {
+    registerTasksCapabilities();
+    const listSpy = vi.spyOn(UserDataService, 'listTasksPage').mockResolvedValue({
+      tasks: [],
+      nextCursor: 'cursor-2',
+    });
+    try {
+      const result = await ServerCapabilityRegistry.execute(
+        'system.tasks.list',
+        { status: 'all', limit: 25 },
+        context as any,
+      );
+      expect(result.success).toBe(true);
+      expect(result.result).toMatchObject({ tasks: [], nextCursor: 'cursor-2' });
+      expect(listSpy).toHaveBeenCalledWith('owner', { status: 'all', limit: 25 });
+    } finally {
+      listSpy.mockRestore();
+    }
+  });
+
+  it('returns explicit unique/ambiguous Task title resolution instead of guessing an id', async () => {
+    registerTasksCapabilities();
+    const task = {
+      id: 'task-1', userId: 'owner', title: 'Báo cáo tháng 9', description: '', status: 'todo' as const,
+      priority: 'medium' as const, category: 'Công việc', dueDate: '', createdAt: null, updatedAt: null,
+    };
+    const searchSpy = vi.spyOn(UserDataService, 'resolveTasksByExactTitle').mockResolvedValue({ match: 'ambiguous', tasks: [task, { ...task, id: 'task-2' }], truncated: false });
+    try {
+      const result = await ServerCapabilityRegistry.execute('system.tasks.search', { title: 'Báo cáo tháng 9' }, context as any);
+      expect(result.success).toBe(true);
+      expect(result.result).toMatchObject({ match: 'ambiguous', truncated: false });
+      expect((result.result as any).tasks).toHaveLength(2);
+      expect(searchSpy).toHaveBeenCalledWith('owner', 'Báo cáo tháng 9');
+    } finally {
+      searchSpy.mockRestore();
+    }
   });
 
   it('requires confirmation before Task update and executes the canonical Task service only after approval', async () => {
