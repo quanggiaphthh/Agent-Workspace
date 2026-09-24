@@ -1,4 +1,4 @@
-import { Timestamp, type DocumentData, type Query, type QueryDocumentSnapshot, type DocumentSnapshot } from 'firebase-admin/firestore';
+import { FieldPath, Timestamp, type DocumentData, type Query, type QueryDocumentSnapshot, type DocumentSnapshot } from 'firebase-admin/firestore';
 import { adminFirestore } from '../../lib/firebaseAdmin';
 import { storage } from '../../infrastructure/storage';
 
@@ -19,6 +19,17 @@ export interface TaskRecord {
   updatedAt: string | null;
 }
 
+export interface TaskListPage {
+  tasks: TaskRecord[];
+  nextCursor?: string;
+}
+
+export interface TaskTitleResolution {
+  match: 'none' | 'unique' | 'ambiguous';
+  tasks: TaskRecord[];
+  truncated: boolean;
+}
+
 export interface MemoryRecord {
   id: string;
   userId: string;
@@ -29,6 +40,10 @@ export interface MemoryRecord {
   createdAt: string | null;
   updatedAt: string | null;
 }
+
+const DEFAULT_TASK_PAGE_SIZE = 100;
+const MAX_TASK_PAGE_SIZE = 100;
+const MAX_TASK_TITLE_MATCHES = 20;
 
 function dataError(status: number, message: string): Error & { status?: number } {
   const error = new Error(message) as Error & { status?: number };
@@ -109,6 +124,26 @@ function normalizeMemory(doc: QueryDocumentSnapshot<DocumentData> | DocumentSnap
   };
 }
 
+function clampTaskPageSize(value: number | undefined): number {
+  if (!Number.isFinite(value)) return DEFAULT_TASK_PAGE_SIZE;
+  return Math.max(1, Math.min(MAX_TASK_PAGE_SIZE, Math.floor(value as number)));
+}
+
+function encodeTaskCursor(createdAtMs: number, id: string): string {
+  return Buffer.from(JSON.stringify({ createdAtMs, id }), 'utf8').toString('base64url');
+}
+
+function decodeTaskCursor(cursor: string | undefined): { createdAtMs: number; id: string } | undefined {
+  if (!cursor) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (!Number.isFinite(parsed?.createdAtMs) || typeof parsed?.id !== 'string' || !parsed.id) return undefined;
+    return { createdAtMs: Number(parsed.createdAtMs), id: parsed.id };
+  } catch {
+    return undefined;
+  }
+}
+
 async function getOwnedDoc(collectionName: string, id: string, userId: string) {
   const ref = adminFirestore.collection(collectionName).doc(id);
   const snap = await ref.get();
@@ -126,15 +161,63 @@ async function getOwnedDoc(collectionName: string, id: string, userId: string) {
 }
 
 export class UserDataService {
-  public static async listTasks(userId: string, status: TaskStatus | 'all' = 'all'): Promise<TaskRecord[]> {
+  public static async listTasksPage(userId: string, options: {
+    status?: TaskStatus | 'all';
+    limit?: number;
+    cursor?: string;
+  } = {}): Promise<TaskListPage> {
     await assertTasksModuleEnabled();
+    const status = options.status || 'all';
+    const limit = clampTaskPageSize(options.limit);
+    const cursor = decodeTaskCursor(options.cursor);
+    if (options.cursor && !cursor) throw dataError(400, 'Invalid task cursor.');
+
     let q: Query = adminFirestore.collection('agent_tasks').where('userId', '==', userId);
     if (status !== 'all') q = q.where('status', '==', status);
+    q = q.orderBy('createdAt', 'desc').orderBy(FieldPath.documentId(), 'desc');
+    if (cursor) q = q.startAfter(Timestamp.fromMillis(cursor.createdAtMs), cursor.id);
+    q = q.limit(limit + 1);
+
     const snapshot = await q.get();
-    return snapshot.docs
+    const pageDocs = snapshot.docs.slice(0, limit);
+    const tasks = pageDocs.map(normalizeTask);
+    const hasMore = snapshot.docs.length > limit;
+    const last = pageDocs[pageDocs.length - 1];
+    const lastCreatedAt = last?.get('createdAt');
+    const nextCursor = hasMore && last && lastCreatedAt instanceof Timestamp
+      ? encodeTaskCursor(lastCreatedAt.toMillis(), last.id)
+      : undefined;
+
+    return { tasks, ...(nextCursor ? { nextCursor } : {}) };
+  }
+
+  public static async listTasks(userId: string, status: TaskStatus | 'all' = 'all'): Promise<TaskRecord[]> {
+    return (await this.listTasksPage(userId, { status, limit: DEFAULT_TASK_PAGE_SIZE })).tasks;
+  }
+
+  public static async resolveTasksByExactTitle(userId: string, title: string): Promise<TaskTitleResolution> {
+    await assertTasksModuleEnabled();
+    const exactTitle = title.trim();
+    if (!exactTitle) throw dataError(400, 'Task title is required.');
+
+    const snapshot = await adminFirestore
+      .collection('agent_tasks')
+      .where('userId', '==', userId)
+      .where('title', '==', exactTitle)
+      .limit(MAX_TASK_TITLE_MATCHES + 1)
+      .get();
+
+    const truncated = snapshot.docs.length > MAX_TASK_TITLE_MATCHES;
+    const tasks = snapshot.docs
+      .slice(0, MAX_TASK_TITLE_MATCHES)
       .map(normalizeTask)
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-      .slice(0, 100);
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+    return {
+      match: tasks.length === 0 ? 'none' : tasks.length === 1 && !truncated ? 'unique' : 'ambiguous',
+      tasks,
+      truncated,
+    };
   }
 
   public static async createTask(userId: string, input: {
@@ -180,10 +263,16 @@ export class UserDataService {
   }
 
   public static async taskStats(userId: string) {
-    const tasks = await this.listTasks(userId, 'all');
-    const total = tasks.length;
-    const inProgress = tasks.filter((t) => t.status === 'in-progress').length;
-    const completed = tasks.filter((t) => t.status === 'completed').length;
+    await assertTasksModuleEnabled();
+    const base = adminFirestore.collection('agent_tasks').where('userId', '==', userId);
+    const [totalSnapshot, inProgressSnapshot, completedSnapshot] = await Promise.all([
+      base.count().get(),
+      base.where('status', '==', 'in-progress').count().get(),
+      base.where('status', '==', 'completed').count().get(),
+    ]);
+    const total = totalSnapshot.data().count;
+    const inProgress = inProgressSnapshot.data().count;
+    const completed = completedSnapshot.data().count;
     return {
       total,
       inProgress,
