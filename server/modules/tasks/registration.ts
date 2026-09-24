@@ -13,6 +13,11 @@ const taskSchema = z.object({
   category: z.string().max(100), dueDate: z.string().max(64), createdAt: z.string().nullable(), updatedAt: z.string().nullable(),
 }).strict();
 
+const refreshTasksSchema = {
+  uiAction: z.literal('refresh'),
+  target: z.literal('tasks'),
+};
+
 const taskUpdateInputSchema = z.object({
   id: z.string().trim().min(1).max(256),
   title: z.string().trim().min(1).max(300).optional(),
@@ -44,14 +49,15 @@ export const tasksModuleMetadata: ModuleMetadata = {
  */
 export function registerTasksCapabilities(): void {
   ServerCapabilityRegistry.register({
-    id: 'system.tasks.create', moduleId: 'tasks', description: 'Tạo đúng một nhiệm vụ mới cho người dùng hiện tại từ title và các trường tùy chọn; đây là hành động ghi dữ liệu và được bảo vệ idempotency theo tool call.',
+    id: 'system.tasks.create', moduleId: 'tasks', description: 'Tạo đúng một nhiệm vụ mới khi người dùng thể hiện ý định tạo/lưu công việc rõ ràng. Không suy diễn một câu nhắc hoặc ý nghĩ chung thành yêu cầu tạo Task. Hành động được bảo vệ idempotency theo tool call.',
     inputSchema: z.object({ title: z.string().trim().min(1).max(300), description: z.string().max(5000).optional(), priority: z.enum(['low', 'medium', 'high']).default('medium'), dueDate: taskDueDateSchema.optional(), category: z.string().trim().max(100).optional() }).strict(),
-    outputSchema: z.object({ success: z.literal(true), taskId: z.string(), task: taskSchema }).strict(),
+    outputSchema: z.object({ success: z.literal(true), taskId: z.string(), task: taskSchema, ...refreshTasksSchema }).strict(),
     risk: 'low', sideEffect: 'mutation', confirmationPolicy: 'none', permissions: ['tasks.write'],
+    effects: ['Tạo một công việc mới theo yêu cầu rõ ràng của người dùng.'],
     execute: async (input, context) => {
       const { user } = context; if (!user) throw new Error('Unauthorized');
       const task = await UserDataService.createTask(user.id, input);
-      return { success: true as const, taskId: task.id, task };
+      return { success: true as const, taskId: task.id, task, uiAction: 'refresh' as const, target: 'tasks' as const };
     },
   });
 
@@ -88,14 +94,27 @@ export function registerTasksCapabilities(): void {
   ServerCapabilityRegistry.register({
     id: 'system.tasks.update', moduleId: 'tasks', description: 'Cập nhật một nhiệm vụ đã tồn tại bằng task id đã được phân giải chắc chắn. Khi người dùng chỉ nêu tiêu đề, phải dùng công cụ tìm theo tiêu đề trước; chỉ cập nhật khi kết quả là unique. Nếu ambiguous hoặc none, không tự chọn ID và phải hỏi lại người dùng. Hành động này thay đổi dữ liệu đã lưu và cần người dùng xác nhận.',
     inputSchema: taskUpdateInputSchema,
-    outputSchema: z.object({ success: z.literal(true), taskId: z.string(), task: taskSchema }).strict(),
+    outputSchema: z.object({ success: z.literal(true), taskId: z.string(), task: taskSchema, ...refreshTasksSchema }).strict(),
     risk: 'medium', sideEffect: 'mutation', confirmationPolicy: 'required', permissions: ['tasks.write'],
     effects: ['Cập nhật nội dung hoặc trạng thái của một công việc đã lưu.'],
     execute: async (input, context) => {
       const { user } = context; if (!user) throw new Error('Unauthorized');
       const { id, ...patch } = input;
       const task = await UserDataService.updateTask(user.id, id, patch);
-      return { success: true as const, taskId: task.id, task };
+      return { success: true as const, taskId: task.id, task, uiAction: 'refresh' as const, target: 'tasks' as const };
+    },
+  });
+
+  ServerCapabilityRegistry.register({
+    id: 'system.tasks.delete', moduleId: 'tasks', description: 'Xóa một nhiệm vụ đã tồn tại bằng task id đã được phân giải chắc chắn. Khi người dùng chỉ nêu tiêu đề, phải dùng công cụ tìm theo tiêu đề trước; chỉ xóa khi kết quả là unique. Nếu ambiguous hoặc none, không tự chọn ID và phải hỏi lại người dùng. Xóa là hành động không thể hoàn tác và luôn cần xác nhận.',
+    inputSchema: z.object({ id: z.string().trim().min(1).max(256), title: z.string().trim().max(300).optional() }).strict(),
+    outputSchema: z.object({ success: z.literal(true), taskId: z.string(), ...refreshTasksSchema }).strict(),
+    risk: 'high', sideEffect: 'mutation', confirmationPolicy: 'required', permissions: ['tasks.delete'],
+    effects: ['Xóa vĩnh viễn một công việc đã lưu; thao tác này không thể hoàn tác.'],
+    execute: async (input, context) => {
+      const { user } = context; if (!user) throw new Error('Unauthorized');
+      await UserDataService.deleteTask(user.id, input.id);
+      return { success: true as const, taskId: input.id, uiAction: 'refresh' as const, target: 'tasks' as const };
     },
   });
 }
