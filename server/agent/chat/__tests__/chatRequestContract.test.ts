@@ -22,10 +22,19 @@ describe('strict Agent Chat request contract', () => {
     expect(() => parseStrictAgentChatRequest({ messages: [] })).toThrow(/request/i);
   });
 
-  it('rejects authority and arbitrary keys from client stateDelta', () => {
-    expect(() => parseStrictAgentChatRequest({ message: 'x', stateDelta: { user: { id: 'forged' } } })).toThrow(/request/i);
-    expect(() => parseStrictAgentChatRequest({ message: 'x', stateDelta: { permissions: ['tasks.delete'] } })).toThrow(/request/i);
-    expect(() => parseStrictAgentChatRequest({ message: 'x', stateDelta: { unexpectedAuthorityHint: 'admin' } })).toThrow(/request/i);
+  it('strips authority and arbitrary keys from client stateDelta while preserving allowed context', () => {
+    const result = parseStrictAgentChatRequest({
+      message: 'x',
+      stateDelta: {
+        activeModule: 'tasks',
+        user: { id: 'forged' },
+        permissions: ['tasks.delete'],
+        availableCapabilities: ['system.tasks.delete'],
+        aiConfig: { webSearchEnabled: true },
+        unexpectedAuthorityHint: 'admin',
+      },
+    });
+    expect(result.stateDelta).toEqual({ activeModule: 'tasks' });
   });
 
   it('validates aiConfig with the canonical Google-only Agent schema', () => {
