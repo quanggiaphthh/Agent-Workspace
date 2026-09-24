@@ -21,6 +21,29 @@ export interface EntityRef {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Client-provided Agent context is intentionally narrower than AppContext.
+ * Identity, permissions, capability discovery and AI configuration are owned by
+ * server authorities and must never be accepted through stateDelta.
+ */
+export const AgentClientEntityRefSchema = z.object({
+  moduleId: z.string().trim().min(1).max(100),
+  entityType: z.string().trim().min(1).max(100),
+  entityId: z.string().trim().min(1).max(256),
+  label: z.string().trim().max(500).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+export const AgentClientContextSchema = z.object({
+  activeModule: z.string().trim().min(1).max(100).optional(),
+  activeRoute: z.string().trim().min(1).max(512).optional(),
+  selectedEntity: AgentClientEntityRefSchema.optional(),
+  currentView: z.string().trim().min(1).max(100).optional(),
+  currentFilters: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+export type AgentClientContext = z.infer<typeof AgentClientContextSchema>;
+
 export interface AppContext {
   user: UserContext;
   activeModule?: string;
