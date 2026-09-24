@@ -1,5 +1,6 @@
 import { Timestamp, type DocumentData, type Query, type QueryDocumentSnapshot, type DocumentSnapshot } from 'firebase-admin/firestore';
 import { adminFirestore } from '../../lib/firebaseAdmin';
+import { storage } from '../../infrastructure/storage';
 
 export type TaskStatus = 'todo' | 'in-progress' | 'completed';
 export type TaskPriority = 'low' | 'medium' | 'high';
@@ -27,6 +28,43 @@ export interface MemoryRecord {
   source: string;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+function dataError(status: number, message: string): Error & { status?: number } {
+  const error = new Error(message) as Error & { status?: number };
+  error.status = status;
+  return error;
+}
+
+export function isValidTaskDueDate(value: string): boolean {
+  if (value === '') return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+function assertTaskDueDate(value: unknown): void {
+  if (value === undefined) return;
+  if (typeof value !== 'string' || !isValidTaskDueDate(value)) {
+    throw dataError(400, 'Invalid dueDate. Use YYYY-MM-DD or an empty string.');
+  }
+}
+
+async function assertTasksModuleEnabled(): Promise<void> {
+  try {
+    await storage.refreshModuleSettings();
+  } catch {
+    throw dataError(503, 'Task module availability could not be verified.');
+  }
+  const taskModule = storage.getData().moduleSettings.tasks;
+  if (!taskModule) throw dataError(503, 'Task module availability could not be verified.');
+  if (taskModule.canDisable && !storage.isPersistenceAvailable()) {
+    throw dataError(503, 'Task module availability could not be verified.');
+  }
+  if (!taskModule.enabled) throw dataError(409, 'Module Công việc đang tắt.');
 }
 
 function toIso(value: unknown): string | null {
@@ -89,6 +127,7 @@ async function getOwnedDoc(collectionName: string, id: string, userId: string) {
 
 export class UserDataService {
   public static async listTasks(userId: string, status: TaskStatus | 'all' = 'all'): Promise<TaskRecord[]> {
+    await assertTasksModuleEnabled();
     let q: Query = adminFirestore.collection('agent_tasks').where('userId', '==', userId);
     if (status !== 'all') q = q.where('status', '==', status);
     const snapshot = await q.get();
@@ -106,6 +145,8 @@ export class UserDataService {
     category?: string;
     dueDate?: string;
   }): Promise<TaskRecord> {
+    await assertTasksModuleEnabled();
+    assertTaskDueDate(input.dueDate);
     const now = Timestamp.now();
     const ref = await adminFirestore.collection('agent_tasks').add({
       userId,
@@ -122,6 +163,8 @@ export class UserDataService {
   }
 
   public static async updateTask(userId: string, id: string, patch: Partial<Pick<TaskRecord, 'title' | 'description' | 'status' | 'priority' | 'category' | 'dueDate'>>): Promise<TaskRecord> {
+    await assertTasksModuleEnabled();
+    assertTaskDueDate(patch.dueDate);
     const { ref } = await getOwnedDoc('agent_tasks', id, userId);
     const cleanPatch = Object.fromEntries(
       Object.entries(patch).filter(([, value]) => value !== undefined)
@@ -131,6 +174,7 @@ export class UserDataService {
   }
 
   public static async deleteTask(userId: string, id: string): Promise<void> {
+    await assertTasksModuleEnabled();
     const { ref } = await getOwnedDoc('agent_tasks', id, userId);
     await ref.delete();
   }

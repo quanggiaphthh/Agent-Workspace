@@ -50,10 +50,10 @@ export function isCanonicalPermissionId(permission: string): boolean {
 /**
  * Resolve permissions from a verified identity.
  *
- * In the current private single-user product every authenticated identity is
- * the owner, so owner permissions are a non-removable baseline. Existing
- * verified Firebase custom claims remain additive for compatibility. Admin and
- * auditor claims retain their historical extra permissions.
+ * In the current private single-user product every accepted production
+ * identity is the configured owner, so owner permissions are a non-removable
+ * baseline. Verified Firebase custom claims may add only canonical permission
+ * IDs; unknown claim strings never expand the effective permission surface.
  *
  * IMPORTANT: callers on the server must invoke this only after token
  * verification. Browser-provided role/permission fields are not authority.
@@ -72,10 +72,11 @@ export function resolveVerifiedPermissions(options: {
     : isAuditor
       ? AUDITOR_DEFAULT_PERMISSIONS
       : SINGLE_USER_OWNER_PERMISSIONS;
+  const canonicalClaimedPermissions = (claimedPermissions || []).filter(isCanonicalPermissionId);
 
   return uniqueStrings([
     ...SINGLE_USER_OWNER_PERMISSIONS,
     ...roleDefaults,
-    ...(claimedPermissions || []),
+    ...canonicalClaimedPermissions,
   ]);
 }

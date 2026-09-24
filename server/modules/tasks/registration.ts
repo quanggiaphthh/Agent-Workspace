@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { ServerCapabilityRegistry } from '../../core/capabilities/serverCapabilityRegistry';
-import { UserDataService } from '../../core/data/UserDataService';
+import { UserDataService, isValidTaskDueDate } from '../../core/data/UserDataService';
 import type { ModuleMetadata } from '../../core/modules/moduleCatalog';
+
+const taskDueDateSchema = z.string().max(10).refine(isValidTaskDueDate, {
+  message: 'dueDate must be YYYY-MM-DD or an empty string.',
+});
 
 const taskSchema = z.object({
   id: z.string().max(256), userId: z.string().max(256), title: z.string().max(300), description: z.string().max(5000),
@@ -16,7 +20,7 @@ const taskUpdateInputSchema = z.object({
   status: z.enum(['todo', 'in-progress', 'completed']).optional(),
   priority: z.enum(['low', 'medium', 'high']).optional(),
   category: z.string().trim().min(1).max(100).optional(),
-  dueDate: z.string().max(64).optional(),
+  dueDate: taskDueDateSchema.optional(),
 }).strict().refine((value) => (
   value.title !== undefined ||
   value.description !== undefined ||
@@ -41,7 +45,7 @@ export const tasksModuleMetadata: ModuleMetadata = {
 export function registerTasksCapabilities(): void {
   ServerCapabilityRegistry.register({
     id: 'system.tasks.create', moduleId: 'tasks', description: 'Tạo đúng một nhiệm vụ mới cho người dùng hiện tại từ title và các trường tùy chọn; đây là hành động ghi dữ liệu và được bảo vệ idempotency theo tool call.',
-    inputSchema: z.object({ title: z.string().trim().min(1).max(300), description: z.string().max(5000).optional(), priority: z.enum(['low', 'medium', 'high']).default('medium'), dueDate: z.string().max(64).optional(), category: z.string().trim().max(100).optional() }).strict(),
+    inputSchema: z.object({ title: z.string().trim().min(1).max(300), description: z.string().max(5000).optional(), priority: z.enum(['low', 'medium', 'high']).default('medium'), dueDate: taskDueDateSchema.optional(), category: z.string().trim().max(100).optional() }).strict(),
     outputSchema: z.object({ success: z.literal(true), taskId: z.string(), task: taskSchema }).strict(),
     risk: 'low', sideEffect: 'mutation', confirmationPolicy: 'none', permissions: ['tasks.write'],
     execute: async (input, context) => {
