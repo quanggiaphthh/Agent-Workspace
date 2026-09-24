@@ -79,6 +79,14 @@ export function buildMessageRequestPayload(
   };
 }
 
+function safeAgentClientErrorMessage(code: unknown): string {
+  if (code === 'AGENT_TIMEOUT') return 'Trợ lý mất quá nhiều thời gian để phản hồi. Vui lòng thử lại.';
+  if (code === 'STREAM_INCOMPLETE' || code === 'STREAM_MISSING' || code === 'STREAM_PROTOCOL_ERROR') {
+    return 'Kết nối với Trợ lý bị gián đoạn. Vui lòng thử lại.';
+  }
+  return 'Không thể hoàn tất yêu cầu. Vui lòng thử lại.';
+}
+
 export const AgentRuntimeContext = createContext<AgentRuntimeContextValue | null>(null);
 
 export function useAgentRuntime(): AgentRuntimeContextValue {
@@ -254,7 +262,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
 
       const response = await authFetch('/api/agent/chat', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(enrichedPayload),
@@ -266,9 +274,9 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
         try {
           errorData = await response.json();
         } catch {
-          errorData = { error: `API request failed with status: ${response.status}` };
+          errorData = { code: `HTTP_${response.status}` };
         }
-        throw new Error(errorData.error || errorData.message || 'Unknown API error');
+        throw Object.assign(new Error('Agent request failed.'), { code: errorData.code || `HTTP_${response.status}` });
       }
 
       if (!runGate.current.isCurrent(run)) return;
@@ -316,11 +324,12 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
               } catch {
                 throw new AgentSseProtocolError();
               }
-              
+
               const adkMessages = accumulator.getMessages();
               const newToolConfirmations = accumulator.getToolConfirmations();
 
-              // Map ADK messages to ChatMessage format
+              // Map ADK messages to the user-facing transcript. Internal
+              // reasoning is intentionally not projected into ChatMessage.
               const mappedMessages: ChatMessage[] = adkMessages.map((msg: any) => {
                 const isUser = msg.type === 'human';
                 const role = isUser ? 'user' : 'assistant';
@@ -332,10 +341,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
                   msg.content.forEach((part: any) => {
                     if (part.type === 'text') {
                       content.push({ type: 'text', text: part.text });
-                    } else if (part.type === 'reasoning') {
-                      content.push({ type: 'reasoning', reasoning: part.text });
                     } else if (part.type === 'code') {
-                      // Keep code as text for now but properly formatted
                       content.push({ type: 'text', text: `\n\`\`\`${part.language || 'python'}\n${part.code}\n\`\`\`\n` });
                     } else if (part.type === 'code_result') {
                       content.push({ type: 'text', text: `\n> **Kết quả thực thi:**\n> \`\`\`\n> ${part.output}\n> \`\`\`\n` });
@@ -359,28 +365,38 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
                   try {
                     result = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
                   } catch { /* ignore */ }
-                  content.push({
-                    type: 'tool-response',
-                    toolCallId: msg.tool_call_id,
-                    toolName: msg.name,
-                    result
-                  });
-                  const sourceCandidate = result?.result?.sources || result?.sources;
-                  if (Array.isArray(sourceCandidate) && sourceCandidate.length > 0) {
-                    const sources = sourceCandidate
-                      .filter((source: any) => typeof source?.url === 'string' && source.url.length > 0)
-                      .map((source: any) => ({
-                        title: typeof source.title === 'string' && source.title.trim() ? source.title : source.url,
-                        url: source.url,
-                      }));
-                    if (sources.length > 0) content.push({ type: 'sources', sources });
+
+                  if (result?.success === false) {
+                    content.push({
+                      type: 'error',
+                      toolCallId: msg.tool_call_id,
+                      toolName: msg.name,
+                      error: typeof result.errorCode === 'string' ? result.errorCode : 'TOOL_EXECUTION_FAILED',
+                    });
+                  } else {
+                    content.push({
+                      type: 'tool-response',
+                      toolCallId: msg.tool_call_id,
+                      toolName: msg.name,
+                      result
+                    });
+                    const sourceCandidate = result?.result?.sources || result?.sources;
+                    if (Array.isArray(sourceCandidate) && sourceCandidate.length > 0) {
+                      const sources = sourceCandidate
+                        .filter((source: any) => typeof source?.url === 'string' && source.url.length > 0)
+                        .map((source: any) => ({
+                          title: typeof source.title === 'string' && source.title.trim() ? source.title : source.url,
+                          url: source.url,
+                        }));
+                      if (sources.length > 0) content.push({ type: 'sources', sources });
+                    }
                   }
                 }
 
                 if (msg.status?.type === 'incomplete' && msg.status?.reason === 'error') {
                   content.push({
                     type: 'error',
-                    error: msg.status.error || 'Đã xảy ra lỗi khi xử lý.'
+                    error: 'AGENT_MESSAGE_INCOMPLETE'
                   });
                 }
 
@@ -394,7 +410,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
 
               if (!runGate.current.isCurrent(run)) return;
               setMessages(mergeStreamingMessages(initialMsgs, mappedMessages, { optimisticUserMessageId }));
-              
+
               setToolConfirmations(newToolConfirmations.map((tc: any) => ({
                 id: tc.toolCallId,
                 toolCallId: tc.toolCallId,
@@ -416,7 +432,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
       }
 
       if (streamError) {
-        throw Object.assign(new Error((streamError as any).message), { code: (streamError as any).code });
+        throw Object.assign(new Error('Agent stream failed.'), { code: (streamError as any).code });
       }
       if (!controller.signal.aborted && !streamCompleted) {
         throw Object.assign(new Error('Luồng phản hồi kết thúc trước khi nhận tín hiệu hoàn tất.'), { code: 'STREAM_INCOMPLETE' });
@@ -430,7 +446,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
           {
             id: nextId(),
             role: 'assistant',
-            content: [{ type: 'text', text: `❌ **Lỗi hệ thống:** ${err.message || 'Không thể kết nối với Trợ lý AI.'}` }],
+            content: [{ type: 'text', text: `❌ ${safeAgentClientErrorMessage(err?.code)}` }],
             timestamp: Date.now()
           }
         ]);
@@ -603,7 +619,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     setToolConfirmations((prev) => prev.filter((item) => item.toolCallId !== toolCallId && item.id !== toolCallId));
 
     const appContext = getAppContext();
-    
+
     // Send the correct ADK FunctionResponse block representing the confirmation response
     await sendPayloadToAgent({
       toolResponse: {
