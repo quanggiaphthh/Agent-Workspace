@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { bootstrapServer } from '../../../bootstrap';
 import { ServerCapabilityRegistry } from '../serverCapabilityRegistry';
@@ -10,6 +10,7 @@ import { AIConfigSchema } from '../../../../shared/contracts/ai';
 import { packagedServerModules, registerPackagedServerModules } from '../../../bootstrap';
 import { registerTasksCapabilities } from '../../../modules/tasks/registration';
 import { registerSystemCapabilities } from '../systemCapabilities';
+import { UserDataService } from '../../data/UserDataService';
 
 const user = { id: 'owner', email: 'owner@test.local', name: 'Owner', roles: ['user'], permissions: ['tasks.read', 'tasks.write', 'web.search'] };
 const context = { user, appContext: { user, availableCapabilities: [] }, confirmed: false };
@@ -43,19 +44,62 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
     expect(ServerCapabilityRegistry.listAll().some(capability => capability.id.startsWith('system.tasks.'))).toBe(false);
     registerTasksCapabilities();
     expect(ServerCapabilityRegistry.listAll().filter(capability => capability.moduleId === 'tasks').map(capability => capability.id).sort())
-      .toEqual(['system.tasks.create', 'system.tasks.list']);
+      .toEqual(['system.tasks.create', 'system.tasks.list', 'system.tasks.update']);
   });
 
-  it('keeps the canonical nine-capability inventory with explicit semantics', () => {
+  it('extends the locked M1 nine-capability baseline only with Task update parity', () => {
     bootstrapServer();
     const caps = ServerCapabilityRegistry.listAll();
-    expect(caps.map(c => c.id).sort()).toEqual([
+    const lockedM1Ids = [
       'system.memory.add','system.memory.query','system.tasks.create','system.tasks.list','system.web.search',
       'ui.openEntity','ui.openModule','ui.refresh','ui.showNotification',
-    ].sort());
-    expect(caps).toHaveLength(9);
+    ];
+    expect(caps.map(c => c.id).sort()).toEqual([...lockedM1Ids, 'system.tasks.update'].sort());
+    expect(caps).toHaveLength(10);
     expect(caps.every(c => !!c.sideEffect && ['none','mutation','ui-local'].includes(c.sideEffect))).toBe(true);
     expect(caps.every(c => !!c.confirmationPolicy && ['none','required'].includes(c.confirmationPolicy))).toBe(true);
+  });
+
+  it('requires confirmation before Task update and executes the canonical Task service only after approval', async () => {
+    registerTasksCapabilities();
+    const updatedTask = {
+      id: 'task-1', userId: 'owner', title: 'Công việc', description: '', status: 'completed' as const,
+      priority: 'medium' as const, category: 'Công việc', dueDate: '', createdAt: null, updatedAt: null,
+    };
+    const updateSpy = vi.spyOn(UserDataService, 'updateTask').mockResolvedValue(updatedTask);
+
+    try {
+      const pending = await ServerCapabilityRegistry.execute(
+        'system.tasks.update',
+        { id: 'task-1', status: 'completed' },
+        context as any,
+      );
+      expect(pending).toMatchObject({
+        success: false,
+        errorCode: 'CONFIRMATION_REQUIRED',
+        requiresConfirmation: true,
+        risk: 'medium',
+      });
+      expect(updateSpy).not.toHaveBeenCalled();
+
+      const confirmed = await ServerCapabilityRegistry.execute(
+        'system.tasks.update',
+        { id: 'task-1', status: 'completed' },
+        { ...context, confirmed: true } as any,
+      );
+      expect(confirmed.success).toBe(true);
+      expect(confirmed.result).toMatchObject({ success: true, taskId: 'task-1', task: { status: 'completed' } });
+      expect(updateSpy).toHaveBeenCalledWith('owner', 'task-1', { status: 'completed' });
+
+      const emptyPatch = await ServerCapabilityRegistry.execute(
+        'system.tasks.update',
+        { id: 'task-1' },
+        { ...context, confirmed: true } as any,
+      );
+      expect(emptyPatch.errorCode).toBe('INVALID_INPUT');
+    } finally {
+      updateSpy.mockRestore();
+    }
   });
 
   it('rejects duplicate capability IDs', () => {
