@@ -76,9 +76,8 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-bold text-neutral-900 tracking-tight">Trợ lý AI</span>
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 </div>
-                <span className="text-[10px] text-neutral-500">Luôn sẵn sàng hỗ trợ</span>
+                <span className="text-[10px] text-neutral-500">Hỗ trợ theo ngữ cảnh hiện tại</span>
               </div>
             </div>
 

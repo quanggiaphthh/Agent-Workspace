@@ -273,19 +273,21 @@ export function AgentChatThread() {
         <span className="text-neutral-500 flex items-center gap-1">
           {temporaryMode ? (
             <span className="text-amber-700 font-medium flex items-center gap-1">
-              <ShieldAlert className="h-3 w-3" /> Chế độ hội thoại tạm thời (Không lưu lịch sử)
+              <ShieldAlert className="h-3 w-3" /> Chat tạm thời · Không lưu lịch sử
             </span>
           ) : (
-            <span>Hội thoại tiêu chuẩn (Đã bật lưu trữ)</span>
+            <span>Chat đã lưu</span>
           )}
         </span>
         <button
+          type="button"
           onClick={() => setTemporaryMode(!temporaryMode)}
+          aria-label={temporaryMode ? 'Tắt chat tạm thời' : 'Bật chat tạm thời'}
           className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
             temporaryMode ? 'bg-amber-100 text-amber-800' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
           }`}
         >
-          {temporaryMode ? 'Tắt tạm thời' : 'Bật tạm thời'}
+          {temporaryMode ? 'Chuyển sang chat lưu' : 'Dùng chat tạm thời'}
         </button>
       </div>
 
@@ -405,27 +407,21 @@ export function AgentChatThread() {
                       }
                       if (part.type === 'tool-call') {
                         return (
-                          <div key={pIdx} className="my-2 p-2.5 bg-neutral-100/90 rounded-lg border border-neutral-200 text-[11px] font-mono space-y-1">
+                          <div key={pIdx} className="my-2 p-2.5 bg-neutral-100/90 rounded-lg border border-neutral-200 text-[11px] space-y-1">
                             <div className="flex items-center gap-1.5 text-neutral-700 font-bold">
                               <Wrench className="h-3.5 w-3.5 text-amber-600" />
-                              <span>Thực thi: {part.toolName}</span>
+                              <span>Đang thực hiện thao tác…</span>
                             </div>
-                            <pre className="text-[10px] bg-white p-1.5 rounded border border-neutral-200 text-neutral-600 overflow-x-auto">
-                              {JSON.stringify(part.args, null, 2)}
-                            </pre>
                           </div>
                         );
                       }
                       if (part.type === 'tool-response') {
                         return (
-                          <div key={pIdx} className="my-2 p-2.5 bg-emerald-50/70 rounded-lg border border-emerald-200 text-[11px] font-mono space-y-1">
+                          <div key={pIdx} className="my-2 p-2.5 bg-emerald-50/70 rounded-lg border border-emerald-200 text-[11px] space-y-1">
                             <div className="flex items-center gap-1.5 text-emerald-800 font-bold">
                               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                              <span>Kết quả: {part.toolName}</span>
+                              <span>Đã hoàn tất thao tác</span>
                             </div>
-                            <pre className="text-[10px] bg-white p-1.5 rounded border border-emerald-200 text-neutral-700 overflow-x-auto">
-                              {typeof part.result === 'string' ? part.result : JSON.stringify(part.result, null, 2)}
-                            </pre>
                           </div>
                         );
                       }
@@ -454,10 +450,10 @@ export function AgentChatThread() {
                           <div key={pIdx} className="my-2 p-2.5 bg-rose-50/70 rounded-lg border border-rose-200 text-[11px] space-y-1">
                             <div className="flex items-center gap-1.5 text-rose-800 font-bold">
                               <ShieldAlert className="h-3.5 w-3.5 text-rose-600" />
-                              <span>Lỗi hệ thống</span>
+                              <span>Yêu cầu chưa hoàn tất</span>
                             </div>
                             <div className="text-rose-700">
-                              {part.error}
+                              Vui lòng thử lại. Nếu lỗi tiếp tục xảy ra, hãy kiểm tra kết nối hoặc tải lại trang.
                             </div>
                           </div>
                         );
@@ -481,6 +477,7 @@ export function AgentChatThread() {
                           }}
                           className="p-1.5 hover:bg-neutral-100 text-neutral-500 hover:text-neutral-900 rounded-md transition-colors"
                           title="Chỉnh sửa tin nhắn"
+                          aria-label="Chỉnh sửa tin nhắn"
                         >
                           <Edit2 className="h-3.5 w-3.5" />
                         </button>
@@ -488,6 +485,7 @@ export function AgentChatThread() {
                           onClick={() => handleCopy(msgText, msg.id || String(msgIndex))}
                           className="p-1.5 hover:bg-neutral-100 text-neutral-500 hover:text-neutral-900 rounded-md transition-colors"
                           title="Sao chép"
+                          aria-label="Sao chép tin nhắn"
                         >
                           {copiedId === (msg.id || String(msgIndex)) ? (
                             <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -502,6 +500,7 @@ export function AgentChatThread() {
                           onClick={() => handleCopy(msgText, msg.id || String(msgIndex))}
                           className="p-1.5 hover:bg-neutral-100 text-neutral-500 hover:text-neutral-900 rounded-md transition-colors"
                           title="Sao chép"
+                          aria-label="Sao chép phản hồi"
                         >
                           {copiedId === (msg.id || String(msgIndex)) ? (
                             <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -513,13 +512,15 @@ export function AgentChatThread() {
                           onClick={() => handleQuote(msgText)}
                           className="p-1.5 hover:bg-neutral-100 text-neutral-500 hover:text-neutral-900 rounded-md transition-colors"
                           title="Trích dẫn"
+                          aria-label="Trích dẫn phản hồi"
                         >
                           <Quote className="h-3.5 w-3.5" />
                         </button>
                         <button
                           onClick={() => regenerate()}
                           className="p-1.5 hover:bg-neutral-100 text-neutral-500 hover:text-neutral-900 rounded-md transition-colors"
-                          title="Thử lại (Regenerate)"
+                          title="Tạo lại phản hồi"
+                          aria-label="Tạo lại phản hồi"
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
                         </button>
@@ -528,6 +529,7 @@ export function AgentChatThread() {
                           onClick={() => toggleStarMessage(msg.id)}
                           className={`p-1.5 hover:bg-neutral-100 rounded-md transition-colors ${msg.starred ? 'text-amber-500' : 'text-neutral-500 hover:text-neutral-900'}`}
                           title={msg.starred ? 'Bỏ đánh dấu' : 'Đánh dấu quan trọng'}
+                          aria-label={msg.starred ? 'Bỏ đánh dấu quan trọng' : 'Đánh dấu phản hồi là quan trọng'}
                         >
                           <Star className={`h-3.5 w-3.5 ${msg.starred ? 'fill-amber-500' : ''}`} />
                         </button>
@@ -536,6 +538,7 @@ export function AgentChatThread() {
                             onClick={() => handleAddToMemory(msgText, msg.id || String(msgIndex))}
                             className="p-1.5 hover:bg-neutral-100 rounded-md transition-colors text-neutral-500 hover:text-neutral-900"
                             title="Thêm vào bộ nhớ AI"
+                            aria-label="Thêm phản hồi vào bộ nhớ AI"
                           >
                             {savedMemoryId === (msg.id || String(msgIndex)) ? (
                               <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -630,6 +633,7 @@ export function AgentChatThread() {
             onClick={() => fileInputRef.current?.click()}
             className="h-8 w-8 shrink-0 text-neutral-600 rounded-lg"
             title={attachments.length >= MAX_ATTACHMENTS_PER_TURN ? `Đã đạt tối đa ${MAX_ATTACHMENTS_PER_TURN} tệp` : 'Đính kèm tệp'}
+            aria-label={attachments.length >= MAX_ATTACHMENTS_PER_TURN ? `Đã đạt tối đa ${MAX_ATTACHMENTS_PER_TURN} tệp` : 'Đính kèm tệp'}
           >
             <Paperclip className="h-3.5 w-3.5" />
           </Button>
@@ -639,7 +643,7 @@ export function AgentChatThread() {
             value={inputText}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder={`Nhập tin nhắn hoặc lệnh cho phân hệ ${activeModule}...`}
+            placeholder="Nhập tin nhắn cho Trợ lý AI…"
             className="flex-1 bg-transparent text-xs text-neutral-900 placeholder-neutral-400 focus:outline-none resize-none max-h-32 py-1.5"
           />
 
@@ -651,6 +655,7 @@ export function AgentChatThread() {
               onClick={cancelRun}
               className="h-8 w-8 shrink-0 bg-rose-600 hover:bg-rose-700 text-white rounded-lg"
               title="Dừng phản hồi"
+              aria-label="Dừng phản hồi"
             >
               <StopCircle className="h-4 w-4" />
             </Button>
@@ -662,6 +667,7 @@ export function AgentChatThread() {
               onClick={handleSend}
               className="h-8 w-8 shrink-0 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-40 text-white rounded-lg transition-opacity"
               title="Gửi tin nhắn"
+              aria-label="Gửi tin nhắn"
             >
               <Send className="h-3.5 w-3.5" />
             </Button>
@@ -669,7 +675,7 @@ export function AgentChatThread() {
         </div>
         <div className="flex items-center justify-between mt-1 px-1 text-[10px] text-neutral-400 font-mono">
           <span>Nhấn Enter để gửi, Shift+Enter xuống dòng</span>
-          <span>Google AI Studio Agent</span>
+          <span>Trợ lý AI</span>
         </div>
       </div>
     </div>
