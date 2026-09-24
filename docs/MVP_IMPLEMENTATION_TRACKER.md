@@ -1,6 +1,7 @@
 # AGENT-WORKSPACE — MVP IMPLEMENTATION TRACKER
 
 > **Authority:** operational current status tracker.  
+> Agent entry point: `AGENTS.md`.  
 > Historical checkpoints: `PROJECT_MASTER_PLAN.md`.  
 > Scope/reuse policy: `docs/MVP_COMPLETION_PLAN_REUSE_FIRST.md`.  
 > Detailed execution: `docs/MVP_EXECUTION_PHASES.md`.
