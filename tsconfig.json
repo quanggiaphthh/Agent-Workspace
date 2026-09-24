@@ -24,5 +24,10 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "Agent-Workspace-W7",
+    "Agent-Workspace-W8"
+  ]
 }
