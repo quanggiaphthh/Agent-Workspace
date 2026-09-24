@@ -8,6 +8,7 @@
 
 ## 1. Canonical authority model
 
+- `AGENTS.md` — operational entry point for coding agents; routes agents to current-status, architecture and task-relevant canonical documents without duplicating them.
 - `PROJECT_MASTER_PLAN.md` — locked technical checkpoints and evidence.
 - `docs/MVP_COMPLETION_PLAN_REUSE_FIRST.md` — MVP scope, critical path and reuse governance.
 - `docs/MVP_IMPLEMENTATION_TRACKER.md` — operational current status.
@@ -15,7 +16,7 @@
 - `docs/ARCHITECTURE_GUARDRAILS.md` — mandatory architecture constraints.
 - `docs/CANONICAL_REUSE_MATRIX_SOURCE_LEVEL.md` — source/package/API reuse decisions.
 
-If wording conflicts, the Tracker is current-status authority; this file governs locked checkpoint evidence.
+Coding agents read `AGENTS.md` first. If wording conflicts, the Tracker is current-status authority; this file governs locked checkpoint evidence; Architecture Guardrails govern mandatory architecture constraints.
 
 ## 2. Locked architecture authorities
 
