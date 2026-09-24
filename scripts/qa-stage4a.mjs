@@ -33,7 +33,7 @@ check('sidebar refreshes when user changes', /\[user\]/.test(sidebar) || /user\.
 check('sidebar role label derives from verified roles', /user\.roles\.includes\('admin'\)[\s\S]*?Quản trị viên[\s\S]*?auditor[\s\S]*?Kiểm toán viên/.test(sidebar));
 check('command palette navigation is filtered by user', /moduleRegistry\.getNavigation\(user\)/.test(overlay));
 check('home widgets are filtered by user', /moduleRegistry\.getWidgets\(user\)/.test(home));
-check('home module links are filtered by user', /listEnabledFor\(user\)/.test(home));
+check('home module quick actions respect module registry status', /moduleRegistry\.isEnabled\(['"]tasks['"]\)/.test(home));
 check('settings module gates module manager by module.manage', settingsModule.includes('module.manage'));
 check('settings module gates audit tab by audit.read', settingsModule.includes('audit.read'));
 check('task capabilities are owned by tasks module', /id:\s*['"]system\.tasks\.(?:create|list)['"][\s\S]*?moduleId:\s*['"]tasks['"]/.test(tasksRegistration));
