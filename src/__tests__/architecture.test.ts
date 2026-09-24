@@ -8,6 +8,7 @@ import { navigationService } from '../core/navigation/navigationService';
 import { CapabilityToolNameRegistry } from '../../server/core/capabilities/capabilityToolNameRegistry';
 import { z } from 'zod';
 import { ExecutionContext } from '../../shared/contracts/capability';
+import { packagedClientModules, registerPackagedClientModules } from '../moduleComposition';
 
 /**
  * P1 PREFLIGHT & P0.3 ARCHITECTURAL INVARIANT TESTS
@@ -38,6 +39,15 @@ describe('Architectural Invariants P1 Preflight', () => {
   });
 
   describe('2. Navigation Service & Module Registry Invariants', () => {
+    it('registers the packaged Task module once through the canonical LocalModuleRegistry', () => {
+      registerPackagedClientModules();
+
+      expect(packagedClientModules.filter(module => module.id === 'tasks')).toHaveLength(1);
+      expect(moduleRegistry.listAll().filter(module => module.id === 'tasks')).toHaveLength(1);
+      expect(moduleRegistry.resolve('home')).toBeDefined();
+      expect(moduleRegistry.resolve('settings')).toBeDefined();
+    });
+
     it('should resolve primary route from ModuleRegistry (ID != Route)', () => {
       moduleRegistry.register({
         id: 'work-management',
