@@ -8,14 +8,14 @@
 
 ## 1. Current canonical context
 
-- Canonical HEAD before this documentation update: `efc98156f3fe947faf66081ed8a1b87c76cee1d7`.
-- Canonical Actions: `35996497865` — run #86 — **SUCCESS**.
+- Canonical code/live checkpoint before this documentation update: `fe74182aea99049859d29717248bf78f64deec1c`.
+- Canonical Actions: `35996785606` — run #87 — **SUCCESS**.
 - GĐ1–GĐ4 / M1: **FINAL PASS / LOCKED**.
-- W4–W9: **FINAL PASS / LOCKED**.
-- Current workstream: **W10 — MVP Integrated Acceptance — IN PROGRESS**.
-- W10 static/code gate: **PASS**; live Firebase/Gemini/browser acceptance remains.
+- W4–W10: **FINAL PASS / LOCKED**.
+- W10 live Firebase + Gemini + browser integrated acceptance: **PASS**.
+- Current next workstream: **W11 — Security / Operations Hardening**.
 - Historical M1 capability count: **9**.
-- Current capability count: **10**, adding only `system.tasks.update` during W10 to close the canonical Agent Task update parity gap.
+- Current capability count: **10**, adding only `system.tasks.update` during W10 to close Agent Task update parity.
 - Product mode: **single-user personal app, not public**.
 - Post-MVP modules and marketplace/public plugin ecosystem remain deferred.
 
@@ -44,13 +44,13 @@ Do not re-run unrelated locked tests unless the current change can affect their 
 | W7 | Agent UX | FINAL PASS / LOCKED | closed |
 | W8 | Task Completion UX | FINAL PASS / LOCKED | closed |
 | W9 | Settings/local module management UX | FINAL PASS / LOCKED | closed |
-| W10 | MVP integrated acceptance | **IN PROGRESS** | live Firebase/Gemini/browser acceptance |
-| W11 | security/operations hardening | NOT STARTED | after W10 lock |
-| W12 | UAT/deployment/release | NOT STARTED | after W11 |
+| W10 | MVP integrated acceptance | **FINAL PASS / LOCKED** | closed |
+| W11 | security/operations hardening | **NEXT / AUDIT** | A–E hardening audit |
+| W12 | UAT/deployment/release | NOT STARTED | after W11 lock |
 
-## 4. Locked foundation through W9
+## 4. Locked foundation through W10
 
-The following are already locked and are not reopened without a reproducible regression:
+The following are locked and are not reopened without a reproducible regression:
 
 - single-user owner/auth foundation;
 - ADK/Gemini Agent execution, SSE, cancellation, session/history and temporary chat;
@@ -59,48 +59,35 @@ The following are already locked and are not reopened without a reproducible reg
 - modular client/server composition and Task enable/disable/re-enable isolation;
 - Vietnamese Core Shell, Home, Agent, Task and Settings UX;
 - Task daily-use CRUD/filter/sort/status UX;
-- Settings primary UX limited to Trợ lý AI + Module, with Google Gemini as the primary AI surface.
+- Settings primary UX limited to Trợ lý AI + Module, with Google Gemini as the primary AI surface;
+- Agent Task list/create/update through the canonical gateway, with `system.tasks.update` protected by server-authoritative confirmation;
+- integrated real-environment acceptance across login/reload, Home, Agent, Task, Settings, persistent/temporary chat, file-to-Gemini, cancellation, module disable/re-enable and recoverable errors.
 
 Historical M1 document path remains locked:
 
 `browser select → /api/files → canonical fileId → composer attach → /api/agent/chat → authorized current-run artifact → native ADK LoadArtifactsTool → Gemini → SSE → reload/history`
 
-## 5. W10 A–E status
+## 5. W10 completion evidence
 
 ### A. SOURCE AUDIT — PASS
 
 Fresh canonical source and existing tests were audited for login/open/reload, Home, Task UI, Agent Task capabilities, HITL, module lifecycle, persistent/temporary chat, document attachment, cancellation and recovery.
 
-Existing coverage already proves most component boundaries. No browser-test framework is installed; W10 will not add Playwright/Cypress solely for acceptance.
-
 ### B. REUSE AUDIT — PASS
 
-W10 reuses existing:
-
-- `UserDataService.updateTask()`;
-- REST Task patch semantics;
-- `ServerCapabilityRegistry`;
-- `CapabilityExecutionService`;
-- server-authoritative confirmation/HITL;
-- existing module lifecycle authority;
-- existing attachment/session/cancellation tests;
-- AI Studio live environment for real Firebase/Gemini/browser proof.
+W10 reused existing `UserDataService.updateTask()`, REST Task patch semantics, `ServerCapabilityRegistry`, `CapabilityExecutionService`, server-authoritative confirmation/HITL, existing module lifecycle authority, attachment/session/cancellation tests and the AI Studio live environment.
 
 ### C. NEW-CODE NECESSITY PROOF — PASS
 
-A real product gap was found: the canonical completion rule requires Agent **create/update Task**, but the Task module exposed only `system.tasks.create` and `system.tasks.list` to the Agent.
+The only real product gap was Agent Task update parity. The minimum corrective added exactly one capability: `system.tasks.update`.
 
-The minimum corrective added exactly one capability:
+No new API, service, persistence layer, registry, runtime, dependency or state authority was introduced.
 
-`system.tasks.update`
+### D. TEST MINIMIZATION — PASS
 
-It reuses `UserDataService.updateTask()`, uses `tasks.write`, declares `sideEffect: mutation`, and requires server-authoritative confirmation. No new API, service, persistence layer, registry, runtime, dependency or state authority was introduced.
+Only Task capability contract/inventory/lifecycle assertions were extended. No browser-test framework or duplicate E2E suite was added.
 
-### D. TEST MINIMIZATION PLAN — PASS
-
-Only Task capability contract/inventory tests were extended. Existing generic HITL/idempotency/module tests remain authoritative; no duplicate framework or broad new E2E suite was added.
-
-### E. IMPLEMENTATION / STATIC VERIFICATION — PASS
+### E. STATIC + LIVE VERIFICATION — PASS
 
 W10 corrective chain:
 
@@ -108,36 +95,53 @@ W10 corrective chain:
 - `716759ef4bc11b5c731a85965823e55305eb3f1f` — targeted capability contract coverage;
 - `efc98156f3fe947faf66081ed8a1b87c76cee1d7` — align existing capability inventory/lifecycle assertions with Task update parity.
 
-Canonical Actions run #86 (`35996497865`) is **SUCCESS**: TypeScript, full Vitest, QA Stage 1–5, production build and manifest verification all passed.
+Canonical Actions run #86 (`35996497865`) passed TypeScript, full Vitest, QA Stage 1–5, production build and manifest verification. Documentation run #87 (`35996785606`) also passed.
 
-## 6. W10 current next action — live integrated acceptance
+Live AI Studio/Firebase/Gemini acceptance passed all 12 scenarios:
 
-Run one real end-user flow in the AI Studio/Firebase/Gemini environment and prove:
+1. login + reload session restoration;
+2. Home / Agent / Task / Settings usability;
+3. Agent Task listing;
+4. Agent Task creation reflected in UI;
+5. Task update HITL deny = no mutation, approve = mutation;
+6. persistent task/chat state survives reload;
+7. Temporary Chat leaves no durable history;
+8. real file upload/attach → Gemini content-dependent answer;
+9. cancellation produces no stale completion;
+10. disabling Task removes Task UI/capabilities while Core + Agent + Settings remain usable;
+11. re-enabling Task restores contributions and durable Task data;
+12. recoverable errors leave the application usable.
 
-1. authenticated app opens and reloads correctly with Vietnamese UI;
-2. Home, Agent, Task and Settings remain usable;
-3. Agent can list/query Tasks;
-4. Agent can create a Task and the Task UI reflects it;
-5. Agent Task update raises HITL confirmation; deny/cancel causes no mutation, approve causes the expected update;
-6. persistent chat/history survives reload;
-7. Temporary Chat does not enter durable conversation history;
-8. upload/attach document → Gemini reads real document content;
-9. cancellation does not leak a stale completion;
-10. disabling Task removes Task navigation/widgets/capabilities while Core + Agent + Settings remain operational;
-11. re-enabling Task restores contributions and previously saved Task data;
-12. common recoverable errors leave the app usable.
+## 6. Current next action — W11 Security / Operations Hardening
 
-Fix only reproducible blockers. Do not open W11 before W10 is locked.
+W11 is **hardening only**, not feature development.
+
+Audit fresh canonical source and deployment assumptions for:
+
+1. authentication and authorization fail-closed behavior;
+2. Firebase Auth / Firestore / Storage rules and server-only authority boundaries;
+3. credential/API key storage, redaction and client exposure risk;
+4. HTTP security headers, request limits and rate limiting;
+5. error sanitization and audit-log secret redaction;
+6. dependency vulnerabilities and whether remediation can be done without destabilizing the locked runtime;
+7. runtime health/readiness, persistence degradation behavior and fail-closed module/capability behavior;
+8. Gemini quota/rate-limit/provider failure behavior for the free-tier personal deployment;
+9. timeout, cancellation, process-fatal handling and recovery;
+10. backup/data recovery and operational rollback assumptions for single-user use;
+11. production environment/config validation and accidental secret/config leakage;
+12. logging/observability sufficient to diagnose failures without exposing sensitive content.
+
+Prefer configuration, existing controls and narrowly scoped fixes. Do not add a new security framework, monitoring platform, auth system, provider or feature unless a verified blocker requires it.
 
 ## 7. Remaining release path
 
 ### W11 — Security / Operations Hardening
 
-Re-audit auth fail-closed behavior, Firebase/Storage rules, secrets, error sanitization, dependency risk, runtime health, rate/quota behavior, recovery and operational readiness. No feature expansion.
+Complete A–E audit, implement only verified hardening gaps, run targeted security/operations regression plus canonical CI, and lock W11.
 
 ### W12 — UAT / Deployment / Release
 
-Run production deployment, smoke/UAT, rollback readiness and final release gate. Only W12 may conclude **MVP FINAL PASS / LOCKED**.
+Run production deployment, final smoke/UAT, rollback readiness and release gate. Only W12 may conclude **MVP FINAL PASS / LOCKED**.
 
 ## 8. Final completion rule
 
