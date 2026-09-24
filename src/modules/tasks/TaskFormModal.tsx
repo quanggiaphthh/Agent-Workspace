@@ -40,6 +40,8 @@ export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = f
     await onSave({ ...form, title: form.title.trim(), description: form.description.trim() });
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="task-form-title">
       <button type="button" aria-label="Đóng biểu mẫu công việc" className="fixed inset-0 bg-black/40" onClick={saving ? undefined : onClose} />
