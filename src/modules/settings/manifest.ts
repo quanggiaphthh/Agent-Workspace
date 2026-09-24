@@ -5,8 +5,8 @@ export const settingsManifest: ModuleManifest = {
   id: 'settings',
   version: '1.0.0',
   meta: {
-    name: 'Quản lý Phân hệ & Cài đặt',
-    description: 'Quản lý các phân hệ đang hoạt động và nhật ký an toàn hệ thống.',
+    name: 'Cài đặt',
+    description: 'Thiết lập Trợ lý AI và các chức năng có sẵn trong ứng dụng.',
     icon: 'Sliders',
     order: 3,
   },
