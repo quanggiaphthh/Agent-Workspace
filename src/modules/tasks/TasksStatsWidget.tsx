@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CheckSquare, ArrowUpRight, Loader2, AlertCircle } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { Button } from '../../components/ui/Button';
+import { eventBus } from '../../core/events/eventBus';
 import { authFetch } from '../../lib/authFetch';
 import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
 
@@ -46,6 +47,9 @@ export function TasksStatsWidget() {
     };
 
     void fetchStats();
+    return eventBus.on('canvas.refreshRequested', (payload: any) => {
+      if (payload?.target === 'tasks' || payload?.target === 'current') void fetchStats();
+    });
   }, [user]);
 
   return (
