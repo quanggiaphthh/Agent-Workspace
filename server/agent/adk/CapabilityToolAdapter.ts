@@ -14,6 +14,12 @@ export interface AgentToolRuntimeMetadata {
   temporaryMode?: boolean;
 }
 
+type SafeToolFailurePayload = CapabilityGatewayResult & {
+  retryable?: boolean;
+  requiresUserAction?: boolean;
+  recoveryHint?: string;
+};
+
 function getConfirmationId(toolConfirmation: any): string | undefined {
   const candidates = [
     toolConfirmation?.payload?.confirmationId,
@@ -23,8 +29,60 @@ function getConfirmationId(toolConfirmation: any): string | undefined {
   return candidates.find(value => typeof value === 'string' && value.length > 0);
 }
 
-function safeToolFailure(result: CapabilityGatewayResult): CapabilityGatewayResult {
+function safeRecoveryMetadata(errorCode: string): Pick<SafeToolFailurePayload, 'retryable' | 'requiresUserAction' | 'recoveryHint'> {
+  const policies: Record<string, Pick<SafeToolFailurePayload, 'retryable' | 'requiresUserAction' | 'recoveryHint'>> = {
+    INVALID_INPUT: {
+      retryable: true,
+      requiresUserAction: false,
+      recoveryHint: 'Correct the tool arguments to match the declared schema before retrying.',
+    },
+    MODULE_DISABLED: {
+      retryable: false,
+      requiresUserAction: true,
+      recoveryHint: 'Do not retry unless the user re-enables the required module.',
+    },
+    MODULE_SETTINGS_UNAVAILABLE: {
+      retryable: false,
+      requiresUserAction: true,
+      recoveryHint: 'Module availability could not be verified. Ask the user to retry later.',
+    },
+    CAPABILITY_DISABLED: {
+      retryable: false,
+      requiresUserAction: true,
+      recoveryHint: 'The capability is disabled for this Agent run. Do not retry automatically.',
+    },
+    CONFIRMATION_REQUIRED: {
+      retryable: false,
+      requiresUserAction: true,
+      recoveryHint: 'Wait for the user confirmation decision before continuing.',
+    },
+    CONFIRMATION_REJECTED: {
+      retryable: false,
+      requiresUserAction: true,
+      recoveryHint: 'The user rejected this action. Do not retry unless the user explicitly asks again.',
+    },
+    EXECUTION_RECONCILIATION_REQUIRED: {
+      retryable: false,
+      requiresUserAction: true,
+      recoveryHint: 'Refresh the relevant domain state before proposing another mutation. Do not retry automatically.',
+    },
+    EXECUTION_IN_PROGRESS: {
+      retryable: false,
+      requiresUserAction: false,
+      recoveryHint: 'The same logical mutation is still running. Do not start a duplicate mutation.',
+    },
+    RESULT_TOO_LARGE: {
+      retryable: false,
+      requiresUserAction: false,
+      recoveryHint: 'Use a narrower query or smaller result scope before retrying.',
+    },
+  };
+  return policies[errorCode] || { retryable: false, requiresUserAction: false };
+}
+
+function safeToolFailure(result: CapabilityGatewayResult): SafeToolFailurePayload {
   if (result.success) return result;
+  const errorCode = result.errorCode || 'EXECUTION_ERROR';
   const safeMessages: Record<string, string> = {
     CAPABILITY_NOT_FOUND: 'Tool is unavailable.',
     INVALID_INPUT: 'Tool arguments are invalid.',
@@ -51,13 +109,38 @@ function safeToolFailure(result: CapabilityGatewayResult): CapabilityGatewayResu
   };
   return {
     success: false,
-    errorCode: result.errorCode || 'EXECUTION_ERROR',
-    error: safeMessages[result.errorCode || 'EXECUTION_ERROR'] || 'Tool execution failed safely.',
+    errorCode,
+    error: safeMessages[errorCode] || 'Tool execution failed safely.',
+    ...safeRecoveryMetadata(errorCode),
     ...(result.requiresConfirmation ? { requiresConfirmation: true } : {}),
     ...(result.risk ? { risk: result.risk } : {}),
     ...(result.confirmationId ? { confirmationId: result.confirmationId } : {}),
     ...(result.confirmationExpiresAt ? { confirmationExpiresAt: result.confirmationExpiresAt } : {}),
   };
+}
+
+function confirmationHint(cap: CapabilityDescriptor<any, any>, args: any, trustedExecutionContext: ExecutionContext): string {
+  const selectedEntity = trustedExecutionContext.appContext?.selectedEntity;
+  const selectedLabel = selectedEntity
+    && typeof args?.id === 'string'
+    && selectedEntity.entityId === args.id
+    && selectedEntity.label
+      ? selectedEntity.label
+      : undefined;
+
+  if (cap.id === 'system.tasks.update') {
+    if (args?.status === 'completed') {
+      return selectedLabel
+        ? `Đánh dấu “${selectedLabel}” là đã hoàn thành?`
+        : 'Đánh dấu công việc này là đã hoàn thành?';
+    }
+    return selectedLabel
+      ? `Cập nhật công việc “${selectedLabel}”?`
+      : 'Cập nhật công việc này?';
+  }
+
+  const effect = cap.effects?.[0];
+  return effect ? `Xác nhận: ${effect}` : 'Xác nhận thực hiện thao tác này?';
 }
 
 export class CapabilityToolAdapter {
@@ -77,15 +160,16 @@ export class CapabilityToolAdapter {
       parameters: cap.inputSchema as any,
       execute: async (args, toolContext) => {
         const context = toolContext as any;
-        const dynamicAppContext = context?.appContext || (context?.sessionState && context.sessionState.appContext) || {};
-        const appContext = { ...(trustedExecutionContext.appContext || {}), ...dynamicAppContext };
         if (!user) return { success: false, errorCode: 'UNAUTHENTICATED', error: 'Authentication is required for this tool.' };
 
         const adkRuntimeSignal = { abortSignal: context?.abortSignal };
         const abortSignal = runtime.abortSignal || trustedExecutionContext.abortSignal || adkRuntimeSignal.abortSignal;
+        // ToolContext/session state is model/runtime-adjacent and must never override
+        // the request-scoped server-authoritative app context built before the run.
+        const trustedAppContext = trustedExecutionContext.appContext || { user, availableCapabilities: [] };
         const execContext: ExecutionContext = {
           user,
-          appContext: { ...appContext, user, availableCapabilities: [] },
+          appContext: { ...trustedAppContext, user, availableCapabilities: [] },
           confirmed: false,
           abortSignal,
         };
@@ -117,8 +201,14 @@ export class CapabilityToolAdapter {
                 }, { once: true });
               }
               await context.requestConfirmation({
-                hint: `Xác nhận: ${cap.description}`,
-                payload: { capabilityId: cap.id, risk: cap.risk, confirmationId: challenge.confirmationId, expiresAt: challenge.confirmationExpiresAt },
+                hint: confirmationHint(cap, args, trustedExecutionContext),
+                payload: {
+                  capabilityId: cap.id,
+                  risk: cap.risk,
+                  effect: cap.effects?.[0],
+                  confirmationId: challenge.confirmationId,
+                  expiresAt: challenge.confirmationExpiresAt,
+                },
               });
             }
             return safeToolFailure(challenge);
@@ -134,15 +224,21 @@ export class CapabilityToolAdapter {
             });
             if (!rejected.ok) return safeToolFailure({ success:false, errorCode:rejected.errorCode || 'CONFIRMATION_FAILED', error:rejected.errorSummary || 'Confirmation could not be verified.' });
             await CapabilityExecutionService.recordDecision({ id: cap.id, context: execContext, meta: { ...executionMeta, confirmationId }, confirmed: false });
-            return { success: false, errorCode: 'CONFIRMATION_REJECTED', error: 'User rejected the action.' };
+            return safeToolFailure({ success: false, errorCode: 'CONFIRMATION_REJECTED', error: 'User rejected the action.' });
           }
 
           if (!confirmationId) {
             const freshChallenge = await CapabilityExecutionService.execute(cap.id, args, execContext, executionMeta);
             if (freshChallenge.requiresConfirmation && freshChallenge.confirmationId && typeof context?.requestConfirmation === 'function') {
               await context.requestConfirmation({
-                hint: `Xác nhận lại: ${cap.description}`,
-                payload: { capabilityId: cap.id, risk: cap.risk, confirmationId: freshChallenge.confirmationId, expiresAt: freshChallenge.confirmationExpiresAt },
+                hint: confirmationHint(cap, args, trustedExecutionContext),
+                payload: {
+                  capabilityId: cap.id,
+                  risk: cap.risk,
+                  effect: cap.effects?.[0],
+                  confirmationId: freshChallenge.confirmationId,
+                  expiresAt: freshChallenge.confirmationExpiresAt,
+                },
               });
             }
             return safeToolFailure(freshChallenge);
