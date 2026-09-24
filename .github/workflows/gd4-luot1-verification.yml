@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   # Firebase Web API keys are client configuration, not Admin credentials.
@@ -20,20 +20,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Sync Stage4C manifest checksum once
-        shell: bash
-        run: |
-          set -euo pipefail
-          actual="$(sha256sum scripts/qa-stage4c.mjs | awk '{print $1}')"
-          sed -i -E "s|^[0-9a-f]{64}  scripts/qa-stage4c\.mjs$|${actual}  scripts/qa-stage4c.mjs|" PRODUCTION_SOURCE_MANIFEST.sha256
-          if ! git diff --quiet -- PRODUCTION_SOURCE_MANIFEST.sha256; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add PRODUCTION_SOURCE_MANIFEST.sha256
-            git commit -m "chore: sync Stage4C manifest checksum"
-            git push
-          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
