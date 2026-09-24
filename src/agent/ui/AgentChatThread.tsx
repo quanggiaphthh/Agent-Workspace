@@ -53,7 +53,7 @@ export type ComposerAttachmentAction =
   | { type: 'remove'; localId: string }
   | { type: 'reset' };
 
-export function createComposerAttachment(file: File, localId = crypto.randomUUID()): ComposerAttachment {
+export function createComposerAttachment(file: File, localId: string = crypto.randomUUID()): ComposerAttachment {
   return { localId, file, name: file.name, phase: 'uploading' };
 }
 

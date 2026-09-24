@@ -10,6 +10,7 @@ import { AgentRunGate } from '../runtime/runLifecycle';
 import { decideSessionHydration } from '../runtime/sessionHistoryPolicy';
 import { reconstructPendingConfirmations } from '../runtime/temporaryRecoveryPolicy';
 import type { AttachmentReference } from '../../../server/agent/chat/chatRequestContract';
+import type { AppContext } from '../../../shared/contracts/capability';
 
 export interface ChatMessagePart {
   type: 'text' | 'reasoning' | 'tool-call' | 'tool-response' | 'sources' | 'error';
@@ -68,7 +69,7 @@ export interface AgentRuntimeContextValue {
 
 export function buildMessageRequestPayload(
   text: string,
-  stateDelta: Record<string, unknown>,
+  stateDelta: AppContext | Record<string, unknown>,
   attachments: AttachmentReference[] = [],
 ) {
   return {
