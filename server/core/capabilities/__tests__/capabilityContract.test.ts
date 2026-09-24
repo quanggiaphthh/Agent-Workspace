@@ -12,7 +12,7 @@ import { registerTasksCapabilities } from '../../../modules/tasks/registration';
 import { registerSystemCapabilities } from '../systemCapabilities';
 import { UserDataService } from '../../data/UserDataService';
 
-const user = { id: 'owner', email: 'owner@test.local', name: 'Owner', roles: ['user'], permissions: ['tasks.read', 'tasks.write', 'web.search'] };
+const user = { id: 'owner', email: 'owner@test.local', name: 'Owner', roles: ['user'], permissions: ['tasks.read', 'tasks.write', 'tasks.delete', 'web.search'] };
 const context = { user, appContext: { user, availableCapabilities: [] }, confirmed: false };
 
 function descriptor(overrides: Record<string, unknown> = {}) {
@@ -44,48 +44,36 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
     expect(ServerCapabilityRegistry.listAll().some(capability => capability.id.startsWith('system.tasks.'))).toBe(false);
     registerTasksCapabilities();
     expect(ServerCapabilityRegistry.listAll().filter(capability => capability.moduleId === 'tasks').map(capability => capability.id).sort())
-      .toEqual(['system.tasks.create', 'system.tasks.list', 'system.tasks.search', 'system.tasks.update']);
+      .toEqual(['system.tasks.create', 'system.tasks.delete', 'system.tasks.list', 'system.tasks.search', 'system.tasks.update']);
   });
 
-  it('extends the locked M1 nine-capability baseline with bounded Task update/search parity', () => {
+  it('extends the locked M1 baseline with bounded Task search/update/delete parity', () => {
     bootstrapServer();
     const caps = ServerCapabilityRegistry.listAll();
     const lockedM1Ids = [
       'system.memory.add','system.memory.query','system.tasks.create','system.tasks.list','system.web.search',
       'ui.openEntity','ui.openModule','ui.refresh','ui.showNotification',
     ];
-    expect(caps.map(c => c.id).sort()).toEqual([...lockedM1Ids, 'system.tasks.search', 'system.tasks.update'].sort());
-    expect(caps).toHaveLength(11);
+    expect(caps.map(c => c.id).sort()).toEqual([...lockedM1Ids, 'system.tasks.delete', 'system.tasks.search', 'system.tasks.update'].sort());
+    expect(caps).toHaveLength(12);
     expect(caps.every(c => !!c.sideEffect && ['none','mutation','ui-local'].includes(c.sideEffect))).toBe(true);
     expect(caps.every(c => !!c.confirmationPolicy && ['none','required'].includes(c.confirmationPolicy))).toBe(true);
   });
 
   it('pages Task listing without claiming the first page is exhaustive', async () => {
     registerTasksCapabilities();
-    const listSpy = vi.spyOn(UserDataService, 'listTasksPage').mockResolvedValue({
-      tasks: [],
-      nextCursor: 'cursor-2',
-    });
+    const listSpy = vi.spyOn(UserDataService, 'listTasksPage').mockResolvedValue({ tasks: [], nextCursor: 'cursor-2' });
     try {
-      const result = await ServerCapabilityRegistry.execute(
-        'system.tasks.list',
-        { status: 'all', limit: 25 },
-        context as any,
-      );
+      const result = await ServerCapabilityRegistry.execute('system.tasks.list', { status: 'all', limit: 25 }, context as any);
       expect(result.success).toBe(true);
       expect(result.result).toMatchObject({ tasks: [], nextCursor: 'cursor-2' });
       expect(listSpy).toHaveBeenCalledWith('owner', { status: 'all', limit: 25 });
-    } finally {
-      listSpy.mockRestore();
-    }
+    } finally { listSpy.mockRestore(); }
   });
 
   it('returns explicit unique/ambiguous Task title resolution instead of guessing an id', async () => {
     registerTasksCapabilities();
-    const task = {
-      id: 'task-1', userId: 'owner', title: 'Báo cáo tháng 9', description: '', status: 'todo' as const,
-      priority: 'medium' as const, category: 'Công việc', dueDate: '', createdAt: null, updatedAt: null,
-    };
+    const task = { id: 'task-1', userId: 'owner', title: 'Báo cáo tháng 9', description: '', status: 'todo' as const, priority: 'medium' as const, category: 'Công việc', dueDate: '', createdAt: null, updatedAt: null };
     const searchSpy = vi.spyOn(UserDataService, 'resolveTasksByExactTitle').mockResolvedValue({ match: 'ambiguous', tasks: [task, { ...task, id: 'task-2' }], truncated: false });
     try {
       const result = await ServerCapabilityRegistry.execute('system.tasks.search', { title: 'Báo cáo tháng 9' }, context as any);
@@ -93,51 +81,37 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
       expect(result.result).toMatchObject({ match: 'ambiguous', truncated: false });
       expect((result.result as any).tasks).toHaveLength(2);
       expect(searchSpy).toHaveBeenCalledWith('owner', 'Báo cáo tháng 9');
-    } finally {
-      searchSpy.mockRestore();
-    }
+    } finally { searchSpy.mockRestore(); }
   });
 
   it('requires confirmation before Task update and executes the canonical Task service only after approval', async () => {
     registerTasksCapabilities();
-    const updatedTask = {
-      id: 'task-1', userId: 'owner', title: 'Công việc', description: '', status: 'completed' as const,
-      priority: 'medium' as const, category: 'Công việc', dueDate: '', createdAt: null, updatedAt: null,
-    };
+    const updatedTask = { id: 'task-1', userId: 'owner', title: 'Công việc', description: '', status: 'completed' as const, priority: 'medium' as const, category: 'Công việc', dueDate: '', createdAt: null, updatedAt: null };
     const updateSpy = vi.spyOn(UserDataService, 'updateTask').mockResolvedValue(updatedTask);
-
     try {
-      const pending = await ServerCapabilityRegistry.execute(
-        'system.tasks.update',
-        { id: 'task-1', status: 'completed' },
-        context as any,
-      );
-      expect(pending).toMatchObject({
-        success: false,
-        errorCode: 'CONFIRMATION_REQUIRED',
-        requiresConfirmation: true,
-        risk: 'medium',
-      });
+      const pending = await ServerCapabilityRegistry.execute('system.tasks.update', { id: 'task-1', status: 'completed' }, context as any);
+      expect(pending).toMatchObject({ success: false, errorCode: 'CONFIRMATION_REQUIRED', requiresConfirmation: true, risk: 'medium' });
       expect(updateSpy).not.toHaveBeenCalled();
-
-      const confirmed = await ServerCapabilityRegistry.execute(
-        'system.tasks.update',
-        { id: 'task-1', status: 'completed' },
-        { ...context, confirmed: true } as any,
-      );
+      const confirmed = await ServerCapabilityRegistry.execute('system.tasks.update', { id: 'task-1', status: 'completed' }, { ...context, confirmed: true } as any);
       expect(confirmed.success).toBe(true);
-      expect(confirmed.result).toMatchObject({ success: true, taskId: 'task-1', task: { status: 'completed' } });
+      expect(confirmed.result).toMatchObject({ success: true, taskId: 'task-1', task: { status: 'completed' }, uiAction: 'refresh', target: 'tasks' });
       expect(updateSpy).toHaveBeenCalledWith('owner', 'task-1', { status: 'completed' });
-
-      const emptyPatch = await ServerCapabilityRegistry.execute(
-        'system.tasks.update',
-        { id: 'task-1' },
-        { ...context, confirmed: true } as any,
-      );
+      const emptyPatch = await ServerCapabilityRegistry.execute('system.tasks.update', { id: 'task-1' }, { ...context, confirmed: true } as any);
       expect(emptyPatch.errorCode).toBe('INVALID_INPUT');
-    } finally {
-      updateSpy.mockRestore();
-    }
+    } finally { updateSpy.mockRestore(); }
+  });
+
+  it('requires confirmation before Task delete and deletes only after approval', async () => {
+    registerTasksCapabilities();
+    const deleteSpy = vi.spyOn(UserDataService, 'deleteTask').mockResolvedValue();
+    try {
+      const pending = await ServerCapabilityRegistry.execute('system.tasks.delete', { id: 'task-1', title: 'Công việc' }, context as any);
+      expect(pending).toMatchObject({ success: false, errorCode: 'CONFIRMATION_REQUIRED', requiresConfirmation: true, risk: 'high' });
+      expect(deleteSpy).not.toHaveBeenCalled();
+      const confirmed = await ServerCapabilityRegistry.execute('system.tasks.delete', { id: 'task-1', title: 'Công việc' }, { ...context, confirmed: true } as any);
+      expect(confirmed).toMatchObject({ success: true, result: { taskId: 'task-1', uiAction: 'refresh', target: 'tasks' } });
+      expect(deleteSpy).toHaveBeenCalledWith('owner', 'task-1');
+    } finally { deleteSpy.mockRestore(); }
   });
 
   it('rejects duplicate capability IDs', () => {
@@ -200,10 +174,7 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
   });
 
   it('counts nested and multibyte Unicode results by serialized UTF-8 bytes', async () => {
-    ServerCapabilityRegistry.register(descriptor({
-      outputSchema: z.object({ nested: z.array(z.object({ text: z.string() })) }),
-      execute: async () => ({ nested: [{ text: '🙂'.repeat(ServerCapabilityRegistry.MAX_RESULT_BYTES / 2) }] }),
-    }));
+    ServerCapabilityRegistry.register(descriptor({ outputSchema: z.object({ nested: z.array(z.object({ text: z.string() })) }), execute: async () => ({ nested: [{ text: '🙂'.repeat(ServerCapabilityRegistry.MAX_RESULT_BYTES / 2) }] }) }));
     const result = await ServerCapabilityRegistry.execute('test.capability', {}, context as any);
     expect(result.errorCode).toBe('RESULT_TOO_LARGE');
   });
