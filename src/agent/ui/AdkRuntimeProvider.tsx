@@ -9,6 +9,7 @@ import { mergeStreamingMessages } from '../runtime/streamMessageMerge';
 import { AgentRunGate } from '../runtime/runLifecycle';
 import { decideSessionHydration } from '../runtime/sessionHistoryPolicy';
 import { reconstructPendingConfirmations } from '../runtime/temporaryRecoveryPolicy';
+import type { AttachmentReference } from '../../../server/agent/chat/chatRequestContract';
 
 export interface ChatMessagePart {
   type: 'text' | 'reasoning' | 'tool-call' | 'tool-response' | 'sources' | 'error';
@@ -50,7 +51,7 @@ export interface AgentRuntimeContextValue {
     isReady: boolean;
     historyError?: string;
   };
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, attachments?: AttachmentReference[]) => Promise<void>;
   cancelRun: () => void;
   toolConfirmations: ToolConfirmationItem[];
   confirmTool: (toolCallId: string, confirmed: boolean, payload?: any) => Promise<void>;
@@ -63,6 +64,18 @@ export interface AgentRuntimeContextValue {
   toggleStarMessage: (id: string) => void;
   temporaryMode: boolean;
   setTemporaryMode: (mode: boolean) => void;
+}
+
+export function buildMessageRequestPayload(
+  text: string,
+  stateDelta: Record<string, unknown>,
+  attachments: AttachmentReference[] = [],
+) {
+  return {
+    message: text.trim(),
+    stateDelta,
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
 }
 
 export const AgentRuntimeContext = createContext<AgentRuntimeContextValue | null>(null);
@@ -562,7 +575,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     );
   }, []);
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, attachments: AttachmentReference[] = []) => {
     if (!text.trim()) return;
 
     const userMessageId = nextId();
@@ -577,10 +590,12 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     setMessages(optimisticTranscript);
 
     const appContext = getAppContext();
-    await sendPayloadToAgent({
-      message: text.trim(),
-      stateDelta: appContext,
-    }, undefined, optimisticTranscript, userMessageId);
+    await sendPayloadToAgent(
+      buildMessageRequestPayload(text, appContext, attachments),
+      undefined,
+      optimisticTranscript,
+      userMessageId,
+    );
   }, [getAppContext, messages, sendPayloadToAgent]);
 
   const confirmTool = useCallback(async (toolCallId: string, confirmed: boolean, payload?: any) => {

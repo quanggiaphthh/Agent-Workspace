@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useReducer } from 'react';
 import { useAgentRuntime } from './AdkRuntimeProvider';
 import { Button } from '../../components/ui/Button';
 import {
@@ -20,13 +20,65 @@ import {
   Brain,
   ShieldAlert,
   CornerUpLeft,
-  Quote
+  Quote,
+  Paperclip,
+  X,
+  Loader2,
+  FileText
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AdkConfirmation } from './AdkConfirmation';
 import { useContextStore } from '../../core/context/contextStore';
 import { authFetch } from '../../lib/authFetch';
 import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
+import { uploadUserFile, type UploadProblem } from '../../modules/home/fileUploadClient';
+import type { AttachmentReference } from '../../../server/agent/chat/chatRequestContract';
+import { MAX_ATTACHMENTS_PER_TURN } from '../../../server/agent/chat/attachmentPolicy';
+import { SUPPORTED_FILE_ACCEPT } from '../../../shared/contracts/fileUploadPolicy';
+
+
+export type ComposerAttachment = {
+  localId: string;
+  file: File;
+  name: string;
+  phase: 'uploading' | 'complete' | 'error';
+  fileId?: string;
+  error?: string;
+};
+
+export type ComposerAttachmentAction =
+  | { type: 'add'; attachment: ComposerAttachment }
+  | { type: 'complete'; localId: string; fileId: string }
+  | { type: 'error'; localId: string; error: string }
+  | { type: 'remove'; localId: string }
+  | { type: 'reset' };
+
+export function createComposerAttachment(file: File, localId = crypto.randomUUID()): ComposerAttachment {
+  return { localId, file, name: file.name, phase: 'uploading' };
+}
+
+export function composerAttachmentReducer(
+  state: ComposerAttachment[],
+  action: ComposerAttachmentAction,
+): ComposerAttachment[] {
+  if (action.type === 'reset') return [];
+  if (action.type === 'remove') return state.filter((item) => item.localId !== action.localId);
+  if (action.type === 'add') {
+    if (state.length >= MAX_ATTACHMENTS_PER_TURN) return state;
+    return [...state, action.attachment];
+  }
+  return state.map((item) => {
+    if (item.localId !== action.localId) return item;
+    if (action.type === 'complete') return { ...item, phase: 'complete', fileId: action.fileId, error: undefined };
+    return { ...item, phase: 'error', fileId: undefined, error: action.error };
+  });
+}
+
+export function successfulAttachmentReferences(attachments: ComposerAttachment[]): AttachmentReference[] {
+  return attachments.flatMap((attachment) =>
+    attachment.phase === 'complete' && attachment.fileId ? [{ fileId: attachment.fileId }] : [],
+  );
+}
 
 export function AgentChatThread() {
   const { user } = useFirebaseAuth();
@@ -46,6 +98,10 @@ export function AgentChatThread() {
   const [inputText, setInputText] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [savedMemoryId, setSavedMemoryId] = useState<string | null>(null);
+  const [attachments, dispatchAttachment] = useReducer(composerAttachmentReducer, []);
+  const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
+  const uploadControllersRef = useRef(new Map<string, AbortController>());
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Editing state for user messages
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
@@ -56,19 +112,80 @@ export function AgentChatThread() {
 
   const { messages, isRunning, isReady, historyError } = threadState;
 
+  useEffect(() => () => {
+    uploadControllersRef.current.forEach((controller) => controller.abort());
+    uploadControllersRef.current.clear();
+  }, []);
+
   // Auto-scroll to bottom on update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isRunning]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!inputText.trim() || isRunning || !isReady) return;
+    if (attachments.some((attachment) => attachment.phase === 'uploading')) {
+      setAttachmentNotice('Vui lòng chờ tệp tải lên hoàn tất trước khi gửi.');
+      return;
+    }
 
-    sendMessage(inputText.trim());
+    const attachmentReferences = successfulAttachmentReferences(attachments);
+    await sendMessage(inputText.trim(), attachmentReferences);
     setInputText('');
+    dispatchAttachment({ type: 'reset' });
+    setAttachmentNotice(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+  };
+
+  const handleFilesSelected = (files: FileList | null) => {
+    if (!files?.length) return;
+    const availableSlots = MAX_ATTACHMENTS_PER_TURN - attachments.length;
+    if (availableSlots <= 0) {
+      setAttachmentNotice(`Chỉ được đính kèm tối đa ${MAX_ATTACHMENTS_PER_TURN} tệp cho mỗi tin nhắn.`);
+      return;
+    }
+
+    const selected = Array.from(files).slice(0, availableSlots);
+    if (files.length > availableSlots) {
+      setAttachmentNotice(`Chỉ nhận ${availableSlots} tệp còn lại; tối đa ${MAX_ATTACHMENTS_PER_TURN} tệp cho mỗi tin nhắn.`);
+    } else {
+      setAttachmentNotice(null);
+    }
+
+    selected.forEach((file) => {
+      const attachment = createComposerAttachment(file);
+      const controller = new AbortController();
+      uploadControllersRef.current.set(attachment.localId, controller);
+      dispatchAttachment({ type: 'add', attachment });
+
+      void uploadUserFile(file, controller.signal)
+        .then((uploaded) => {
+          dispatchAttachment({ type: 'complete', localId: attachment.localId, fileId: uploaded.fileId });
+        })
+        .catch((error: UploadProblem) => {
+          if (error?.code !== 'ABORTED') {
+            dispatchAttachment({
+              type: 'error',
+              localId: attachment.localId,
+              error: error?.message || 'Không thể tải tệp lên. Vui lòng thử lại.',
+            });
+          }
+        })
+        .finally(() => {
+          uploadControllersRef.current.delete(attachment.localId);
+        });
+    });
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRemoveAttachment = (localId: string) => {
+    uploadControllersRef.current.get(localId)?.abort();
+    uploadControllersRef.current.delete(localId);
+    dispatchAttachment({ type: 'remove', localId });
+    setAttachmentNotice(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -461,11 +578,61 @@ export function AgentChatThread() {
       {/* Tool confirmations */}
       <AdkConfirmation />
 
-      {/* File attachment is intentionally unavailable until real upload/MIME handling exists. */}
+      {/* Composer attachments */}
+      {attachments.length > 0 && (
+        <div className="px-3 pt-2 bg-white border-t border-neutral-200 flex flex-wrap gap-2">
+          {attachments.map((attachment) => (
+            <div key={attachment.localId} className="max-w-full flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-[11px]">
+              {attachment.phase === 'uploading' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-500 shrink-0" />
+              ) : (
+                <FileText className={`h-3.5 w-3.5 shrink-0 ${attachment.phase === 'error' ? 'text-rose-600' : 'text-emerald-600'}`} />
+              )}
+              <div className="min-w-0">
+                <div className="truncate max-w-52 font-medium text-neutral-700">{attachment.name}</div>
+                <div className={attachment.phase === 'error' ? 'text-rose-600' : 'text-neutral-500'}>
+                  {attachment.phase === 'uploading' ? 'Đang tải lên…' : attachment.phase === 'complete' ? 'Đã tải lên' : attachment.error}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleRemoveAttachment(attachment.localId)}
+                className="p-1 rounded hover:bg-neutral-200 text-neutral-500"
+                title="Xóa tệp đính kèm"
+                aria-label={`Xóa tệp ${attachment.name}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {attachmentNotice && (
+        <div className="px-3 pt-1.5 bg-white text-[11px] text-amber-700">{attachmentNotice}</div>
+      )}
 
       {/* Input Composer */}
       <div className="p-3 bg-white border-t border-neutral-200 shrink-0">
         <div className="flex items-end gap-2 bg-neutral-50 rounded-xl border border-neutral-200 p-2 focus-within:ring-2 focus-within:ring-neutral-900 transition-all">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={SUPPORTED_FILE_ACCEPT}
+            className="hidden"
+            onChange={(event) => handleFilesSelected(event.target.files)}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={isRunning || attachments.length >= MAX_ATTACHMENTS_PER_TURN}
+            onClick={() => fileInputRef.current?.click()}
+            className="h-8 w-8 shrink-0 text-neutral-600 rounded-lg"
+            title={attachments.length >= MAX_ATTACHMENTS_PER_TURN ? `Đã đạt tối đa ${MAX_ATTACHMENTS_PER_TURN} tệp` : 'Đính kèm tệp'}
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+          </Button>
           <textarea
             ref={textareaRef}
             rows={1}
