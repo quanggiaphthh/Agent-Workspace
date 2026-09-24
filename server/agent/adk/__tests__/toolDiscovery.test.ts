@@ -6,13 +6,14 @@ import { assertUniqueAgentToolNames, filterAgentCapabilitiesForConfig } from '..
 import { AIConfigSchema } from '../../../../shared/contracts/ai';
 import { storage } from '../../../infrastructure/storage';
 import { serverModuleCatalog } from '../../../core/modules/moduleCatalog';
+import { registerPackagedServerModules } from '../../../bootstrap';
 
 const user = { id: 'owner', email: 'owner@test.local', name: 'Owner', roles: ['user'], permissions: ['tasks.read', 'web.search'] };
 const context: any = { user, appContext: { user, availableCapabilities: [] } };
 function cap(id: string, moduleId = 'system', permissions: string[] = []) { return { id, moduleId, description: id, inputSchema: z.object({}).strict(), outputSchema: z.object({ ok: z.boolean() }), risk: 'low' as const, sideEffect: 'none' as const, confirmationPolicy: 'none' as const, permissions, execute: async () => ({ ok: true }) }; }
 
 describe('GĐ3 Lượt 3 server-authoritative tool discovery', () => {
-  beforeEach(() => { ServerCapabilityRegistry.reset(); CapabilityToolNameRegistry.reset(); storage.initialize(serverModuleCatalog.listAll(), true); });
+  beforeEach(() => { ServerCapabilityRegistry.reset(); CapabilityToolNameRegistry.reset(); serverModuleCatalog.reset(); registerPackagedServerModules(); storage.initialize(serverModuleCatalog.listAll(), true); });
   it('includes available capabilities and excludes permission/module filtered capabilities', async () => {
     ServerCapabilityRegistry.register(cap('allowed'));
     ServerCapabilityRegistry.register(cap('denied', 'system', ['tasks.write']));
