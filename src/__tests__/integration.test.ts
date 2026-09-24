@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { app } from '../../server';
 import { adminAuth, adminFirestore } from '../../server/lib/firebaseAdmin';
@@ -58,14 +58,26 @@ describe('Production Integration & Security Suite', () => {
     email_verified: true,
   };
 
+  const originalOwnerUid = process.env.OWNER_UID;
+  const originalNodeEnv = process.env.NODE_ENV;
+
   beforeAll(() => {
     vi.spyOn(AuditService, 'probeHealth').mockResolvedValue({ status: 'ok', backend: 'firestore', durationMs: 0 });
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.OWNER_UID;
+    process.env.NODE_ENV = 'test';
     testMocks.persistenceProbe.mockResolvedValue({ status: 'ok', mode: 'persistent', backend: 'firestore', degraded: false });
     testMocks.firestoreProbe.mockResolvedValue({ status: 'ok', backend: 'firestore', durationMs: 0 });
+  });
+
+  afterAll(() => {
+    if (originalOwnerUid === undefined) delete process.env.OWNER_UID;
+    else process.env.OWNER_UID = originalOwnerUid;
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
   });
 
 
