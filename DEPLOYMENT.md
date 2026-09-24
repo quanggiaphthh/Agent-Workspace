@@ -1,147 +1,171 @@
-# Modular Agent Webapp v14 — Deployment Guide
+# Agent-Workspace — Deployment & Operations Guide
 
-> Status: **FINAL SOURCE RELEASE CANDIDATE — WITH KNOWN ENVIRONMENT VERIFICATION LIMITATIONS**. This guide documents how the current source is intended to be built and run; GĐ6 does not deploy it.
+> Current product: private **single-user personal app**.  
+> W10 integrated Firebase/Gemini acceptance: **PASS**.  
+> W11 security/operations hardening checkpoint: `bfd417d3d9d90f2bb7a9ca41998801c52a27aefe`; canonical Actions run #91 (`36010878105`) **SUCCESS**.
 
-## Requirements
+## 1. Runtime baseline
 
-- **Node.js:** `package.json` does not declare an `engines.node` constraint. GĐ5 verification used Node `v22.16.0`; use a Node 22-compatible environment until an explicit engine policy is introduced.
-- **npm:** project has `package-lock.json`; GĐ5 verification used npm `10.9.2`. Install from the lockfile with `npm ci`.
-- Firebase project configuration compatible with `firebase-applet-config.json`.
-- Firestore database identified by the checked-in Firebase applet config.
-- Firebase Admin Application Default Credentials (ADC), supplied by an attached service identity or another supported ADC mechanism.
-- A Google/Gemini System credential if `credentialId=system` will be used.
-- A stable server-only credential-encryption master secret if personal credentials will be stored/resolved.
+- Node.js 22.
+- Install only from the committed lockfile with `npm ci`.
+- Build with `npm run build`.
+- Start the built server with `NODE_ENV=production npm start`.
+- Firebase Admin uses Application Default Credentials (ADC); do not embed service-account JSON in source.
+- Firestore uses the named database declared in `firebase-applet-config.json`.
+- File bytes are accessed by the backend through Firebase Admin Storage only.
 
-## Environment variables used by current source
+## 2. Required production configuration
 
-Do not commit real values. The variable names below are derived from current runtime/build source.
+Do not commit real secret values.
 
 ```dotenv
-# Server-only Google/Gemini System credential. Required only when System Key is used.
-GEMINI_API_KEY=
-
-# Server-only personal-credential encryption master secret. Must remain stable.
-CREDENTIAL_ENCRYPTION_KEY=
-
-# Optional identifier for the current encryption key version; defaults to env-v1.
-CREDENTIAL_ENCRYPTION_KEY_ID=
-
-# Browser Firebase Web SDK API key, provided to Vite at build/runtime injection time.
-VITE_FIREBASE_API_KEY=
-
-# Runtime mode; production enables static serving/CSP and disables dev session fallback.
 NODE_ENV=production
 
-# Optional ADC file source when not using an attached platform identity.
-GOOGLE_APPLICATION_CREDENTIALS=
+# Mandatory single-owner binding. Use the Firebase Auth UID of the only
+# account allowed to use this private deployment.
+OWNER_UID=
 
-# Development-only Vite behavior; set true to disable HMR/file watching.
-DISABLE_HMR=
+# Required only when the System Gemini credential is used.
+GEMINI_API_KEY=
+
+# Required for storing/resolving personal credentials. Keep stable.
+CREDENTIAL_ENCRYPTION_KEY=
+CREDENTIAL_ENCRYPTION_KEY_ID=env-v1
+
+# Public Firebase Web SDK configuration supplied at build/deploy time.
+VITE_FIREBASE_API_KEY=
+
+# Optional only when ADC is supplied through a credential file rather than
+# the hosting platform service identity.
+GOOGLE_APPLICATION_CREDENTIALS=
 ```
 
-Notes:
+### OWNER_UID release gate
 
-- `GOOGLE_APPLICATION_CREDENTIALS` is one possible ADC source. Its mere presence is not proof that ADC/IAM works; health probes perform a real read-only Firestore check.
-- `firebase-applet-config.json` supplies Firebase project/database identifiers used by both Web/Admin initialization.
-- `.env.example` also contains an `APP_URL` placeholder inherited from the AI Studio template, but current source does not reference `APP_URL`; it is not a required runtime variable for this source snapshot.
+Production identity resolution is fail-closed:
 
-## Credential encryption key
+- missing/invalid Firebase bearer token → rejected;
+- `NODE_ENV=production` and missing `OWNER_UID` → authenticated application APIs reject with `OWNER_NOT_CONFIGURED`;
+- valid Firebase identity whose UID differs from `OWNER_UID` → rejected with `OWNER_MISMATCH`;
+- browser-provided roles/permissions never override the verified server identity.
 
-`CREDENTIAL_ENCRYPTION_KEY` is a server-side master secret. Current protector requirements/semantics:
+W12 must configure and verify the real owner UID before production release.
 
-- it must be present for personal credential protection/unprotection;
-- the source requires at least 32 bytes of UTF-8 master-secret material and derives the 256-bit AES key with SHA-256 for compatibility with the pre-GĐ4D format;
-- AES-256-GCM uses a new 12-byte IV per protected secret and an authentication tag;
-- the master key must never be exposed to the browser or stored in Firestore beside ciphertext;
-- production must not fall back to plaintext if protection/decryption/migration fails;
-- current design has one active master key/key ID and no multi-key decryption ring. **Do not rotate/change the production master key ad hoc.** Plan a controlled credential migration first.
+## 3. Credential protection
 
-## Firebase Admin / service identity
+Personal AI credentials are protected server-side with AES-256-GCM through `CREDENTIAL_ENCRYPTION_KEY`.
 
-`server/lib/firebaseAdmin.ts` initializes Firebase Admin with `applicationDefault()` and the configured Firebase project/database IDs.
+Operational rules:
 
-Before deployment, verify the backend service identity has the IAM permissions required by the application operations it performs. Do not assume a particular role from this source package; choose least-privilege roles/permissions according to the target environment and verify with a staging preflight.
+- use at least 32 bytes of stable random master-secret material;
+- never expose the master key or plaintext credentials to the browser;
+- do not change `CREDENTIAL_ENCRYPTION_KEY` ad hoc: existing ciphertext depends on it;
+- change `CREDENTIAL_ENCRYPTION_KEY_ID` only as part of a controlled migration;
+- protection/decryption failure must remain fail-closed; never add plaintext fallback.
 
-**Important:** Firestore Security Rules are a browser/client boundary. Firebase Admin SDK uses IAM and bypasses client Rules. Do not loosen Security Rules to fix an Admin `PERMISSION_DENIED` error.
+## 4. Firebase Rules
 
-## Install
+Canonical configuration is in `firebase.json`.
 
-Use the existing lockfile; do not update dependencies during release deployment verification.
+### Firestore
+
+`firestore.rules` denies direct browser read/write for all server-authoritative application data and ends with a deny-all catch-all. Firebase Admin uses IAM and bypasses client Security Rules.
+
+### Storage
+
+`storage.rules` denies all direct browser read/write. Browser file operations must continue through authenticated application endpoints (`/api/files`); the backend uses Firebase Admin Storage.
+
+Do not loosen Firestore or Storage Rules to work around an Admin/IAM error. Fix the backend service identity/IAM configuration instead.
+
+W12 must deploy both rulesets to the intended Firebase project and verify that direct client access is denied while the authenticated application upload/read flow still works.
+
+## 5. Security controls already in source
+
+- Firebase ID-token verification before protected APIs.
+- Production single-owner UID binding.
+- Server-authoritative permissions and module availability checks.
+- Server-authoritative HITL confirmation for protected mutations.
+- Helmet production security headers/CSP.
+- Global API rate limiting plus tighter public telemetry and expensive AI/Agent limits.
+- 1 MiB authenticated JSON request bound and bounded file upload/read policies.
+- File MIME/signature validation; ZIP archives are not accepted by the application file-ingestion path.
+- Recursive audit/error redaction for bearer/JWT/API-key/credential/secret/password/cookie-like material.
+- Read-only runtime health aggregation for Firestore, sessions, module persistence and audit persistence.
+- Fatal unhandled rejection/exception handling in non-test runtime.
+
+## 6. Dependency security policy
+
+CI runs `scripts/security-audit.mjs` after `npm ci`.
+
+Current locked ADK is `@google/adk@2.1.0`. Its dependency graph includes `adm-zip@0.5.18`, which is covered by known high-severity ZIP-processing advisories. The current Agent-Workspace runtime:
+
+- does not accept ZIP files through its file-ingestion policy;
+- does not enable an ADK skills loader in `RootAgent`;
+- therefore does not expose the reviewed vulnerable ZIP-processing path through the current application surface.
+
+A **temporary, narrow exception** is allowed only for these advisories:
+
+- GHSA-xcpc-8h2w-3j85
+- GHSA-vwc7-r8mq-g2x9
+- GHSA-7q85-xj36-vmfc
+
+The exception is pinned to `@google/adk@2.1.0` + `adm-zip@0.5.18` and expires after **2026-10-31**. Any new high/critical advisory, changed reviewed versions, changed dependency path, or expiry fails CI.
+
+Do **not** run `npm audit fix --force`: current npm remediation proposes a breaking ADK downgrade and would reopen the locked Agent runtime. Re-evaluate the exception when an upstream-compatible fix is available.
+
+Moderate transitive advisories remain visible in npm audit output and should be reviewed during dependency maintenance, but W11 does not force a breaking dependency change solely to eliminate them.
+
+## 7. Verification before release
+
+Canonical static gate:
 
 ```bash
 npm ci
-```
-
-GĐ5 could not complete this command because the verification environment lacked network/cache for all packages. A successful install is still required before claiming runtime release readiness.
-
-## Verification commands
-
-After dependencies install successfully:
-
-```bash
+node scripts/security-audit.mjs
 npm run lint
 npm test
-npm run test:integration
+node scripts/qa-w11-security.mjs
 npm run build
+sha256sum -c PRODUCTION_SOURCE_MANIFEST.sha256
 ```
 
-Current scripts mean:
+The GitHub Actions workflow also executes the historical targeted and QA regression stages.
 
-- `npm run lint` → `tsc --noEmit`
-- `npm test` → `vitest run`
-- `npm run test:integration` → `vitest run src/__tests__/integration.test.ts`
-- `npm run build` → Vite frontend build followed by esbuild bundling `server.ts` to `dist/server.cjs`
+Production/live release verification belongs to W12 and must additionally prove:
 
-These commands remain **BLOCKED / not successfully verified** in the GĐ5 environment and must not be documented as PASS.
+1. `OWNER_UID` matches the actual signed-in owner;
+2. a different valid Firebase identity is denied;
+3. Firestore direct client access is denied;
+4. Storage direct client access is denied;
+5. authenticated app upload/attachment/Gemini still works;
+6. `/api/health` reports expected persistent components;
+7. persistent/temporary chat, Task create/update HITL, cancellation and module disable/re-enable remain correct.
 
-## Build
+## 8. Rate/quota and provider failures
 
-```bash
-npm run build
-```
+Gemini is the only primary Agent provider in the MVP UI. Provider/quota/credential failures must remain recoverable application errors, not process crashes. Credential rotation may happen only before streaming has started; after partial output the current run must fail rather than replaying tool/model effects.
 
-Expected outputs are frontend assets in `dist/` plus bundled backend `dist/server.cjs`. GĐ6 does not include generated `dist/` because this artifact is a source snapshot and production build verification is still blocked.
+Do not increase rate limits merely to hide quota errors. For the free-tier personal deployment, prefer clear recoverable errors and retry later.
 
-## Start
+## 9. Backup and rollback
 
-After a successful build:
+The MVP intentionally has no second persistence system and no custom backup service.
 
-```bash
-NODE_ENV=production npm start
-```
+Before any future destructive migration or bulk deletion:
 
-The server listens on `0.0.0.0:3000` in current source; port is currently a source constant, not a documented environment variable.
+- create an environment-supported Firestore/Storage backup/export when available;
+- otherwise do not perform the destructive migration until a verified backup path exists.
 
-For local development with dependencies installed:
+For W12 release:
 
-```bash
-npm run dev
-```
+- record the exact deployed Git commit;
+- record the previous known-good deployed commit;
+- source rollback means redeploying the previous commit and its matching Firebase Rules;
+- source rollback does **not** revert Firestore/Storage data;
+- never roll back/change `CREDENTIAL_ENCRYPTION_KEY` independently of encrypted credential data.
 
-## Health
+Current W11 introduces no destructive schema migration, so rollback does not require a data transformation.
 
-Public endpoint:
+## 10. Release boundary
 
-```text
-GET /api/health
-```
-
-It aggregates Firestore Admin, session persistence, module persistence, and audit persistence.
-
-- `status: ok` → all reported components are OK.
-- `status: degraded` → at least one component is degraded and none is error; HTTP status remains 200.
-- `status: error` → one or more components are unavailable/error; endpoint returns HTTP 503.
-
-The probes are read-only. A health request must not create data, migrate secrets, or switch session execution mode.
-
-## Firestore Rules verification
-
-Current `firestore.rules` denies direct browser read/write for server-authoritative Tasks, Memory, credentials, audit, confirmations, and the default catch-all. Static review exists, but GĐ5 did not execute the Rules in Firebase Emulator. Run real Emulator tests before claiming Rules runtime verification.
-
-## Release verification limitations carried into this package
-
-- **#17 Firestore IAM/ADC staging — BLOCKED.**
-- **#20 Full runtime/toolchain verification — BLOCKED.**
-- **#53 Firestore Rules Emulator — BLOCKED.**
-
-Deployment should remain a separate, explicitly authorized operation after these checks are completed or consciously accepted by the deployment owner.
+W11 is source/config hardening. W12 is the only workstream authorized to perform final production deployment/UAT and declare **MVP FINAL PASS / LOCKED**.
