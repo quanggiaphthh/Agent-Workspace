@@ -30,6 +30,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Verify production manifest
         run: sha256sum -c PRODUCTION_SOURCE_MANIFEST.sha256
 
