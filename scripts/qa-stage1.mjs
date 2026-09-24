@@ -37,7 +37,12 @@ check('credentialId reset is centralized', store.includes("credentialId: 'system
 check('Zustand auto hydration disabled', store.includes('skipHydration: true'));
 check('Firebase awaits user-scoped rehydrate', auth.includes('await useAIKeysStore.persist.rehydrate()'));
 check('Agent send checks hydration readiness', runtime.includes('if (!aiSettingsHydrated)'));
-check('Agent provider selector is read-only', settings.includes('disabled\n                  aria-label="Nhà cung cấp Agent Chatbox"'));
+check(
+  'Agent settings do not expose provider switching',
+  settings.includes('const [localAgentProvider] = useState(DEFAULT_AGENT_PROVIDER)') &&
+    !settings.includes('setLocalAgentProvider') &&
+    !settings.includes('SUPPORTED_PROVIDERS'),
+);
 
 let failures = 0;
 for (const item of checks) {
