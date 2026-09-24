@@ -56,18 +56,37 @@ export function registerTasksCapabilities(): void {
   });
 
   ServerCapabilityRegistry.register({
-    id: 'system.tasks.list', moduleId: 'tasks', description: 'Liệt kê tối đa 100 nhiệm vụ của người dùng hiện tại, có thể lọc theo trạng thái todo, in-progress, completed hoặc all.',
-    inputSchema: z.object({ status: z.enum(['todo', 'in-progress', 'completed', 'all']).default('all') }).strict(),
-    outputSchema: z.object({ tasks: z.array(taskSchema).max(100) }).strict(),
+    id: 'system.tasks.list', moduleId: 'tasks', description: 'Liệt kê một trang nhiệm vụ theo thứ tự mới nhất. Nếu nextCursor được trả về và cần tìm thêm, tiếp tục gọi với cursor đó; không được kết luận một nhiệm vụ không tồn tại chỉ từ trang đầu.',
+    inputSchema: z.object({
+      status: z.enum(['todo', 'in-progress', 'completed', 'all']).default('all'),
+      limit: z.number().int().min(1).max(100).default(100),
+      cursor: z.string().max(4096).optional(),
+    }).strict(),
+    outputSchema: z.object({ tasks: z.array(taskSchema).max(100), nextCursor: z.string().optional() }).strict(),
     risk: 'low', sideEffect: 'none', confirmationPolicy: 'none', permissions: ['tasks.read'],
     execute: async (input, context) => {
       const { user } = context; if (!user) throw new Error('Unauthorized');
-      return { tasks: await UserDataService.listTasks(user.id, input.status) };
+      return await UserDataService.listTasksPage(user.id, input);
     },
   });
 
   ServerCapabilityRegistry.register({
-    id: 'system.tasks.update', moduleId: 'tasks', description: 'Cập nhật một nhiệm vụ đã tồn tại của người dùng hiện tại bằng task id đã biết, ví dụ đổi tiêu đề, mô tả, trạng thái, mức ưu tiên, nhóm hoặc hạn hoàn thành. Khi chưa biết id, hãy liệt kê nhiệm vụ trước. Hành động này thay đổi dữ liệu đã lưu và cần người dùng xác nhận.',
+    id: 'system.tasks.search', moduleId: 'tasks', description: 'Phân giải một công việc theo tiêu đề chính xác trên toàn bộ dữ liệu của người dùng. Trả match=unique chỉ khi có đúng một kết quả; nếu ambiguous phải hỏi người dùng chọn rõ công việc trước khi gọi tool cập nhật hoặc xóa. Nếu none, không được tự đoán ID.',
+    inputSchema: z.object({ title: z.string().trim().min(1).max(300) }).strict(),
+    outputSchema: z.object({
+      match: z.enum(['none', 'unique', 'ambiguous']),
+      tasks: z.array(taskSchema).max(20),
+      truncated: z.boolean(),
+    }).strict(),
+    risk: 'low', sideEffect: 'none', confirmationPolicy: 'none', permissions: ['tasks.read'],
+    execute: async (input, context) => {
+      const { user } = context; if (!user) throw new Error('Unauthorized');
+      return await UserDataService.resolveTasksByExactTitle(user.id, input.title);
+    },
+  });
+
+  ServerCapabilityRegistry.register({
+    id: 'system.tasks.update', moduleId: 'tasks', description: 'Cập nhật một nhiệm vụ đã tồn tại bằng task id đã được phân giải chắc chắn. Khi người dùng chỉ nêu tiêu đề, phải dùng công cụ tìm theo tiêu đề trước; chỉ cập nhật khi kết quả là unique. Nếu ambiguous hoặc none, không tự chọn ID và phải hỏi lại người dùng. Hành động này thay đổi dữ liệu đã lưu và cần người dùng xác nhận.',
     inputSchema: taskUpdateInputSchema,
     outputSchema: z.object({ success: z.literal(true), taskId: z.string(), task: taskSchema }).strict(),
     risk: 'medium', sideEffect: 'mutation', confirmationPolicy: 'required', permissions: ['tasks.write'],
