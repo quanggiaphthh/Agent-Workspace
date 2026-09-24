@@ -7,6 +7,9 @@ import { serverModuleCatalog } from '../../modules/moduleCatalog';
 import { CapabilityToolNameRegistry } from '../capabilityToolNameRegistry';
 import { filterAgentCapabilitiesForConfig } from '../../../agent/adk/RootAgent';
 import { AIConfigSchema } from '../../../../shared/contracts/ai';
+import { packagedServerModules, registerPackagedServerModules } from '../../../bootstrap';
+import { registerTasksCapabilities } from '../../../modules/tasks/registration';
+import { registerSystemCapabilities } from '../systemCapabilities';
 
 const user = { id: 'owner', email: 'owner@test.local', name: 'Owner', roles: ['user'], permissions: ['tasks.read', 'tasks.write', 'web.search'] };
 const context = { user, appContext: { user, availableCapabilities: [] }, confirmed: false };
@@ -24,7 +27,23 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
   beforeEach(() => {
     ServerCapabilityRegistry.reset();
     CapabilityToolNameRegistry.reset();
+    serverModuleCatalog.reset();
+    registerPackagedServerModules();
     storage.initialize(serverModuleCatalog.listAll(), true);
+  });
+
+  it('registers packaged Task metadata exactly once through the canonical ServerModuleCatalog', () => {
+    expect(packagedServerModules.filter(module => module.metadata.id === 'tasks')).toHaveLength(1);
+    expect(serverModuleCatalog.listAll().filter(module => module.id === 'tasks')).toHaveLength(1);
+    expect(serverModuleCatalog.get('tasks')).toMatchObject({ id: 'tasks', canDisable: true, version: '1.0.0' });
+  });
+
+  it('keeps Task capability ownership outside the system capability registrar', () => {
+    registerSystemCapabilities();
+    expect(ServerCapabilityRegistry.listAll().some(capability => capability.id.startsWith('system.tasks.'))).toBe(false);
+    registerTasksCapabilities();
+    expect(ServerCapabilityRegistry.listAll().filter(capability => capability.moduleId === 'tasks').map(capability => capability.id).sort())
+      .toEqual(['system.tasks.create', 'system.tasks.list']);
   });
 
   it('keeps the canonical nine-capability inventory with explicit semantics', () => {
@@ -86,9 +105,7 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
 
   it('accepts normal and near-bound results but rejects oversized serialized UTF-8 output', async () => {
     const max = ServerCapabilityRegistry.MAX_RESULT_BYTES;
-    const make = (length: number) => descriptor({
-      outputSchema: z.object({ value: z.string() }), execute: async () => ({ value: 'a'.repeat(length) }),
-    });
+    const make = (length: number) => descriptor({ outputSchema: z.object({ value: z.string() }), execute: async () => ({ value: 'a'.repeat(length) }) });
     ServerCapabilityRegistry.register(make(100));
     expect((await ServerCapabilityRegistry.execute('test.capability', {}, context as any)).success).toBe(true);
     ServerCapabilityRegistry.reset();
