@@ -78,7 +78,6 @@ export class RotatingGemini extends BaseLlm {
   }
 }
 
-
 export function filterAgentCapabilitiesForConfig<T extends { id: string }>(capabilities: T[], aiConfig: AIConfig): T[] {
   return capabilities.filter((cap) => {
     if (!aiConfig.memoryEnabled && cap.id.startsWith('system.memory.')) return false;
@@ -86,7 +85,6 @@ export function filterAgentCapabilitiesForConfig<T extends { id: string }>(capab
     return true;
   });
 }
-
 
 export function assertUniqueAgentToolNames<T extends { id: string }>(capabilities: T[]): void {
   const seen = new Map<string, string>();
@@ -166,6 +164,8 @@ export class RootAgent {
         4. ĐIỀU HƯỚNG: Khi cần thay đổi giao diện, chỉ sử dụng tool điều hướng đang được cung cấp trong danh sách tools của lượt chạy.
         5. KHÔNG GIẢ ĐỊNH: Chỉ sử dụng các tools có tên trong danh sách hiện tại. Nếu không thấy tool phù hợp, hãy thông báo cho người dùng rằng tính năng đó có thể bị khóa hoặc chưa được cài đặt.
         6. AN TOÀN: Các hành động quan trọng sẽ yêu cầu xác nhận theo policy phía server.
+        7. PHÂN GIẢI CÔNG VIỆC: Khi người dùng muốn sửa/trạng thái một công việc nhưng chưa có task id chắc chắn, phải dùng công cụ tìm công việc theo tiêu đề chính xác hoặc tiếp tục phân trang danh sách. Chỉ thực hiện mutation khi đã xác định duy nhất một task. Nếu kết quả mơ hồ hoặc có nhiều task cùng tiêu đề, phải hỏi người dùng chọn rõ; tuyệt đối không tự chọn một ID.
+        8. PHÂN TRANG: Khi công cụ danh sách trả nextCursor, đó chỉ là một trang dữ liệu. Không được kết luận "không có" hoặc "đã liệt kê toàn bộ" nếu chưa kiểm tra các trang cần thiết cho yêu cầu hiện tại.
       `,
       model: modelInstance,
       tools,
