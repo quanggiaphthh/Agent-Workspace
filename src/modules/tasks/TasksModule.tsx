@@ -125,7 +125,7 @@ export function TasksModule() {
       const response = await authFetch(`/api/tasks/${encodeURIComponent(deletingId)}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('delete');
       setTasks((current) => current.filter((task) => task.id !== deletingId));
-      if (selectedEntity?.moduleId === 'tasks' && selectedEntity.entityId === deletingId) setSelectedEntity(undefined);
+      if (selectedEntity?.moduleId === 'tasks' && selectedEntity.entityId === deletingId) setSelectedEntity(null);
       setDeleteTask(null);
     } catch (err) {
       console.error('Failed to delete task:', err);
