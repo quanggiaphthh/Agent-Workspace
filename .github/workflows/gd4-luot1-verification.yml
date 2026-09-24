@@ -31,7 +31,7 @@ jobs:
         run: npm ci
 
       - name: Production dependency audit
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/security-audit.mjs
 
       - name: Verify production manifest
         run: sha256sum -c PRODUCTION_SOURCE_MANIFEST.sha256
@@ -74,6 +74,8 @@ jobs:
         run: node scripts/qa-stage4d.mjs
       - name: QA Stage 5
         run: node scripts/qa-stage5-static.mjs
+      - name: W11 Security QA
+        run: node scripts/qa-w11-security.mjs
 
       - name: Production build
         run: npm run build

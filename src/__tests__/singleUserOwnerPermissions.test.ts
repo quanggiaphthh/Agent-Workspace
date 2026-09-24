@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   SINGLE_USER_OWNER_PERMISSIONS,
   resolveVerifiedPermissions,
@@ -16,6 +16,7 @@ vi.mock('../../server/lib/firebaseAdmin', () => ({
 import { ServerIdentityProvider } from '../../server/core/auth/identityProvider';
 
 const ownerPermissions = [...SINGLE_USER_OWNER_PERMISSIONS];
+const originalOwnerUid = process.env.OWNER_UID;
 
 function requestWithToken(extra: Record<string, unknown> = {}) {
   return {
@@ -25,7 +26,15 @@ function requestWithToken(extra: Record<string, unknown> = {}) {
 }
 
 describe('single-user owner permission baseline', () => {
-  beforeEach(() => verifyIdToken.mockReset());
+  beforeEach(() => {
+    verifyIdToken.mockReset();
+    delete process.env.OWNER_UID;
+  });
+
+  afterEach(() => {
+    if (originalOwnerUid === undefined) delete process.env.OWNER_UID;
+    else process.env.OWNER_UID = originalOwnerUid;
+  });
 
   it('gives an authenticated normal user the complete owner permission set', () => {
     const resolved = resolveVerifiedPermissions({ roles: ['user'] });
@@ -93,5 +102,26 @@ describe('single-user owner permission baseline', () => {
     await expect(ServerIdentityProvider.getIdentity({ headers: {} }))
       .rejects.toMatchObject({ status: 401 });
     expect(verifyIdToken).not.toHaveBeenCalled();
+  });
+
+  it('does not reflect token verifier details to callers', async () => {
+    verifyIdToken.mockRejectedValue(new Error('sensitive-verifier-detail'));
+    await expect(ServerIdentityProvider.getIdentity(requestWithToken()))
+      .rejects.toMatchObject({ status: 401, message: 'Unauthorized: Token verification failed' });
+  });
+
+  it('rejects a valid Firebase identity that does not match configured OWNER_UID', async () => {
+    process.env.OWNER_UID = 'owner-allowed';
+    verifyIdToken.mockResolvedValue({ uid: 'owner-other', email: 'other@example.test' });
+    await expect(ServerIdentityProvider.getIdentity(requestWithToken()))
+      .rejects.toMatchObject({ status: 403, code: 'OWNER_MISMATCH' });
+  });
+
+  it('accepts the configured owner identity', async () => {
+    process.env.OWNER_UID = 'owner-allowed';
+    verifyIdToken.mockResolvedValue({ uid: 'owner-allowed', email: 'owner@example.test' });
+    const identity = await ServerIdentityProvider.getIdentity(requestWithToken());
+    expect(identity.id).toBe('owner-allowed');
+    expect(identity.permissions).toEqual(expect.arrayContaining(ownerPermissions));
   });
 });
