@@ -7,10 +7,13 @@ import { AgentPanel } from '../../agent/ui/AgentPanel';
 import { GlobalOverlay } from './GlobalOverlay';
 import { NavigationSync } from '../../core/navigation/NavigationSync';
 import { navigationService } from '../../core/navigation/navigationService';
+import { eventBus } from '../../core/events/eventBus';
 
 interface AppShellProps {
   children?: React.ReactNode;
 }
+
+const HOME_OPEN_AGENT_EVENT = 'workspace:open-agent';
 
 export function AppShell({ children }: AppShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -46,6 +49,17 @@ export function AppShell({ children }: AppShellProps) {
   }, []);
 
   useEffect(() => {
+    const openAgent = () => {
+      if (isDesktopViewport) {
+        setAgentCollapsed(false);
+      } else {
+        setMobileAgentOpen(true);
+      }
+    };
+    return eventBus.on(HOME_OPEN_AGENT_EVENT, openAgent);
+  }, [isDesktopViewport]);
+
+  useEffect(() => {
     if (!mobileSidebarOpen && !mobileAgentOpen) return;
 
     const handleEscape = (event: KeyboardEvent) => {
@@ -61,87 +75,48 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="h-screen w-screen flex min-h-0 flex-col bg-neutral-100 text-neutral-900 overflow-hidden font-sans antialiased">
       <NavigationSync />
-      {/* 3-Pane Body Layout */}
       <div className="min-h-0 flex-1 flex overflow-hidden">
-        {/* Desktop / iPad Left Sidebar */}
         <div className="hidden lg:flex shrink-0">
-          <ModuleSidebar
-            collapsed={sidebarCollapsed}
-            onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-          />
+          <ModuleSidebar collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)} />
         </div>
 
-        {/* Mobile Sidebar Overlay (Drawer) */}
         {mobileSidebarOpen && (
           <div className="fixed inset-0 z-50 flex lg:hidden" role="dialog" aria-modal="true" aria-label="Điều hướng chính">
-            <div
-              className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
-              aria-hidden="true"
-              onClick={() => setMobileSidebarOpen(false)}
-            />
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" aria-hidden="true" onClick={() => setMobileSidebarOpen(false)} />
             <div className="relative z-50 h-full">
-              <ModuleSidebar
-                collapsed={false}
-                onToggleCollapse={() => {}}
-                isMobile
-                onCloseMobile={() => setMobileSidebarOpen(false)}
-              />
+              <ModuleSidebar collapsed={false} onToggleCollapse={() => {}} isMobile onCloseMobile={() => setMobileSidebarOpen(false)} />
             </div>
           </div>
         )}
 
-        {/* Central Work Area (Header + ModuleCanvas/Children) */}
         <div className="min-h-0 flex-1 flex flex-col min-w-0 overflow-hidden">
           <Header
             onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
             onToggleAgent={() => {
-              if (!isDesktopViewport) {
-                setMobileAgentOpen(!mobileAgentOpen);
-              } else {
-                setAgentCollapsed(!agentCollapsed);
-              }
+              if (!isDesktopViewport) setMobileAgentOpen(!mobileAgentOpen);
+              else setAgentCollapsed(!agentCollapsed);
             }}
             agentCollapsed={isDesktopViewport ? agentCollapsed : !mobileAgentOpen}
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           />
-
-          <Canvas>
-            {children}
-          </Canvas>
+          <Canvas>{children}</Canvas>
         </div>
 
-        {/* Desktop / iPad Persistent Agent Panel */}
         <div className="hidden lg:flex shrink-0">
-          <AgentPanel
-            collapsed={agentCollapsed}
-            onToggleCollapse={() => setAgentCollapsed(!agentCollapsed)}
-          />
+          <AgentPanel collapsed={agentCollapsed} onToggleCollapse={() => setAgentCollapsed(!agentCollapsed)} />
         </div>
 
-        {/* Mobile Agent Panel (Bottom/Side Sheet) */}
         {mobileAgentOpen && (
           <div className="fixed inset-0 z-50 flex justify-end lg:hidden" role="dialog" aria-modal="true" aria-label="Bảng Trợ lý">
-            <div
-              className="fixed inset-0 bg-black/50 backdrop-blur-xs"
-              aria-hidden="true"
-              onClick={() => setMobileAgentOpen(false)}
-            />
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" aria-hidden="true" onClick={() => setMobileAgentOpen(false)} />
             <div className="relative z-50 w-[90%] max-w-md h-full bg-white shadow-2xl">
-              <AgentPanel
-                collapsed={false}
-                onToggleCollapse={() => setMobileAgentOpen(false)}
-                isMobile
-              />
+              <AgentPanel collapsed={false} onToggleCollapse={() => setMobileAgentOpen(false)} isMobile />
             </div>
           </div>
         )}
       </div>
 
-      {/* Global Overlay (Command Palette, Confirm Dialogs, Toasts) */}
-      <GlobalOverlay
-        commandPaletteOpen={commandPaletteOpen}
-        onCloseCommandPalette={() => setCommandPaletteOpen(false)}
-      />
+      <GlobalOverlay commandPaletteOpen={commandPaletteOpen} onCloseCommandPalette={() => setCommandPaletteOpen(false)} />
     </div>
   );
 }

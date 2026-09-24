@@ -58,19 +58,13 @@ export function FileUploadCard() {
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-md bg-neutral-100 flex items-center justify-center text-neutral-800"><Upload className="h-4 w-4" /></div>
           <div>
-            <CardTitle>Tải tệp cá nhân</CardTitle>
+            <CardTitle>Tải tài liệu</CardTitle>
             <CardDescription>PDF, JPEG, PNG, WebP, TXT, Markdown · tối đa {MAX_FILE_BYTES / (1024 * 1024)} MiB</CardDescription>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <input
-          aria-label="Chọn tệp để tải lên"
-          type="file"
-          accept={SUPPORTED_FILE_ACCEPT}
-          onChange={event => selectFile(event.currentTarget.files?.[0])}
-          className="block w-full text-sm text-neutral-600 file:mr-3 file:rounded-md file:border-0 file:bg-neutral-100 file:px-3 file:py-2 file:text-sm file:font-medium hover:file:bg-neutral-200 disabled:opacity-60"
-        />
+        <input aria-label="Chọn tệp để tải lên" type="file" accept={SUPPORTED_FILE_ACCEPT} onChange={event => selectFile(event.currentTarget.files?.[0])} className="block w-full text-sm text-neutral-600 file:mr-3 file:rounded-md file:border-0 file:bg-neutral-100 file:px-3 file:py-2 file:text-sm file:font-medium hover:file:bg-neutral-200 disabled:opacity-60" />
 
         {state.selectedFile && (
           <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm">
@@ -85,7 +79,7 @@ export function FileUploadCard() {
           <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
             <div className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4" />Tải lên thành công</div>
             <div className="mt-1 break-all">{state.uploadedFile.name}</div>
-            <div className="text-xs mt-1">{state.uploadedFile.mimeType} · {formatBytes(state.uploadedFile.sizeBytes)} · ID: {state.uploadedFile.fileId}</div>
+            <div className="text-xs mt-1">{state.uploadedFile.mimeType} · {formatBytes(state.uploadedFile.sizeBytes)}</div>
           </div>
         )}
 

@@ -1,81 +1,85 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { Bot, BriefcaseBusiness, Settings, ArrowRight } from 'lucide-react';
 import { moduleRegistry } from '../../core/modules/moduleRegistry';
 import { DashboardWidgetContribution } from '../../../shared/contracts/module';
 import { useContextStore } from '../../core/context/contextStore';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { eventBus } from '../../core/events/eventBus';
-import { Layers, Bot, ShieldCheck, ArrowRight, Activity } from 'lucide-react';
 import { FileUploadCard } from './FileUploadCard';
+
+export const HOME_OPEN_AGENT_EVENT = 'workspace:open-agent';
+
+type HomeQuickAction = {
+  id: 'agent' | 'tasks' | 'settings';
+  label: string;
+  description: string;
+};
+
+export function getHomeQuickActions(): HomeQuickAction[] {
+  const actions: HomeQuickAction[] = [
+    { id: 'agent', label: 'Mở Trợ lý', description: 'Trao đổi với Trợ lý AI trong bảng làm việc hiện tại.' },
+  ];
+  if (moduleRegistry.isEnabled('tasks')) {
+    actions.push({ id: 'tasks', label: 'Xem Công việc', description: 'Xem và cập nhật danh sách công việc của bạn.' });
+  }
+  actions.push({ id: 'settings', label: 'Mở Cài đặt', description: 'Điều chỉnh các thiết lập của không gian làm việc.' });
+  return actions;
+}
 
 export function HomeModule() {
   const [widgets, setWidgets] = useState<DashboardWidgetContribution[]>([]);
+  const [quickActions, setQuickActions] = useState<HomeQuickAction[]>([]);
   const navigate = useNavigate();
   const user = useContextStore(state => state.user);
 
-  const loadWidgets = () => {
+  const loadContributions = () => {
     setWidgets(moduleRegistry.getWidgets(user));
+    setQuickActions(getHomeQuickActions());
   };
 
   useEffect(() => {
-    loadWidgets();
-    const unsub1 = eventBus.on('module.statusChanged', loadWidgets);
-    const unsub2 = eventBus.on('modules.synced', loadWidgets);
+    loadContributions();
+    const unsub1 = eventBus.on('module.statusChanged', loadContributions);
+    const unsub2 = eventBus.on('modules.synced', loadContributions);
     return () => {
       unsub1();
       unsub2();
     };
   }, [user]);
 
+  const runAction = (action: HomeQuickAction) => {
+    if (action.id === 'agent') {
+      eventBus.emit(HOME_OPEN_AGENT_EVENT, {});
+      return;
+    }
+    const route = moduleRegistry.getPrimaryRoute(action.id);
+    navigate({ to: route as any });
+  };
+
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header Banner */}
-      <div className="rounded-xl border border-neutral-200/80 bg-gradient-to-r from-neutral-900 to-neutral-800 text-white p-6 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/10 text-neutral-200 text-xs font-medium">
-              <Activity className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Giao diện Hệ thống — Kiến trúc Phân hệ V1.0</span>
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              Giao diện trung tâm & Trung tâm Trợ lý
-            </h1>
-            <p className="text-sm text-neutral-300 max-w-2xl leading-relaxed">
-              Các phân hệ nghiệp vụ hoạt động độc lập, trao đổi thông tin qua các định nghĩa năng lực, hợp đồng dữ liệu và sự kiện hệ thống. Trợ lý AI điều phối các hành động thông qua các năng lực đã được xác thực.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2.5">
-            {moduleRegistry.listEnabledFor(user).filter(m => m.id !== 'home').map(m => (
-              <Button
-                key={m.id}
-                variant="outline"
-                onClick={() => navigate({ to: moduleRegistry.getPrimaryRoute(m.id) as any })}
-                className="border-neutral-600 text-neutral-200 bg-neutral-800/80 hover:bg-neutral-700 font-medium"
-              >
-                Mở {m.meta.name}
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            ))}
-          </div>
+    <div className="mx-auto max-w-6xl space-y-6">
+      <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-neutral-500">Không gian làm việc cá nhân</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-neutral-950">Trang chủ</h1>
+          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-neutral-600">
+            Tập trung vào công việc cần làm và mở nhanh những công cụ bạn dùng hằng ngày.
+          </p>
         </div>
-      </div>
+        <Button onClick={() => eventBus.emit(HOME_OPEN_AGENT_EVENT, {})} className="gap-2 self-start sm:self-auto">
+          <Bot className="h-4 w-4" />
+          Mở Trợ lý
+        </Button>
+      </section>
 
-      <FileUploadCard />
-
-      {/* Dynamic Widget Registry Area (Home renders widgets contributed by enabled modules) */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">
-            Tiện ích phân hệ ({widgets.length})
-          </h2>
-          <span className="text-xs text-neutral-400">
-            Các tiện ích tự động hiển thị/ẩn đi khi trạng thái phân hệ thay đổi
-          </span>
-        </div>
-
-        {widgets.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {widgets.length > 0 && (
+        <section aria-labelledby="home-attention-title" className="space-y-3">
+          <div>
+            <h2 id="home-attention-title" className="text-sm font-semibold text-neutral-900">Việc cần chú ý</h2>
+            <p className="mt-0.5 text-xs text-neutral-500">Thông tin từ các phần đang bật trong không gian làm việc.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {widgets.map(widget => {
               const WidgetComponent = widget.component;
               return (
@@ -85,54 +89,44 @@ export function HomeModule() {
               );
             })}
           </div>
-        ) : (
-          <Card className="border-dashed p-8 text-center text-neutral-500 text-sm">
-            Hiện chưa có tiện ích nào. Các phân hệ được kích hoạt có thể đăng ký tiện ích thông qua tệp cấu hình.
-          </Card>
-        )}
-      </div>
+        </section>
+      )}
 
-      {/* Architectural Principles Card */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="border-neutral-200 bg-white">
-          <CardHeader>
-            <div className="h-8 w-8 rounded-md bg-neutral-100 flex items-center justify-center text-neutral-800 mb-2">
-              <Layers className="h-4 w-4" />
-            </div>
-            <CardTitle>Cô lập phân hệ tuyệt đối</CardTitle>
-            <CardDescription>Không nhập thư viện chéo giữa các phân hệ</CardDescription>
-          </CardHeader>
-          <CardContent className="text-xs text-neutral-600 leading-relaxed">
-            Các phân hệ khai báo menu, đường dẫn, tiện ích và năng lực qua tệp cấu hình. Nếu một phân hệ bị tắt, tất cả các thành phần liên quan sẽ ngay lập tức không khả dụng.
-          </CardContent>
-        </Card>
+      <section aria-labelledby="home-actions-title" className="space-y-3">
+        <h2 id="home-actions-title" className="text-sm font-semibold text-neutral-900">Truy cập nhanh</h2>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {quickActions.map(action => {
+            const Icon = action.id === 'agent' ? Bot : action.id === 'tasks' ? BriefcaseBusiness : Settings;
+            return (
+              <button
+                key={action.id}
+                type="button"
+                onClick={() => runAction(action)}
+                className="group flex min-h-28 items-start gap-3 rounded-xl border border-neutral-200 bg-white p-4 text-left shadow-2xs transition hover:border-neutral-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-800">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2 text-sm font-semibold text-neutral-900">
+                    {action.label}
+                    <ArrowRight className="h-4 w-4 text-neutral-400 transition-transform group-hover:translate-x-0.5" />
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-neutral-500">{action.description}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
-        <Card className="border-neutral-200 bg-white">
-          <CardHeader>
-            <div className="h-8 w-8 rounded-md bg-neutral-100 flex items-center justify-center text-neutral-800 mb-2">
-              <Bot className="h-4 w-4" />
-            </div>
-            <CardTitle>Không can thiệp giao diện trực tiếp</CardTitle>
-            <CardDescription>Chỉ thực thi qua các năng lực được định nghĩa</CardDescription>
-          </CardHeader>
-          <CardContent className="text-xs text-neutral-600 leading-relaxed">
-            Trợ lý không thao tác trực tiếp trên giao diện. Nó gọi các năng lực được định nghĩa sẵn (ví dụ: tạo mục công việc), và giao diện sẽ tự cập nhật theo sự thay đổi của dữ liệu.
-          </CardContent>
-        </Card>
-
-        <Card className="border-neutral-200 bg-white">
-          <CardHeader>
-            <div className="h-8 w-8 rounded-md bg-neutral-100 flex items-center justify-center text-neutral-800 mb-2">
-              <ShieldCheck className="h-4 w-4" />
-            </div>
-            <CardTitle>An toàn cho hành động rủi ro cao</CardTitle>
-            <CardDescription>Xác nhận từ người dùng</CardDescription>
-          </CardHeader>
-          <CardContent className="text-xs text-neutral-600 leading-relaxed">
-            Rủi ro thấp (tìm kiếm, đọc) chạy trực tiếp. Rủi ro trung bình cần kiểm tra quyền. Các hành động rủi ro cao (xóa) bắt buộc phải có xác nhận từ người dùng trước khi thực hiện.
-          </CardContent>
-        </Card>
-      </div>
+      <section aria-labelledby="home-files-title" className="space-y-3">
+        <div>
+          <h2 id="home-files-title" className="text-sm font-semibold text-neutral-900">Tài liệu</h2>
+          <p className="mt-0.5 text-xs text-neutral-500">Tải tệp vào không gian làm việc để sử dụng với Trợ lý.</p>
+        </div>
+        <FileUploadCard />
+      </section>
     </div>
   );
 }
