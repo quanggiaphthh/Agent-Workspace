@@ -18,7 +18,11 @@ interface SessionDetail {
   messages: ChatMessage[];
 }
 
-export function AgentCoordinationHistory() {
+interface AgentCoordinationHistoryProps {
+  onOpenChat?: () => void;
+}
+
+export function AgentCoordinationHistory({ onOpenChat }: AgentCoordinationHistoryProps) {
   const { user } = useFirebaseAuth();
   const { newConversation, activeSessionId, loadConversation, temporaryMode } = useAgentRuntime();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -89,7 +93,15 @@ export function AgentCoordinationHistory() {
     loadConversation(selectedSession.id, selectedSession.messages || []);
     setSelectedConversationId(null);
     setSelectedSession(null);
-  }, [loadConversation, selectedSession, temporaryMode]);
+    onOpenChat?.();
+  }, [loadConversation, onOpenChat, selectedSession, temporaryMode]);
+
+  const startNewConversation = useCallback(() => {
+    newConversation();
+    setSelectedConversationId(null);
+    setSelectedSession(null);
+    onOpenChat?.();
+  }, [newConversation, onOpenChat]);
 
   const togglePin = (id: string, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -139,7 +151,7 @@ export function AgentCoordinationHistory() {
             <Button
               variant="default"
               size="sm"
-              onClick={() => { newConversation(); setSelectedConversationId(null); setSelectedSession(null); }}
+              onClick={startNewConversation}
               className="h-7 px-2.5 text-xs bg-neutral-900 hover:bg-neutral-800 text-white rounded-md flex items-center gap-1"
             >
               <Plus className="h-3.5 w-3.5" /> Hội thoại mới
@@ -215,7 +227,7 @@ export function AgentCoordinationHistory() {
                 <div className="text-neutral-600 text-[11px] bg-neutral-50 p-2 rounded border border-neutral-100 whitespace-pre-wrap">
                   {typeof msg.content === 'string'
                     ? msg.content
-                    : msg.content.map((part) => part.text || part.reasoning || '').filter(Boolean).join('\n')}
+                    : msg.content.map((part) => part.text || '').filter(Boolean).join('\n')}
                 </div>
               </div>
             ))}
