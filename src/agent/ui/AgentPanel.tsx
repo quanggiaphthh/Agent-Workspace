@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { AdkToolHandler } from './AdkToolHandler';
 import { useContextStore } from '../../core/context/contextStore';
+import { moduleRegistry } from '../../core/modules/moduleRegistry';
 import { useAIKeysStore } from '../../modules/settings/aiKeysStore';
 
 interface AgentPanelProps {
@@ -25,20 +26,23 @@ interface AgentPanelProps {
 }
 
 export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: AgentPanelProps) {
-  const activeModule = useContextStore(state => state.activeModule);
+  const activeModuleId = useContextStore(state => state.activeModule);
   const selectedEntity = useContextStore(state => state.selectedEntity);
   const setSelectedEntity = useContextStore(state => state.setSelectedEntity);
   const [activeTab, setActiveTab] = useState<'chat' | 'memory' | 'history'>('chat');
   const agentProvider = useAIKeysStore(state => state.agentProvider);
+  const activeModule = moduleRegistry.resolve(activeModuleId || 'home');
+  const activeModuleName = activeModule?.meta?.name || 'Trang hiện tại';
 
   if (collapsed && !isMobile) {
     return (
-      <div className="w-12 border-l border-neutral-200 bg-white flex flex-col items-center py-4 gap-4 shrink-0">
+      <div id="agent-panel" aria-label="Bảng Trợ lý" className="w-12 border-l border-neutral-200 bg-white flex flex-col items-center py-4 gap-4 shrink-0">
         <Button
           variant="ghost"
           size="icon"
           onClick={onToggleCollapse}
           title="Mở bảng Trợ lý"
+          aria-label="Mở bảng Trợ lý"
           className="h-8 w-8 text-neutral-600 hover:text-neutral-900"
         >
           <Bot className="h-5 w-5 text-neutral-800" />
@@ -56,8 +60,10 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
     <AdkRuntimeProvider>
       <AdkToolHandler />
       <aside
+        id="agent-panel"
+        aria-label="Bảng Trợ lý"
         className={`border-l border-neutral-200 bg-white flex flex-col shrink-0 h-full ${
-          isMobile ? 'w-full' : 'w-[380px] xl:w-[420px]'
+          isMobile ? 'w-full' : 'w-[340px] xl:w-[380px] 2xl:w-[420px]'
         }`}
       >
         {/* Top Header with Context Badges */}
@@ -72,7 +78,7 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
                   <span className="text-xs font-bold text-neutral-900 tracking-tight">Trợ lý AI</span>
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 </div>
-                <span className="text-[10px] text-neutral-500 font-mono">Nền tảng Google AI</span>
+                <span className="text-[10px] text-neutral-500">Luôn sẵn sàng hỗ trợ</span>
               </div>
             </div>
 
@@ -82,6 +88,7 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
                 size="icon"
                 onClick={onToggleCollapse}
                 title="Thu gọn bảng"
+                aria-label="Thu gọn bảng Trợ lý"
                 className="h-7 w-7 text-neutral-400 hover:text-neutral-700"
               >
                 <ChevronRight className="h-4 w-4" />
@@ -93,33 +100,34 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
             <div className="p-2 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] leading-relaxed flex items-start gap-1.5 shadow-3xs">
               <span className="text-amber-500 font-bold shrink-0">⚠️</span>
               <span>
-                Hệ thống đang buộc sử dụng nhà cung cấp <strong>Google/Gemini</strong> cho Trợ lý AI. Vui lòng cập nhật cấu hình trong <strong>Cài đặt</strong> nếu cần thiết.
+                Trợ lý đang dùng cấu hình mặc định. Bạn có thể kiểm tra lại trong <strong>Cài đặt</strong>.
               </span>
             </div>
           )}
 
           {/* Live Context Bridge Status Bar */}
-          <div className="p-2 rounded bg-white border border-neutral-200/80 text-[11px] space-y-1">
+          <div className="p-2 rounded bg-white border border-neutral-200/80 text-[11px] space-y-1" aria-label="Ngữ cảnh hiện tại">
             <div className="flex items-center justify-between text-neutral-500">
               <span className="flex items-center gap-1">
                 <Layers className="h-3 w-3 text-neutral-400" />
-                Phân hệ hiện tại:
+                Đang ở:
               </span>
-              <span className="font-semibold text-neutral-800 capitalize font-mono">{activeModule}</span>
+              <span className="font-semibold text-neutral-800 truncate max-w-[170px]">{activeModuleName}</span>
             </div>
 
             {selectedEntity && (
               <div className="flex items-center justify-between text-neutral-500 pt-1 border-t border-neutral-100">
                 <span className="flex items-center gap-1">
                   <Tag className="h-3 w-3 text-neutral-400" />
-                  Đối tượng mục tiêu:
+                  Mục đang chọn:
                 </span>
-                <span className="inline-flex items-center gap-1 font-mono font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 text-[10px]">
-                  {selectedEntity.entityId}
+                <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 text-[10px]">
+                  Đã chọn
                   <button
+                    type="button"
                     onClick={() => setSelectedEntity(null)}
-                    className="hover:text-rose-600 ml-0.5 cursor-pointer"
-                    title="Gỡ bỏ đối tượng mục tiêu"
+                    aria-label="Bỏ chọn mục"
+                    className="hover:text-rose-600 ml-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 rounded"
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
@@ -129,10 +137,13 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
           </div>
 
           {/* Persistent Sidebar Tabs: Chat, Memory & History */}
-          <div className="flex bg-neutral-200/70 p-0.5 rounded-lg text-xs font-medium">
+          <div className="flex bg-neutral-200/70 p-0.5 rounded-lg text-xs font-medium" role="tablist" aria-label="Các khu vực Trợ lý">
             <button
               type="button"
               onClick={() => setActiveTab('chat')}
+              role="tab"
+              aria-selected={activeTab === 'chat'}
+              aria-controls="agent-panel-content"
               className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${
                 activeTab === 'chat'
                   ? 'bg-white text-neutral-900 shadow-2xs font-bold'
@@ -145,6 +156,9 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
             <button
               type="button"
               onClick={() => setActiveTab('memory')}
+              role="tab"
+              aria-selected={activeTab === 'memory'}
+              aria-controls="agent-panel-content"
               className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${
                 activeTab === 'memory'
                   ? 'bg-white text-neutral-900 shadow-2xs font-bold'
@@ -157,6 +171,9 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
             <button
               type="button"
               onClick={() => setActiveTab('history')}
+              role="tab"
+              aria-selected={activeTab === 'history'}
+              aria-controls="agent-panel-content"
               className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${
                 activeTab === 'history'
                   ? 'bg-white text-neutral-900 shadow-2xs font-bold'
@@ -170,7 +187,7 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
         </div>
 
         {/* Content View */}
-        <div className="flex-1 flex flex-col overflow-hidden relative">
+        <div id="agent-panel-content" role="tabpanel" className="min-h-0 flex-1 flex flex-col overflow-hidden relative">
           {activeTab === 'chat' ? (
             <AgentChatThread />
           ) : activeTab === 'memory' ? (

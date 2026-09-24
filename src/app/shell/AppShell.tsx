@@ -18,7 +18,19 @@ export function AppShell({ children }: AppShellProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileAgentOpen, setMobileAgentOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(() =>
+    typeof window === 'undefined' ? true : window.matchMedia('(min-width: 1024px)').matches
+  );
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    const syncViewport = () => setIsDesktopViewport(mediaQuery.matches);
+    syncViewport();
+    mediaQuery.addEventListener?.('change', syncViewport);
+
+    return () => mediaQuery.removeEventListener?.('change', syncViewport);
+  }, []);
 
   useEffect(() => {
     navigationService.setNavigateFn((path) => navigate({ to: path as any }));
@@ -33,11 +45,24 @@ export function AppShell({ children }: AppShellProps) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!mobileSidebarOpen && !mobileAgentOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMobileSidebarOpen(false);
+      setMobileAgentOpen(false);
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [mobileAgentOpen, mobileSidebarOpen]);
+
   return (
-    <div className="h-screen w-screen flex flex-col bg-neutral-100 text-neutral-900 overflow-hidden font-sans antialiased select-none">
+    <div className="h-screen w-screen flex min-h-0 flex-col bg-neutral-100 text-neutral-900 overflow-hidden font-sans antialiased">
       <NavigationSync />
       {/* 3-Pane Body Layout */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="min-h-0 flex-1 flex overflow-hidden">
         {/* Desktop / iPad Left Sidebar */}
         <div className="hidden lg:flex shrink-0">
           <ModuleSidebar
@@ -48,9 +73,10 @@ export function AppShell({ children }: AppShellProps) {
 
         {/* Mobile Sidebar Overlay (Drawer) */}
         {mobileSidebarOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden flex">
+          <div className="fixed inset-0 z-50 flex lg:hidden" role="dialog" aria-modal="true" aria-label="Điều hướng chính">
             <div
               className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+              aria-hidden="true"
               onClick={() => setMobileSidebarOpen(false)}
             />
             <div className="relative z-50 h-full">
@@ -65,17 +91,17 @@ export function AppShell({ children }: AppShellProps) {
         )}
 
         {/* Central Work Area (Header + ModuleCanvas/Children) */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="min-h-0 flex-1 flex flex-col min-w-0 overflow-hidden">
           <Header
             onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
             onToggleAgent={() => {
-              if (window.innerWidth < 1024) {
+              if (!isDesktopViewport) {
                 setMobileAgentOpen(!mobileAgentOpen);
               } else {
                 setAgentCollapsed(!agentCollapsed);
               }
             }}
-            agentCollapsed={agentCollapsed}
+            agentCollapsed={isDesktopViewport ? agentCollapsed : !mobileAgentOpen}
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           />
 
@@ -94,9 +120,10 @@ export function AppShell({ children }: AppShellProps) {
 
         {/* Mobile Agent Panel (Bottom/Side Sheet) */}
         {mobileAgentOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden flex justify-end">
+          <div className="fixed inset-0 z-50 flex justify-end lg:hidden" role="dialog" aria-modal="true" aria-label="Bảng Trợ lý">
             <div
               className="fixed inset-0 bg-black/50 backdrop-blur-xs"
+              aria-hidden="true"
               onClick={() => setMobileAgentOpen(false)}
             />
             <div className="relative z-50 w-[90%] max-w-md h-full bg-white shadow-2xl">
@@ -118,4 +145,3 @@ export function AppShell({ children }: AppShellProps) {
     </div>
   );
 }
-

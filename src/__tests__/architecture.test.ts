@@ -10,6 +10,8 @@ import { z } from 'zod';
 import { ExecutionContext } from '../../shared/contracts/capability';
 import { packagedClientModules, registerPackagedClientModules } from '../moduleComposition';
 import { eventBus } from '../core/events/eventBus';
+import { getBootstrapErrorMessage } from '../App';
+import { getErrorBoundaryMessage } from '../ErrorBoundary';
 
 /**
  * P1 PREFLIGHT & P0.3 ARCHITECTURAL INVARIANT TESTS
@@ -26,6 +28,21 @@ describe('Architectural Invariants P1 Preflight', () => {
   });
 
   describe('1. Storage & Bootstrap', () => {
+    it('maps bootstrap failures to a user-safe Vietnamese message', () => {
+      expect(getBootstrapErrorMessage(new Error('Firebase credentials missing'))).toBe(
+        'Không thể mở không gian làm việc lúc này. Vui lòng thử lại.'
+      );
+      expect(getBootstrapErrorMessage('unexpected')).toBe(
+        'Không thể mở không gian làm việc lúc này. Vui lòng thử lại.'
+      );
+    });
+
+    it('keeps the global error surface free of technical details', () => {
+      expect(getErrorBoundaryMessage(new Error('internal stack trace'))).toBe(
+        'Không thể hiển thị giao diện lúc này. Vui lòng tải lại trang.'
+      );
+    });
+
     it('should seed module settings from catalog during initialization', () => {
       serverModuleCatalog.register({ id: 'home', name: 'Home', enabled: true, canDisable: false, version: '1.0' });
       serverModuleCatalog.register({ id: 'tasks', name: 'Tasks', enabled: true, canDisable: true, version: '1.0' });
@@ -47,6 +64,23 @@ describe('Architectural Invariants P1 Preflight', () => {
       expect(moduleRegistry.listAll().filter(module => module.id === 'tasks')).toHaveLength(1);
       expect(moduleRegistry.resolve('home')).toBeDefined();
       expect(moduleRegistry.resolve('settings')).toBeDefined();
+    });
+
+    it('exposes only the Vietnamese MVP shell navigation labels', () => {
+      registerPackagedClientModules();
+      const navigation = moduleRegistry.getNavigation({
+        id: 'owner-1',
+        email: 'owner@test.local',
+        name: 'Owner',
+        roles: ['user'],
+        permissions: ['tasks.read', 'settings.read'],
+      });
+
+      expect(navigation.map(item => item.label)).toEqual(
+        expect.arrayContaining(['Trang chủ', 'Công việc', 'Cài đặt'])
+      );
+      expect(navigation.find(item => item.id === 'tasks-nav')?.label).toBe('Công việc');
+      expect(navigation.some(item => /marketplace|plugin|explore|team|billing/i.test(item.label))).toBe(false);
     });
 
     it('should resolve primary route from ModuleRegistry (ID != Route)', () => {

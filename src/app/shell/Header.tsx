@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useLocation, useNavigate } from '@tanstack/react-router';
+import { useLocation, useNavigate } from '@tanstack/react-router';
 import { useContextStore } from '../../core/context/contextStore';
 import { moduleRegistry } from '../../core/modules/moduleRegistry';
 import { Button } from '../../components/ui/Button';
@@ -34,7 +34,7 @@ export function Header({
   // Dynamically resolve active module from URL
   const activeModuleId = moduleRegistry.resolveModuleByPath(location.pathname);
   const manifest = moduleRegistry.resolve(activeModuleId);
-  const displayTitle = manifest?.meta?.name || activeModuleId.charAt(0).toUpperCase() + activeModuleId.slice(1);
+  const displayTitle = manifest?.meta?.name || 'Không gian làm việc';
 
   return (
     <header className="h-14 border-b border-neutral-200 bg-white px-4 flex items-center justify-between gap-3 shrink-0 z-10">
@@ -44,6 +44,8 @@ export function Header({
           variant="ghost"
           size="icon"
           onClick={onOpenMobileSidebar}
+          aria-label="Mở điều hướng"
+          aria-controls="primary-navigation"
           className="lg:hidden h-8 w-8 text-neutral-600"
         >
           <Menu className="h-4 w-4" />
@@ -56,13 +58,14 @@ export function Header({
 
           {/* Bound Entity Context Chip */}
           {selectedEntity && (
-            <div className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-mono">
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px]">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              <span className="font-bold truncate max-w-[140px]">{selectedEntity.entityId}</span>
+              <span className="font-semibold truncate max-w-[140px]">Đang chọn mục</span>
               <button
+                type="button"
                 onClick={() => setSelectedEntity(null)}
-                className="hover:text-rose-600 cursor-pointer p-0.5"
-                title="Bỏ chọn đối tượng"
+                aria-label="Bỏ chọn mục"
+                className="hover:text-rose-600 cursor-pointer p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 rounded"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -75,8 +78,11 @@ export function Header({
       <div className="flex items-center gap-2">
         {/* Command Palette trigger */}
         <button
+          type="button"
           onClick={onOpenCommandPalette}
-          className="hidden md:flex items-center gap-2 h-8 px-2.5 rounded-md border border-neutral-200 bg-neutral-50 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 transition-colors cursor-pointer"
+          aria-label="Mở tìm kiếm và thao tác nhanh"
+          aria-haspopup="dialog"
+          className="hidden md:flex items-center gap-2 h-8 px-2.5 rounded-md border border-neutral-200 bg-neutral-50 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
         >
           <Search className="h-3.5 w-3.5 text-neutral-400" />
           <span>Tìm kiếm & thao tác nhanh...</span>
@@ -89,7 +95,8 @@ export function Header({
         <Button
           variant="ghost"
           size="icon"
-          title="Quản lý phân hệ"
+          title="Mở cài đặt"
+          aria-label="Mở cài đặt"
           onClick={() => {
             navigate({ to: '/settings' as any });
           }}
@@ -107,6 +114,9 @@ export function Header({
           variant={agentCollapsed ? 'default' : 'secondary'}
           size="sm"
           onClick={onToggleAgent}
+          aria-label={agentCollapsed ? 'Mở bảng Trợ lý' : 'Thu gọn bảng Trợ lý'}
+          aria-expanded={!agentCollapsed}
+          aria-controls="agent-panel"
           className="text-xs gap-1.5 h-8 px-2.5 font-medium"
         >
           <Bot className="h-3.5 w-3.5 text-emerald-500" />
@@ -117,4 +127,3 @@ export function Header({
     </header>
   );
 }
-

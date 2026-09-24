@@ -21,8 +21,10 @@ export function UserAuth() {
         </div>
         <div className="group relative">
           <button 
+            type="button"
             onClick={() => logout()}
-            className="h-8 w-8 rounded-full border border-neutral-200 overflow-hidden bg-neutral-50 flex items-center justify-center hover:border-rose-300 transition-colors"
+            aria-label="Đăng xuất"
+            className="h-8 w-8 rounded-full border border-neutral-200 overflow-hidden bg-neutral-50 flex items-center justify-center hover:border-rose-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
             title="Đăng xuất"
           >
             {user.photoURL ? (

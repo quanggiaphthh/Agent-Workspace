@@ -91,7 +91,7 @@ export function ModuleSidebar({
               <h1 className="font-semibold text-xs tracking-tight text-white truncate">
                 Trợ lý Đa nhiệm
               </h1>
-              <span className="text-[10px] text-neutral-400 block font-mono">Giao diện V1.0</span>
+              <span className="text-[10px] text-neutral-400 block">Không gian cá nhân</span>
             </div>
           </div>
         ) : (
@@ -105,6 +105,9 @@ export function ModuleSidebar({
             variant="ghost"
             size="icon"
             onClick={onToggleCollapse}
+            aria-label={collapsed ? 'Mở rộng điều hướng' : 'Thu gọn điều hướng'}
+            aria-expanded={!collapsed}
+            aria-controls="primary-navigation"
             className="h-7 w-7 text-neutral-400 hover:text-white hover:bg-neutral-800"
           >
             {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
@@ -113,7 +116,11 @@ export function ModuleSidebar({
       </div>
 
       {/* Dynamic Module Navigation (Rendered from Manifest Contributions) */}
-      <div className="flex-1 overflow-y-auto py-3 px-2 space-y-1">
+      <nav
+        id="primary-navigation"
+        aria-label="Điều hướng chính"
+        className="min-h-0 flex-1 overflow-y-auto py-3 px-2 space-y-1"
+      >
         {sortedNavItems.map(item => {
           const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
 
@@ -124,8 +131,10 @@ export function ModuleSidebar({
                 navigate({ to: item.path as any });
                 if (onCloseMobile) onCloseMobile();
               }}
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
               title={collapsed && !isMobile ? item.label : undefined}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium cursor-pointer border-none transition-colors ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium cursor-pointer border-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-900 ${
                 isActive
                   ? 'bg-white text-neutral-950 shadow-xs font-semibold'
                   : 'text-neutral-300 hover:bg-neutral-800 hover:text-white'
@@ -141,7 +150,7 @@ export function ModuleSidebar({
             </button>
           );
         })}
-      </div>
+      </nav>
 
       {/* User & Role Footer */}
       <div className="p-3 border-t border-neutral-800 bg-neutral-950 shrink-0">

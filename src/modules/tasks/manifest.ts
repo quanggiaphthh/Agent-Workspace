@@ -6,15 +6,15 @@ export const tasksManifest: ModuleManifest = {
   id: 'tasks',
   version: '1.0.0',
   meta: {
-    name: 'Quản lý Nhiệm vụ',
-    description: 'Phân hệ quản lý task và công việc cá nhân, tối ưu hóa hiệu suất với giao diện trực quan.',
+    name: 'Công việc',
+    description: 'Theo dõi và sắp xếp công việc cá nhân trong một không gian rõ ràng.',
     icon: 'CheckSquare',
     order: 3,
   },
   navigation: [
     {
       id: 'tasks-nav',
-      label: 'Nhiệm vụ',
+      label: 'Công việc',
       path: '/tasks',
       icon: 'CheckSquare',
       order: 3,
@@ -30,7 +30,7 @@ export const tasksManifest: ModuleManifest = {
   widgets: [
     {
       id: 'tasks-stats',
-      title: 'Tiến độ Nhiệm vụ & Công việc',
+      title: 'Tiến độ Công việc',
       component: TasksStatsWidget,
       order: 2,
       width: 'half',

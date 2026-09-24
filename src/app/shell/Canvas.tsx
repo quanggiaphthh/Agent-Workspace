@@ -12,8 +12,6 @@ interface CanvasProps {
 
 export function Canvas({ children }: CanvasProps) {
   const activeModuleId = useContextStore((state) => state.activeModule);
-  const currentView = useContextStore((state) => state.currentView);
-  const setCurrentView = useContextStore((state) => state.setCurrentView);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingModule, setIsLoadingModule] = useState(false);
@@ -57,42 +55,21 @@ export function Canvas({ children }: CanvasProps) {
           </div>
           <div>
             <div className="text-xs font-bold text-neutral-900 capitalize tracking-tight flex items-center gap-1.5">
-              <span>{activeModule?.meta?.name || activeModuleId || 'Workspace'}</span>
-              <span className="text-[10px] font-mono font-normal text-neutral-500 bg-neutral-100 px-1.5 py-0.2 rounded border border-neutral-200">
-                Workspace Canvas
-              </span>
+              <span>{activeModule?.meta?.name || 'Không gian làm việc'}</span>
             </div>
             <p className="text-[10px] text-neutral-500 truncate max-w-md">
-              {activeModule?.meta?.description || 'Phân hệ nghiệp vụ độc lập đang hoạt động.'}
+              {activeModule?.meta?.description || 'Nội dung của trang đang mở.'}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <div className="hidden sm:flex items-center bg-neutral-100 p-0.5 rounded-md text-[11px] font-medium text-neutral-600">
-            <button
-              onClick={() => setCurrentView('dashboard')}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                currentView === 'dashboard' ? 'bg-white text-neutral-900 shadow-2xs font-bold' : 'hover:text-neutral-900'
-              }`}
-            >
-              Tiêu chuẩn
-            </button>
-            <button
-              onClick={() => setCurrentView('grid')}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                currentView === 'grid' ? 'bg-white text-neutral-900 shadow-2xs font-bold' : 'hover:text-neutral-900'
-              }`}
-            >
-              Lưới dữ liệu
-            </button>
-          </div>
-
           <Button
             variant="ghost"
             size="icon"
             onClick={handleRefreshCanvas}
-            title="Làm mới Canvas"
+            title="Làm mới nội dung"
+            aria-label="Làm mới nội dung"
             className="h-7 w-7 text-neutral-500 hover:text-neutral-900"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -103,6 +80,7 @@ export function Canvas({ children }: CanvasProps) {
             size="icon"
             onClick={() => setIsMaximized(!isMaximized)}
             title={isMaximized ? 'Thu nhỏ cửa sổ' : 'Phóng to toàn màn hình'}
+            aria-label={isMaximized ? 'Thu nhỏ nội dung' : 'Phóng to nội dung'}
             className="h-7 w-7 text-neutral-500 hover:text-neutral-900"
           >
             <Maximize2 className="h-3.5 w-3.5" />
@@ -111,8 +89,8 @@ export function Canvas({ children }: CanvasProps) {
       </div>
 
       {/* Canvas Workspace Stage */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 relative bg-gradient-to-b from-neutral-50/30 to-neutral-100/50">
-        <div className="max-w-7xl mx-auto h-full flex flex-col animate-in fade-in duration-200">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6 relative bg-gradient-to-b from-neutral-50/30 to-neutral-100/50">
+        <div className="max-w-7xl mx-auto h-full w-full flex flex-col animate-in fade-in duration-200">
           {isLoadingModule ? <CanvasSkeleton /> : children}
         </div>
       </div>
