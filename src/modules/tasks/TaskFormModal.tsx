@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 
 export type TaskFormValue = {
@@ -16,6 +17,7 @@ interface TaskFormModalProps {
   onSave: (task: TaskFormValue) => Promise<void> | void;
   initialTask?: TaskFormValue | null;
   saving?: boolean;
+  error?: string | null;
 }
 
 const emptyTask: TaskFormValue = {
@@ -27,7 +29,7 @@ const emptyTask: TaskFormValue = {
   dueDate: '',
 };
 
-export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = false }: TaskFormModalProps) {
+export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = false, error = null }: TaskFormModalProps) {
   const [form, setForm] = useState<TaskFormValue>(emptyTask);
 
   useEffect(() => {
@@ -50,6 +52,12 @@ export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = f
           <h2 id="task-form-title" className="text-base font-semibold text-neutral-900">{initialTask ? 'Chỉnh sửa công việc' : 'Tạo công việc'}</h2>
           <p className="mt-1 text-xs text-neutral-500">Giữ thông tin ngắn gọn để dễ theo dõi và hoàn thành.</p>
         </div>
+        {error && (
+          <div role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
         <form id="task-form" onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1.5">
           <label htmlFor="task-title" className="text-xs font-semibold text-neutral-700">Tên công việc *</label>
