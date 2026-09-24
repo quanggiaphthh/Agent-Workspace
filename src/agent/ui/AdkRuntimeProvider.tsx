@@ -12,6 +12,9 @@ import { reconstructPendingConfirmations } from '../runtime/temporaryRecoveryPol
 import type { AttachmentReference } from '../../../server/agent/chat/chatRequestContract';
 import type { AppContext } from '../../../shared/contracts/capability';
 
+const MAX_SSE_BUFFER_CHARS = 1_000_000;
+const MAX_STREAM_BYTES = 8 * 1024 * 1024;
+
 export interface ChatMessagePart {
   type: 'text' | 'reasoning' | 'tool-call' | 'tool-response' | 'sources' | 'error';
   text?: string;
@@ -30,6 +33,10 @@ export interface ChatMessage {
   content: ChatMessagePart[] | string;
   timestamp?: number;
   starred?: boolean;
+  /** Current-turn safe references only; bytes/storage authority are never stored here. */
+  attachments?: AttachmentReference[];
+  /** False when durable history lacks enough attachment provenance to replay safely. */
+  replaySafe?: boolean;
 }
 
 export interface ToolConfirmationItem {
@@ -37,6 +44,7 @@ export interface ToolConfirmationItem {
   toolCallId: string;
   name: string;
   args: any;
+  recovered?: boolean;
   confirmation?: {
     hint?: string;
     payload?: any;
@@ -81,6 +89,7 @@ export function buildMessageRequestPayload(
 
 function safeAgentClientErrorMessage(code: unknown): string {
   if (code === 'AGENT_TIMEOUT') return 'Trợ lý mất quá nhiều thời gian để phản hồi. Vui lòng thử lại.';
+  if (code === 'STREAM_TOO_LARGE') return 'Phản hồi vượt quá giới hạn an toàn. Hãy thu hẹp yêu cầu và thử lại.';
   if (code === 'STREAM_INCOMPLETE' || code === 'STREAM_MISSING' || code === 'STREAM_PROTOCOL_ERROR') {
     return 'Kết nối với Trợ lý bị gián đoạn. Vui lòng thử lại.';
   }
@@ -91,30 +100,34 @@ export const AgentRuntimeContext = createContext<AgentRuntimeContextValue | null
 
 export function useAgentRuntime(): AgentRuntimeContextValue {
   const ctx = useContext(AgentRuntimeContext);
-  if (!ctx) {
-    throw new Error('useAgentRuntime must be used within AdkRuntimeProvider');
-  }
+  if (!ctx) throw new Error('useAgentRuntime must be used within AdkRuntimeProvider');
   return ctx;
 }
 
 export function useAdkToolConfirmations(): ToolConfirmationItem[] {
-  const ctx = useAgentRuntime();
-  return ctx.toolConfirmations;
+  return useAgentRuntime().toolConfirmations;
 }
 
 export function useAdkConfirmTool() {
-  const ctx = useAgentRuntime();
-  return ctx.confirmTool;
+  return useAgentRuntime().confirmTool;
 }
 
-interface AdkRuntimeProviderProps {
-  children: React.ReactNode;
-}
+interface AdkRuntimeProviderProps { children: React.ReactNode }
 
 let messageIdCounter = 0;
 function nextId(): string {
   messageIdCounter += 1;
   return `msg-${Date.now()}-${messageIdCounter}`;
+}
+
+function markHydratedMessagesReplayUnsafe(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) => message.role === 'user'
+    ? { ...message, replaySafe: false }
+    : message);
+}
+
+function canReplayUserMessage(message: ChatMessage | undefined): boolean {
+  return Boolean(message && message.role === 'user' && message.replaySafe !== false && !(message.attachments?.length));
 }
 
 export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
@@ -130,21 +143,15 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
   const [toolConfirmations, setToolConfirmations] = useState<ToolConfirmationItem[]>([]);
   const [historyError, setHistoryError] = useState<string | undefined>();
   const [isHydratingHistory, setIsHydratingHistory] = useState(false);
-
   const prefix = user ? `uid_${user.uid}_` : '';
-
   const isLoaded = useRef(false);
 
-  // Persistent chats use the server session as durable history authority. localStorage
-  // stores only the active client session pointer; legacy transcript cache is removed.
   useEffect(() => {
     let disposed = false;
     isLoaded.current = false;
     setHistoryError(undefined);
     setIsHydratingHistory(!temporaryMode);
     if (temporaryMode) {
-      // The mode transition owns creation/clearing of the ephemeral identity.
-      // Never read/write the durable active-session pointer while temporary.
       isLoaded.current = true;
       setIsHydratingHistory(false);
       return () => { disposed = true; };
@@ -170,7 +177,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
         const decision = decideSessionHydration({ sessionId, status: response.status, serverMessages, replacementSessionId });
         if (disposed) return;
         if (decision.kind === 'hydrate') {
-          const hydratedMessages = decision.messages as ChatMessage[];
+          const hydratedMessages = markHydratedMessagesReplayUnsafe(decision.messages as ChatMessage[]);
           setMessages(hydratedMessages);
           setToolConfirmations(reconstructPendingConfirmations(hydratedMessages) as ToolConfirmationItem[]);
         } else if (decision.kind === 'missing') {
@@ -207,8 +214,6 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
 
   const setTemporaryMode = useCallback((mode: boolean) => {
     if (mode === temporaryMode) return;
-    // Mode boundaries are run boundaries. The persistent pointer remains in
-    // localStorage; temporary identity/transcript never becomes durable.
     cancelRun();
     setHistoryError(undefined);
     setMessages([]);
@@ -218,30 +223,18 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
   }, [cancelRun, temporaryMode]);
 
   const sendPayloadToAgent = useCallback(async (bodyPayload: any, overrideSessionId?: string, initialMessagesOverride?: ChatMessage[], optimisticUserMessageId?: string) => {
-    // Starting a new run aborts the previous transport and gives this async
-    // execution exclusive ownership of UI mutations.
     const run = runGate.current.start();
     const controller = run.controller;
     setIsRunning(true);
     setIsLoading(true);
-
-    // Capture the exact transcript that should precede this run. Branching
-    // callers pass it explicitly so React state batching cannot lose context.
     let initialMsgs: ChatMessage[] = initialMessagesOverride || [];
     if (!initialMessagesOverride) {
-      setMessages(prev => {
-        initialMsgs = prev;
-        return prev;
-      });
+      setMessages(prev => { initialMsgs = prev; return prev; });
     }
 
     try {
-      if (!user || authLoading) {
-        throw new Error('Phiên đăng nhập chưa sẵn sàng. Vui lòng thử lại sau khi xác thực hoàn tất.');
-      }
-      if (!aiSettingsHydrated) {
-        throw new Error('Cài đặt AI đang được nạp. Vui lòng thử lại sau khi hoàn tất đồng bộ.');
-      }
+      if (!user || authLoading) throw new Error('Phiên đăng nhập chưa sẵn sàng. Vui lòng thử lại sau khi xác thực hoàn tất.');
+      if (!aiSettingsHydrated) throw new Error('Cài đặt AI đang được nạp. Vui lòng thử lại sau khi hoàn tất đồng bộ.');
 
       const state = useAIKeysStore.getState();
       const aiConfig = {
@@ -252,211 +245,126 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
         memoryEnabled: state.memoryEnabled,
         webSearchEnabled: state.webSearchEnabled,
       };
-
-      const enrichedPayload = {
-        ...bodyPayload,
-        aiConfig,
-        sessionId: overrideSessionId || activeSessionId,
-        temporaryMode,
-      };
-
+      const enrichedPayload = { ...bodyPayload, aiConfig, sessionId: overrideSessionId || activeSessionId, temporaryMode };
       const response = await authFetch('/api/agent/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(enrichedPayload),
-        signal: controller.signal,
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(enrichedPayload), signal: controller.signal,
       });
 
       if (!response.ok) {
         let errorData: any;
-        try {
-          errorData = await response.json();
-        } catch {
-          errorData = { code: `HTTP_${response.status}` };
-        }
+        try { errorData = await response.json(); }
+        catch { errorData = { code: `HTTP_${response.status}` }; }
         throw Object.assign(new Error('Agent request failed.'), { code: errorData.code || `HTTP_${response.status}` });
       }
-
       if (!runGate.current.isCurrent(run)) return;
       setIsLoading(false);
-
-      if (!response.body) {
-        throw Object.assign(new Error('Máy chủ không trả về luồng phản hồi.'), { code: 'STREAM_MISSING' });
-      }
+      if (!response.body) throw Object.assign(new Error('Máy chủ không trả về luồng phản hồi.'), { code: 'STREAM_MISSING' });
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
+      let streamBytes = 0;
       const accumulator = new AdkEventAccumulator();
-
       let streamCompleted = false;
       let streamError: { code: string; message: string } | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
+        streamBytes += value.byteLength;
+        if (streamBytes > MAX_STREAM_BYTES) {
+          void reader.cancel().catch(() => undefined);
+          throw Object.assign(new Error('Agent stream exceeded safe size.'), { code: 'STREAM_TOO_LARGE' });
+        }
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
+        if (buffer.length > MAX_SSE_BUFFER_CHARS && !buffer.includes('\n')) {
+          void reader.cancel().catch(() => undefined);
+          throw Object.assign(new Error('Agent SSE line exceeded safe size.'), { code: 'STREAM_TOO_LARGE' });
+        }
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed || trimmed.startsWith(':')) continue;
+          if (!trimmed.startsWith('data:')) continue;
+          const dataStr = trimmed.slice(5).trim();
+          let event: unknown = null;
+          try {
+            const kind = processAgentSseData(dataStr, {
+              onAdkEvent: (value) => { event = value; },
+              onComplete: () => { streamCompleted = true; },
+              onError: (error) => { streamError = error; },
+            });
+            if (kind === 'ignored' || kind === 'complete') continue;
+            if (kind === 'error') break;
+            try { accumulator.processEvent(event as any); }
+            catch { throw new AgentSseProtocolError(); }
 
-          if (trimmed.startsWith('data:')) {
-            const dataStr = trimmed.slice(5).trim();
-
-            let event: unknown = null;
-            try {
-              const kind = processAgentSseData(dataStr, {
-                onAdkEvent: (value) => { event = value; },
-                onComplete: () => { streamCompleted = true; },
-                onError: (error) => { streamError = error; },
-              });
-              if (kind === 'ignored' || kind === 'complete') continue;
-              if (kind === 'error') break;
-              try {
-                accumulator.processEvent(event as any);
-              } catch {
-                throw new AgentSseProtocolError();
+            const adkMessages = accumulator.getMessages();
+            const newToolConfirmations = accumulator.getToolConfirmations();
+            const mappedMessages: ChatMessage[] = adkMessages.map((msg: any) => {
+              const isUser = msg.type === 'human';
+              const role = isUser ? 'user' : 'assistant';
+              const content: ChatMessagePart[] = [];
+              if (typeof msg.content === 'string') content.push({ type: 'text', text: msg.content });
+              else if (Array.isArray(msg.content)) {
+                msg.content.forEach((part: any) => {
+                  if (part.type === 'text') content.push({ type: 'text', text: part.text });
+                  else if (part.type === 'code') content.push({ type: 'text', text: `\n\`\`\`${part.language || 'python'}\n${part.code}\n\`\`\`\n` });
+                  else if (part.type === 'code_result') content.push({ type: 'text', text: `\n> **Kết quả thực thi:**\n> \`\`\`\n> ${part.output}\n> \`\`\`\n` });
+                });
               }
-
-              const adkMessages = accumulator.getMessages();
-              const newToolConfirmations = accumulator.getToolConfirmations();
-
-              // Map ADK messages to the user-facing transcript. Internal
-              // reasoning is intentionally not projected into ChatMessage.
-              const mappedMessages: ChatMessage[] = adkMessages.map((msg: any) => {
-                const isUser = msg.type === 'human';
-                const role = isUser ? 'user' : 'assistant';
-                const content: ChatMessagePart[] = [];
-
-                if (typeof msg.content === 'string') {
-                  content.push({ type: 'text', text: msg.content });
-                } else if (Array.isArray(msg.content)) {
-                  msg.content.forEach((part: any) => {
-                    if (part.type === 'text') {
-                      content.push({ type: 'text', text: part.text });
-                    } else if (part.type === 'code') {
-                      content.push({ type: 'text', text: `\n\`\`\`${part.language || 'python'}\n${part.code}\n\`\`\`\n` });
-                    } else if (part.type === 'code_result') {
-                      content.push({ type: 'text', text: `\n> **Kết quả thực thi:**\n> \`\`\`\n> ${part.output}\n> \`\`\`\n` });
-                    }
-                  });
-                }
-
-                if (msg.type === 'ai' && msg.tool_calls) {
-                  msg.tool_calls.forEach((tc: any) => {
-                    content.push({
-                      type: 'tool-call',
-                      toolName: tc.name,
-                      toolCallId: tc.id,
-                      args: tc.args
-                    });
-                  });
-                }
-
-                if (msg.type === 'tool') {
-                  let result = msg.content;
-                  try {
-                    result = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
-                  } catch { /* ignore */ }
-
-                  if (result?.success === false) {
-                    content.push({
-                      type: 'error',
-                      toolCallId: msg.tool_call_id,
-                      toolName: msg.name,
-                      error: typeof result.errorCode === 'string' ? result.errorCode : 'TOOL_EXECUTION_FAILED',
-                    });
-                  } else {
-                    content.push({
-                      type: 'tool-response',
-                      toolCallId: msg.tool_call_id,
-                      toolName: msg.name,
-                      result
-                    });
-                    const sourceCandidate = result?.result?.sources || result?.sources;
-                    if (Array.isArray(sourceCandidate) && sourceCandidate.length > 0) {
-                      const sources = sourceCandidate
-                        .filter((source: any) => typeof source?.url === 'string' && source.url.length > 0)
-                        .map((source: any) => ({
-                          title: typeof source.title === 'string' && source.title.trim() ? source.title : source.url,
-                          url: source.url,
-                        }));
-                      if (sources.length > 0) content.push({ type: 'sources', sources });
-                    }
+              if (msg.type === 'ai' && msg.tool_calls) {
+                msg.tool_calls.forEach((tc: any) => content.push({ type: 'tool-call', toolName: tc.name, toolCallId: tc.id, args: tc.args }));
+              }
+              if (msg.type === 'tool') {
+                let result = msg.content;
+                try { result = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content; } catch { /* ignore */ }
+                if (result?.success === false) {
+                  content.push({ type: 'error', toolCallId: msg.tool_call_id, toolName: msg.name, error: typeof result.errorCode === 'string' ? result.errorCode : 'TOOL_EXECUTION_FAILED' });
+                } else {
+                  content.push({ type: 'tool-response', toolCallId: msg.tool_call_id, toolName: msg.name, result });
+                  const sourceCandidate = result?.result?.sources || result?.sources;
+                  if (Array.isArray(sourceCandidate) && sourceCandidate.length > 0) {
+                    const sources = sourceCandidate
+                      .filter((source: any) => typeof source?.url === 'string' && source.url.length > 0)
+                      .map((source: any) => ({ title: typeof source.title === 'string' && source.title.trim() ? source.title : source.url, url: source.url }));
+                    if (sources.length > 0) content.push({ type: 'sources', sources });
                   }
                 }
+              }
+              if (msg.status?.type === 'incomplete' && msg.status?.reason === 'error') content.push({ type: 'error', error: 'AGENT_MESSAGE_INCOMPLETE' });
+              return { id: msg.id, role, content, timestamp: Date.now() };
+            });
 
-                if (msg.status?.type === 'incomplete' && msg.status?.reason === 'error') {
-                  content.push({
-                    type: 'error',
-                    error: 'AGENT_MESSAGE_INCOMPLETE'
-                  });
-                }
-
-                return {
-                  id: msg.id,
-                  role,
-                  content,
-                  timestamp: Date.now(),
-                };
-              });
-
-              if (!runGate.current.isCurrent(run)) return;
-              setMessages(mergeStreamingMessages(initialMsgs, mappedMessages, { optimisticUserMessageId }));
-
-              setToolConfirmations(newToolConfirmations.map((tc: any) => ({
-                id: tc.toolCallId,
-                toolCallId: tc.toolCallId,
-                name: tc.toolName,
-                args: tc.args,
-                confirmation: {
-                  hint: tc.hint,
-                  payload: tc.payload
-                }
-              })));
-
-            } catch (err) {
-              if (err instanceof AgentSseProtocolError) throw err;
-              throw new AgentSseProtocolError();
-            }
+            if (!runGate.current.isCurrent(run)) return;
+            setMessages(mergeStreamingMessages(initialMsgs, mappedMessages, { optimisticUserMessageId }));
+            setToolConfirmations(newToolConfirmations.map((tc: any) => ({
+              id: tc.toolCallId, toolCallId: tc.toolCallId, name: tc.toolName, args: tc.args,
+              confirmation: { hint: tc.hint, payload: tc.payload },
+            })));
+          } catch (err) {
+            if (err instanceof AgentSseProtocolError || (err as any)?.code === 'STREAM_TOO_LARGE') throw err;
+            throw new AgentSseProtocolError();
           }
         }
         if (streamError) break;
       }
 
-      if (streamError) {
-        throw Object.assign(new Error('Agent stream failed.'), { code: (streamError as any).code });
-      }
-      if (!controller.signal.aborted && !streamCompleted) {
-        throw Object.assign(new Error('Luồng phản hồi kết thúc trước khi nhận tín hiệu hoàn tất.'), { code: 'STREAM_INCOMPLETE' });
-      }
+      if (streamError) throw Object.assign(new Error('Agent stream failed.'), { code: (streamError as any).code });
+      if (!controller.signal.aborted && !streamCompleted) throw Object.assign(new Error('Luồng phản hồi kết thúc trước khi nhận tín hiệu hoàn tất.'), { code: 'STREAM_INCOMPLETE' });
     } catch (err: any) {
       const intentionalAbort = controller.signal.aborted || err?.name === 'AbortError';
       if (!intentionalAbort && runGate.current.isCurrent(run)) {
         console.error('Agent chat error:', err);
-        setMessages(prev => [
-          ...prev,
-          {
-            id: nextId(),
-            role: 'assistant',
-            content: [{ type: 'text', text: `❌ ${safeAgentClientErrorMessage(err?.code)}` }],
-            timestamp: Date.now()
-          }
-        ]);
+        setMessages(prev => [...prev, {
+          id: nextId(), role: 'assistant', content: [{ type: 'text', text: `❌ ${safeAgentClientErrorMessage(err?.code)}` }], timestamp: Date.now(),
+        }]);
       }
     } finally {
-      // A stopped/stale run must never clear lifecycle state owned by a newer run.
-      if (runGate.current.finish(run)) {
-        setIsRunning(false);
-        setIsLoading(false);
-      }
+      if (runGate.current.finish(run)) { setIsRunning(false); setIsLoading(false); }
     }
   }, [activeSessionId, user, authLoading, aiSettingsHydrated, temporaryMode]);
 
@@ -466,12 +374,9 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     setActiveSessionId(sessionId);
     if (temporaryMode) return;
     try {
-      const sessionKey = `${prefix}adk_active_session_id`;
       localStorage.removeItem(`${prefix}adk_chat_history_v2`);
-      localStorage.setItem(sessionKey, sessionId);
-    } catch (e) {
-      console.warn('Failed to reset local chat state', e);
-    }
+      localStorage.setItem(`${prefix}adk_active_session_id`, sessionId);
+    } catch (e) { console.warn('Failed to reset local chat state', e); }
   }, [prefix, temporaryMode]);
 
   const clearHistory = useCallback(async () => {
@@ -479,13 +384,8 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     if (!temporaryMode && sessionToDelete && user) {
       try {
         const response = await authFetch(`/api/agent/sessions/${encodeURIComponent(sessionToDelete)}`, { method: 'DELETE' });
-        if (!response.ok && response.status !== 404) {
-          throw new Error((await response.json()).error || 'Không thể xóa hội thoại');
-        }
-      } catch (err) {
-        console.error('Failed to delete persistent Agent session:', err);
-        throw err;
-      }
+        if (!response.ok && response.status !== 404) throw new Error((await response.json()).error || 'Không thể xóa hội thoại');
+      } catch (err) { console.error('Failed to delete persistent Agent session:', err); throw err; }
     }
     resetLocalConversation(crypto.randomUUID());
   }, [activeSessionId, resetLocalConversation, temporaryMode, user]);
@@ -498,7 +398,6 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
 
   const loadConversation = useCallback((sessionId: string, sessionMessages: ChatMessage[]) => {
     if (!sessionId) return;
-    // Loading a different durable session invalidates ownership of any active run.
     cancelRun();
     setToolConfirmations(reconstructPendingConfirmations(sessionMessages) as ToolConfirmationItem[]);
     setActiveSessionId(sessionId);
@@ -507,21 +406,14 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     try {
       localStorage.setItem(`${prefix}adk_active_session_id`, sessionId);
       localStorage.removeItem(`${prefix}adk_chat_history_v2`);
-    } catch (e) {
-      console.warn('Failed to persist loaded conversation locally', e);
-    }
+    } catch (e) { console.warn('Failed to persist loaded conversation locally', e); }
   }, [cancelRun, prefix, temporaryMode]);
 
   const branchConversation = useCallback(async (beforeUserTurn: number) => {
     if (!activeSessionId) throw new Error('Không có session đang hoạt động để tạo nhánh.');
     const response = await authFetch('/api/agent/sessions/branch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sourceSessionId: activeSessionId,
-        beforeUserTurn,
-        temporaryMode,
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceSessionId: activeSessionId, beforeUserTurn, temporaryMode }),
     });
     if (!response.ok) throw new Error((await response.json()).error || 'Không thể tạo nhánh hội thoại');
     const data = await response.json();
@@ -532,141 +424,71 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     const trimmed = newText.trim();
     if (!trimmed) return;
     const targetIndex = messages.findIndex((message) => message.id === id && message.role === 'user');
-    if (targetIndex < 0) return;
-
+    if (targetIndex < 0 || !canReplayUserMessage(messages[targetIndex])) return;
     const beforeUserTurn = messages.slice(0, targetIndex).filter((message) => message.role === 'user').length;
     const branch = await branchConversation(beforeUserTurn);
-    const editedMessage: ChatMessage = {
-      id: nextId(),
-      role: 'user',
-      content: [{ type: 'text', text: trimmed }],
-      timestamp: Date.now(),
-    };
+    const editedMessage: ChatMessage = { id: nextId(), role: 'user', content: [{ type: 'text', text: trimmed }], timestamp: Date.now(), replaySafe: true };
     const baseMessages = [...(branch.messages || []), editedMessage];
     loadConversation(branch.sessionId, baseMessages);
-
     const appContext = getAppContext();
-    await sendPayloadToAgent({
-      message: trimmed,
-      stateDelta: appContext,
-    }, branch.sessionId, baseMessages, editedMessage.id);
+    await sendPayloadToAgent({ message: trimmed, stateDelta: appContext }, branch.sessionId, baseMessages, editedMessage.id);
   }, [branchConversation, getAppContext, loadConversation, messages, sendPayloadToAgent]);
 
   const regenerate = useCallback(async () => {
     let targetIndex = -1;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index].role === 'user') {
-        targetIndex = index;
-        break;
-      }
+      if (messages[index].role === 'user') { targetIndex = index; break; }
     }
     if (targetIndex < 0) return;
-
     const target = messages[targetIndex];
-    const text = typeof target.content === 'string'
-      ? target.content
-      : target.content.map((part) => part.text || '').join('').trim();
+    if (!canReplayUserMessage(target)) return;
+    const text = typeof target.content === 'string' ? target.content : target.content.map((part) => part.text || '').join('').trim();
     if (!text) return;
-
     const beforeUserTurn = messages.slice(0, targetIndex).filter((message) => message.role === 'user').length;
     const branch = await branchConversation(beforeUserTurn);
-    const replayedUser: ChatMessage = {
-      id: nextId(),
-      role: 'user',
-      content: [{ type: 'text', text }],
-      timestamp: Date.now(),
-    };
+    const replayedUser: ChatMessage = { id: nextId(), role: 'user', content: [{ type: 'text', text }], timestamp: Date.now(), replaySafe: true };
     const baseMessages = [...(branch.messages || []), replayedUser];
     loadConversation(branch.sessionId, baseMessages);
-
     const appContext = getAppContext();
-    await sendPayloadToAgent({
-      message: text,
-      stateDelta: appContext,
-    }, branch.sessionId, baseMessages, replayedUser.id);
+    await sendPayloadToAgent({ message: text, stateDelta: appContext }, branch.sessionId, baseMessages, replayedUser.id);
   }, [branchConversation, getAppContext, loadConversation, messages, sendPayloadToAgent]);
 
   const toggleStarMessage = useCallback((id: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, starred: !m.starred } : m))
-    );
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, starred: !m.starred } : m)));
   }, []);
 
   const sendMessage = useCallback(async (text: string, attachments: AttachmentReference[] = []) => {
     if (!text.trim()) return;
-
     const userMessageId = nextId();
     const userMsg: ChatMessage = {
       id: userMessageId,
       role: 'user',
       content: [{ type: 'text', text: text.trim() }],
       timestamp: Date.now(),
+      attachments: attachments.length > 0 ? attachments : undefined,
+      replaySafe: attachments.length === 0,
     };
-
     const optimisticTranscript = [...messages, userMsg];
     setMessages(optimisticTranscript);
-
     const appContext = getAppContext();
-    await sendPayloadToAgent(
-      buildMessageRequestPayload(text, appContext, attachments),
-      undefined,
-      optimisticTranscript,
-      userMessageId,
-    );
+    await sendPayloadToAgent(buildMessageRequestPayload(text, appContext, attachments), undefined, optimisticTranscript, userMessageId);
   }, [getAppContext, messages, sendPayloadToAgent]);
 
   const confirmTool = useCallback(async (toolCallId: string, confirmed: boolean, payload?: any) => {
     setToolConfirmations((prev) => prev.filter((item) => item.toolCallId !== toolCallId && item.id !== toolCallId));
-
     const appContext = getAppContext();
-
-    // Send the correct ADK FunctionResponse block representing the confirmation response
     await sendPayloadToAgent({
-      toolResponse: {
-        role: 'user',
-        parts: [{
-          functionResponse: {
-            id: toolCallId,
-            name: 'adk_request_confirmation',
-            response: { confirmed, payload }
-          }
-        }]
-      },
+      toolResponse: { role: 'user', parts: [{ functionResponse: { id: toolCallId, name: 'adk_request_confirmation', response: { confirmed, payload } } }] },
       stateDelta: appContext,
     });
   }, [getAppContext, sendPayloadToAgent]);
 
   const isReady = Boolean(user) && !authLoading && aiSettingsHydrated && !isHydratingHistory;
-
-  const threadState = useMemo(() => ({
-    messages,
-    isRunning,
-    isLoading,
-    isReady,
-    historyError,
-  }), [messages, isRunning, isLoading, isReady, historyError]);
-
+  const threadState = useMemo(() => ({ messages, isRunning, isLoading, isReady, historyError }), [messages, isRunning, isLoading, isReady, historyError]);
   const contextValue: AgentRuntimeContextValue = useMemo(() => ({
-    runtime: null,
-    threadState,
-    sendMessage,
-    cancelRun,
-    toolConfirmations,
-    confirmTool,
-    clearHistory,
-    newConversation,
-    activeSessionId,
-    loadConversation,
-    editMessage,
-    regenerate,
-    toggleStarMessage,
-    temporaryMode,
-    setTemporaryMode,
+    runtime: null, threadState, sendMessage, cancelRun, toolConfirmations, confirmTool, clearHistory, newConversation,
+    activeSessionId, loadConversation, editMessage, regenerate, toggleStarMessage, temporaryMode, setTemporaryMode,
   }), [threadState, sendMessage, cancelRun, toolConfirmations, confirmTool, clearHistory, newConversation, activeSessionId, loadConversation, editMessage, regenerate, toggleStarMessage, temporaryMode, setTemporaryMode]);
 
-  return (
-    <AgentRuntimeContext.Provider value={contextValue}>
-      {children}
-    </AgentRuntimeContext.Provider>
-  );
+  return <AgentRuntimeContext.Provider value={contextValue}>{children}</AgentRuntimeContext.Provider>;
 }
