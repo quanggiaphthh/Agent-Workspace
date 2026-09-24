@@ -46,12 +46,13 @@ describe('single-user owner permission baseline', () => {
     expect(resolved).not.toContain('audit.read');
   });
 
-  it('keeps verified custom claims additive without removing owner permissions or duplicating entries', () => {
+  it('keeps only canonical verified custom claims without removing owner permissions or duplicating entries', () => {
     const resolved = resolveVerifiedPermissions({
       roles: ['user'],
       claimedPermissions: ['tasks.read', 'custom.permission'],
     });
-    expect(resolved).toEqual(expect.arrayContaining([...ownerPermissions, 'custom.permission']));
+    expect(resolved).toEqual(expect.arrayContaining(ownerPermissions));
+    expect(resolved).not.toContain('custom.permission');
     expect(resolved.filter((permission) => permission === 'tasks.read')).toHaveLength(1);
   });
 
@@ -70,7 +71,7 @@ describe('single-user owner permission baseline', () => {
     expect(identity.permissions).not.toContain('anything');
   });
 
-  it('preserves verified admin/custom claims without permission inconsistency', async () => {
+  it('preserves verified admin/canonical claims without permission inconsistency', async () => {
     verifyIdToken.mockResolvedValue({
       uid: 'owner-1',
       roles: ['admin'],
@@ -82,8 +83,11 @@ describe('single-user owner permission baseline', () => {
     expect(identity.permissions).toEqual(expect.arrayContaining([
       ...ownerPermissions,
       'audit.read',
-      'custom.permission',
+      'demo.read',
+      'demo.write',
+      'demo.delete',
     ]));
+    expect(identity.permissions).not.toContain('custom.permission');
     expect(new Set(identity.permissions).size).toBe(identity.permissions.length);
   });
 
@@ -119,6 +123,16 @@ describe('single-user owner permission baseline', () => {
     verifyIdToken.mockResolvedValue({ uid: 'owner-1', email: 'owner@example.test' });
     await expect(ServerIdentityProvider.getIdentity(requestWithToken()))
       .rejects.toMatchObject({ status: 503, code: 'OWNER_NOT_CONFIGURED' });
+  });
+
+  it('hides the historical Firebase diagnostic route in production before token verification', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.OWNER_UID = 'owner-allowed';
+    await expect(ServerIdentityProvider.getIdentity({
+      ...requestWithToken(),
+      path: '/test/firebase-connection',
+    })).rejects.toMatchObject({ status: 404, code: 'ROUTE_NOT_AVAILABLE' });
+    expect(verifyIdToken).not.toHaveBeenCalled();
   });
 
   it('rejects a valid Firebase identity that does not match configured OWNER_UID', async () => {
