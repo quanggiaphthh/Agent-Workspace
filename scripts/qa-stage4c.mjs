@@ -73,10 +73,12 @@ check('completed capability result is not retroactively cancelled after commit',
   && !(postExecuteAbortPos !== -1 && postExecuteAbortPos < successReturnPos));
 check('web search passes AbortSignal to provider request', /abortSignal\?\s*:\s*AbortSignal/.test(webSearch) && /abortSignal,/.test(webSearch) && /context\.abortSignal/.test(read('server/core/capabilities/systemCapabilities.ts')));
 
-check('fake attachment affordance is removed',
-  !/\battachedFile\b/.test(chat)
-  && !/\[Đính kèm tệp:/.test(chat)
-  && !/type=['"]file['"]/.test(chat));
+check('attachment affordance uses the real upload-backed composer path',
+  /type=['"]file['"]/.test(chat)
+  && /uploadUserFile\(/.test(chat)
+  && /successfulAttachmentReferences\(attachments\)/.test(chat)
+  && /sendMessage\(inputText\.trim\(\),\s*attachmentReferences\)/.test(chat)
+  && !/\[Đính kèm tệp:/.test(chat));
 
 check('module settings no longer use local filesystem durable store',
   !/from ['"]fs['"]/.test(storage)
