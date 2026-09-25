@@ -25,6 +25,17 @@ export interface DashboardWidgetContribution {
   width?: 'full' | 'half' | 'third';
 }
 
+export interface AgentSuggestionContribution {
+  id: string;
+  label: string;
+  prompt: string;
+  requiredCapabilities?: string[];
+}
+
+export interface AgentUiContribution {
+  suggestions?: AgentSuggestionContribution[];
+}
+
 export interface EventDescriptor {
   type: string;
   description: string;
@@ -43,6 +54,7 @@ export interface ModuleManifest {
   routes: RouteContribution[];
   capabilities?: CapabilityDescriptor<any, any>[];
   widgets?: DashboardWidgetContribution[];
+  agent?: AgentUiContribution;
   events?: EventDescriptor[];
   permissions?: string[];
   lifecycle?: {
