@@ -4,13 +4,13 @@
 
 This is a bounded **post-MVP regression/security corrective**. It does not reopen W4–W12 and does not introduce a new product module, Agent runtime, persistence authority, capability registry, confirmation engine, or UI event system.
 
-Canonical deployed production remains the W12 checkpoint until a new live deployment/smoke is explicitly completed.
+R1 has completed source/static verification and bounded live promotion against the real Firebase/Gemini/browser environment. The R1 source checkpoint is now the canonical deployed production checkpoint.
 
 ## 2. Governance
 
 Implementation followed the existing project gates:
 
-`SOURCE AUDIT → REUSE AUDIT → NEW-CODE NECESSITY PROOF → TEST MINIMIZATION → BOUNDED IMPLEMENTATION → CANONICAL CI`
+`SOURCE AUDIT → REUSE AUDIT → NEW-CODE NECESSITY PROOF → TEST MINIMIZATION → BOUNDED IMPLEMENTATION → CANONICAL CI → LIVE PROMOTION`
 
 Reuse decisions:
 
@@ -106,7 +106,7 @@ Minimal regression evidence was added only for these app-owned boundaries:
 
 No Task pagination behavior, module composition, credential architecture, server router refactor, dependency graph, or other unrelated area was reopened.
 
-## 9. Canonical verification
+## 9. Canonical source verification
 
 Validated corrective source checkpoint:
 
@@ -132,29 +132,54 @@ The run passed:
 - production build;
 - final manifest verification.
 
-## 10. Deployment status and remaining gate
+## 10. Live promotion evidence
 
-This corrective source checkpoint is **verified source, not yet declared deployed production**.
+Exact deployed source commit:
 
-The previous W12 production checkpoint remains the rollback/deployment authority until live rollout is completed.
+`ee570f44516d639f7a6e00f5da3dc6427d597034`
 
-Before promoting R1 to production, perform a bounded live smoke against the real Firebase/Gemini environment proving at minimum:
+Production URL:
 
-1. normal persistent Agent chat still streams and completes;
-2. Task search resolves unique/ambiguous titles correctly;
-3. Agent Task update/delete HITL deny and approve paths remain correct;
-4. successful Agent Task create/update/delete automatically refreshes Task UI and Home stats exactly once;
-5. reopening/restoring an old conversation does not replay navigation, refresh, notification, or mutation effects;
-6. Temporary Chat and cancellation remain isolated;
-7. Task disable/re-enable still blocks/restores Task capabilities without data loss;
-8. `/api/health` remains healthy with persistent components;
-9. exercising the global ErrorBoundary produces an accepted bounded `/api/log-error` request;
-10. an authenticated unknown `/api/*` path returns JSON `404 API_ROUTE_NOT_FOUND` rather than SPA HTML.
+`https://ais-pre-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`
 
-Only after this live gate should the new deployed production checkpoint replace the W12 deployment anchor.
+Development URL:
 
-## 11. Verdict
+`https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`
 
-**R1 SOURCE / STATIC VERIFICATION — PASS.**
+### Port / ingress verification
 
-**Production promotion — PENDING LIVE DEPLOYMENT + SMOKE.**
+- runtime container environment exposed `PORT=8080`;
+- application source still binds its local server to port `3000`;
+- the current AI Studio deployment wrapper forwards the hosted preview/production ingress to the local port 3000 application server;
+- live production smoke proved this mapping is functional for the current deployment environment.
+
+Therefore port handling is **not a blocker for the current AI Studio deployment**. The hard-coded port remains a deployment-portability debt and must not be generalized as a portable Cloud Run contract for other deployment methods.
+
+### Live smoke results
+
+All bounded R1 promotion scenarios passed:
+
+1. persistent Agent chat streams and completes normally;
+2. Task exact-title search distinguishes `unique` and `ambiguous` without guessing an ID;
+3. Task update HITL: deny causes no mutation; approve performs the mutation;
+4. Task delete HITL: deny preserves the Task; approve deletes it and clears matching selected UI state;
+5. Agent Task create/update/delete refreshes Task UI and Home statistics exactly once through the canonical refresh projection;
+6. restored/reloaded history does not replay old navigation, refresh, notification, or mutation effects;
+7. Temporary Chat remains non-persistent and response cancellation terminates the current stream without stale completion;
+8. disabling the Task module removes Task surfaces/capabilities, Task REST fails closed, data remains preserved, and re-enable restores the module;
+9. `/api/health` reports healthy persistent components;
+10. ErrorBoundary telemetry is accepted by `/api/log-error` using the corrected strict payload contract;
+11. authenticated unknown `/api/*` requests return JSON `404 API_ROUTE_NOT_FOUND` rather than SPA HTML.
+
+## 11. Rollback anchor
+
+- Canonical deployed production checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
+- Previous known-good deployed checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
+- Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, encryption key ID and all production secrets across rollback.
+- Source rollback does not automatically revert or delete Firestore/Storage data.
+
+## 12. Verdict
+
+**R1 LIVE PROMOTION — PASS.**
+
+**POST-MVP R1 — FINAL PASS / LOCKED.**
