@@ -92,17 +92,31 @@ A remaining integration defect was identified in the existing `AdkToolHandler`: 
 
 Focused projection tests cover Task refresh, canonical UI actions, failure, unknown actions, and malformed payloads.
 
-## 8. Canonical verification
+## 8. Pass F — pre-promotion operability corrective
+
+A fresh post-audit pass identified two small confirmed defects outside the Agent/Task business logic. Both were corrected without changing API architecture, Firebase persistence, Agent runtime, capability policy, module policy, or dependencies:
+
+- `ErrorBoundary` previously posted legacy fields (`error`, `info`) to the strict `/api/log-error` endpoint and was rejected with HTTP 400. It now maps to the canonical bounded shape: `message`, `source`, optional `stack`, and `context.componentStack`;
+- unknown authenticated `/api/*` GET paths previously could fall through to the production SPA catch-all and return `index.html`. A terminal JSON API 404 handler now returns `404` with `API_ROUTE_NOT_FOUND` before static SPA routing.
+
+Minimal regression evidence was added only for these app-owned boundaries:
+
+- ErrorBoundary telemetry payload shape;
+- authenticated unknown API route returns JSON 404 rather than SPA HTML.
+
+No Task pagination behavior, module composition, credential architecture, server router refactor, dependency graph, or other unrelated area was reopened.
+
+## 9. Canonical verification
 
 Validated corrective source checkpoint:
 
-`05a85501f8d98013ffcaa9d24d95e406493f1f34`
+`ee570f44516d639f7a6e00f5da3dc6427d597034`
 
 Canonical GitHub Actions:
 
 - workflow: `GD4 Canonical Verification`;
-- run number: **#135**;
-- run id: **36082014418**;
+- run number: **#142**;
+- run id: **36086993597**;
 - result: **SUCCESS**.
 
 The run passed:
@@ -118,7 +132,7 @@ The run passed:
 - production build;
 - final manifest verification.
 
-## 9. Deployment status and remaining gate
+## 10. Deployment status and remaining gate
 
 This corrective source checkpoint is **verified source, not yet declared deployed production**.
 
@@ -133,11 +147,13 @@ Before promoting R1 to production, perform a bounded live smoke against the real
 5. reopening/restoring an old conversation does not replay navigation, refresh, notification, or mutation effects;
 6. Temporary Chat and cancellation remain isolated;
 7. Task disable/re-enable still blocks/restores Task capabilities without data loss;
-8. `/api/health` remains healthy with persistent components.
+8. `/api/health` remains healthy with persistent components;
+9. exercising the global ErrorBoundary produces an accepted bounded `/api/log-error` request;
+10. an authenticated unknown `/api/*` path returns JSON `404 API_ROUTE_NOT_FOUND` rather than SPA HTML.
 
 Only after this live gate should the new deployed production checkpoint replace the W12 deployment anchor.
 
-## 10. Verdict
+## 11. Verdict
 
 **R1 SOURCE / STATIC VERIFICATION — PASS.**
 
