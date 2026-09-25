@@ -3,8 +3,8 @@
 > **Authority:** canonical technical checkpoints and locked evidence.  
 > **Canonical production/deployed checkpoint:** `3cb25f3c38917577e6b0106324b136a099883d9a`.  
 > **Canonical GitHub Actions for production checkpoint:** `36015708311` — run #96 — SUCCESS.  
-> **Current validated corrective source checkpoint:** `05a85501f8d98013ffcaa9d24d95e406493f1f34`.  
-> **Canonical GitHub Actions for corrective source checkpoint:** `36082014418` — run #135 — SUCCESS.  
+> **Current validated corrective source checkpoint:** `ee570f44516d639f7a6e00f5da3dc6427d597034`.  
+> **Canonical GitHub Actions for corrective source checkpoint:** `36086993597` — run #142 — SUCCESS.  
 > **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 SOURCE/STATIC PASS**.  
 > **Next:** bounded live deployment/smoke for R1 only; do not replace the deployed checkpoint until that gate passes.  
 > Documentation-only commits may advance repository HEAD after either source checkpoint without creating a new production checkpoint.
@@ -78,7 +78,7 @@ A gate failure or unsupported seam requires STOP, not an architectural workaroun
 | W10 | FINAL PASS / LOCKED | integrated live MVP acceptance |
 | W11 | FINAL PASS / LOCKED | security + operations hardening |
 | W12 | **FINAL PASS / LOCKED** | production deployment, release smoke and final Task-modal corrective |
-| R1 | **SOURCE / STATIC PASS; LIVE PROMOTION PENDING** | Agent/Task trust, query, mutation, recovery and UI-action reliability corrective; source `05a8550...`, Actions #135 SUCCESS |
+| R1 | **SOURCE / STATIC PASS; LIVE PROMOTION PENDING** | Agent/Task trust, query, mutation, recovery, UI-action reliability and pre-promotion operability corrective; source `ee570f4...`, Actions #142 SUCCESS |
 
 Capability inventory:
 
@@ -130,7 +130,9 @@ R1 source adds, but has not yet been promoted to production:
 - recovered HITL candidate semantics and replay-safe durable history;
 - bounded SSE buffering;
 - canonical, replay-safe, exactly-once client projection of server-validated UI actions;
-- automatic Task list/Home-stats refresh after successful Agent Task mutations.
+- automatic Task list/Home-stats refresh after successful Agent Task mutations;
+- valid ErrorBoundary telemetry mapped to the strict `/api/log-error` schema;
+- explicit authenticated JSON 404 handling for unknown `/api/*` routes before the SPA fallback.
 
 ## 7. Release evidence
 
@@ -163,9 +165,11 @@ W10 live acceptance passed the full end-user flow. W12 production smoke then pro
 
 Validated R1 corrective source checkpoint:
 
-`05a85501f8d98013ffcaa9d24d95e406493f1f34`
+`ee570f44516d639f7a6e00f5da3dc6427d597034`
 
-GitHub Actions `36082014418` (#135) succeeded on that exact source checkpoint, including dependency/security policy, manifest verification, TypeScript, targeted GĐ4 gates, capability tool bridge, full Vitest, QA Stage 1–5, W11 Security QA, production build and final manifest verification.
+GitHub Actions `36086993597` (#142) succeeded on that exact source checkpoint, including dependency/security policy, manifest verification, TypeScript, targeted GĐ4 gates, capability tool bridge, full Vitest, QA Stage 1–5, W11 Security QA, production build and final manifest verification.
+
+The same run includes focused regression coverage for the ErrorBoundary telemetry contract and the JSON API-404 boundary introduced in the bounded R1.1 pre-promotion corrective.
 
 Detailed R1 evidence: `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md`.
 
