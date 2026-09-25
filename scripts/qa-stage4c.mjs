@@ -77,7 +77,7 @@ check('attachment affordance uses the real upload-backed composer path',
   /type=['"]file['"]/.test(chat)
   && /uploadUserFile\(/.test(chat)
   && /successfulAttachmentReferences\(attachments\)/.test(chat)
-  && /sendMessage\(inputText\.trim\(\),\s*attachmentReferences\)/.test(chat)
+  && /sendMessage\(inputText\.trim\(\),\s*(?:attachmentReferences|successfulAttachmentReferences\(attachments\))\)/.test(chat)
   && !/\[Đính kèm tệp:/.test(chat));
 
 check('module settings no longer use local filesystem durable store',
@@ -162,7 +162,7 @@ const sessionIntegration = spawnSync(
   ['--no-warnings', '--experimental-strip-types', 'scripts/qa-stage4c-session-integration.mjs'],
   { encoding: 'utf8' },
 );
-if (sessionIntegration.stdout) process.stdout.write(sessionIntegration.stdout);
+if (sessionIntegration.stdout) process.stdout.write(behavior.stdout);
 if (sessionIntegration.stderr) process.stderr.write(sessionIntegration.stderr);
 check('GĐ4C FirestoreSessionService recovery integration passes', sessionIntegration.status === 0);
 
