@@ -1,6 +1,55 @@
 import { AIProviderId, AIModelMetadata, TestKeyResponse } from '../../../shared/contracts/ai';
 import { redactAuditString } from '../audit/auditRedaction';
 
+export const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS = 20_000;
+
+export function providerRequestTimeoutMs(envValue = process.env.AI_PROVIDER_TIMEOUT_MS): number {
+  if (envValue === undefined || envValue === '') return DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS;
+  const parsed = Number(envValue);
+  return Number.isFinite(parsed) && parsed >= 1_000 && parsed <= 120_000
+    ? Math.floor(parsed)
+    : DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS;
+}
+
+async function providerFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const parentSignal = init.signal;
+  let timedOut = false;
+
+  const abortFromParent = () => {
+    if (!controller.signal.aborted) controller.abort(parentSignal?.reason);
+  };
+
+  if (parentSignal?.aborted) abortFromParent();
+  else parentSignal?.addEventListener('abort', abortFromParent, { once: true });
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    if (!controller.signal.aborted) {
+      controller.abort(Object.assign(new Error('Provider request timed out.'), {
+        code: 'PROVIDER_TIMEOUT',
+        status: 504,
+      }));
+    }
+  }, providerRequestTimeoutMs());
+  timer.unref?.();
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (timedOut) {
+      throw Object.assign(new Error('Provider request timed out.'), {
+        code: 'PROVIDER_TIMEOUT',
+        status: 504,
+      });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', abortFromParent);
+  }
+}
+
 export interface ProviderAdapter {
   id: AIProviderId;
   testKey(key: string): Promise<TestKeyResponse>;
@@ -34,6 +83,8 @@ function normalizeError(err: any, providerId: string, stage: string, endpoint?: 
     userMessage = `API Key ${providerId.toUpperCase()} hợp lệ nhưng không có quyền truy cập (Forbidden/Forbidden Scope)`;
   } else if (status === 429) {
     userMessage = `Nhà cung cấp ${providerId.toUpperCase()} thông báo hết hạn mức (Quota/Rate limited)`;
+  } else if (status === 504 || err?.code === 'PROVIDER_TIMEOUT') {
+    userMessage = `Kết nối đến nhà cung cấp ${providerId.toUpperCase()} đã hết thời gian chờ`;
   } else if (status >= 500) {
     userMessage = `Nhà cung cấp ${providerId.toUpperCase()} đang gặp sự cố kỹ thuật (5xx/Server Error)`;
   } else if (err.name === 'AbortError' || err.message?.includes('fetch')) {
@@ -68,7 +119,7 @@ export class GoogleAdapter implements ProviderAdapter {
 
   async listModels(key: string): Promise<AIModelMetadata[]> {
     const k = key.trim();
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${k}`);
+    const response = await providerFetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${k}`);
     
     if (response.status === 401) throw { status: 401 };
     if (response.status === 429) throw { status: 429 };
@@ -99,7 +150,7 @@ export class GoogleAdapter implements ProviderAdapter {
 
   async testModel(key: string, modelId: string): Promise<boolean> {
     const k = key.trim();
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${k}`, {
+    const response = await providerFetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${k}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -134,7 +185,7 @@ export class OpenAIAdapter implements ProviderAdapter {
 
   async listModels(key: string): Promise<AIModelMetadata[]> {
     const k = key.trim();
-    const response = await fetch(`${this.baseUrl}/models`, {
+    const response = await providerFetch(`${this.baseUrl}/models`, {
       headers: { 'Authorization': `Bearer ${k}` }
     });
     if (response.status === 401) throw { status: 401 };
@@ -162,7 +213,7 @@ export class OpenAIAdapter implements ProviderAdapter {
 
   async testModel(key: string, modelId: string): Promise<boolean> {
     const k = key.trim();
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+    const response = await providerFetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${k}`,
@@ -200,7 +251,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   async listModels(key: string): Promise<AIModelMetadata[]> {
     const k = key.trim();
-    const response = await fetch(`${this.baseUrl}/models`, {
+    const response = await providerFetch(`${this.baseUrl}/models`, {
       headers: {
         'x-api-key': k,
         'anthropic-version': '2023-06-01'
@@ -222,7 +273,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   async testModel(key: string, modelId: string): Promise<boolean> {
     const k = key.trim();
-    const response = await fetch(`${this.baseUrl}/messages`, {
+    const response = await providerFetch(`${this.baseUrl}/messages`, {
       method: 'POST',
       headers: {
         'x-api-key': k,
@@ -253,7 +304,7 @@ export class NvidiaNimAdapter implements ProviderAdapter {
     try {
       // Use a known stable model for inference test, skipping catalog fetch
       const testModelId = 'nvidia/llama-3.1-8b-instruct'; 
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await providerFetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${k}`,
@@ -280,7 +331,7 @@ export class NvidiaNimAdapter implements ProviderAdapter {
 
   async listModels(key: string): Promise<AIModelMetadata[]> {
     const k = this.normalize(key);
-    const response = await fetch(`${this.baseUrl}/models`, {
+    const response = await providerFetch(`${this.baseUrl}/models`, {
       headers: { 'Authorization': `Bearer ${k}` }
     });
     if (!response.ok) throw { status: response.status, message: `NVIDIA catalog error: ${response.statusText}` };
@@ -306,7 +357,7 @@ export class NvidiaNimAdapter implements ProviderAdapter {
 
   async testModel(key: string, modelId: string): Promise<boolean> {
     const k = this.normalize(key);
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+    const response = await providerFetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${k}`,
@@ -344,7 +395,7 @@ export class OpenCodeZenAdapter implements ProviderAdapter {
           const ok = await this.testModel(k, testModel.id);
           if (!ok) {
             // Check status for error diagnostics
-            const response = await fetch(this.getEndpoint(testModel.id), {
+            const response = await providerFetch(this.getEndpoint(testModel.id), {
               method: 'POST',
               headers: this.getHeaders(k, testModel.id),
               body: JSON.stringify({
@@ -367,7 +418,7 @@ export class OpenCodeZenAdapter implements ProviderAdapter {
             throw { status: response.status, message: response.statusText };
           }
         } catch (e: any) {
-          if (e.status >= 500 || e.message?.includes('fetch')) {
+          if (e.status >= 500 || e.message?.includes('fetch') || e.code === 'PROVIDER_TIMEOUT') {
              return { 
                success: false, 
                error: 'Tạm lỗi nhà cung cấp (Zen). Bạn có thể Lưu chưa xác minh.', 
@@ -402,7 +453,7 @@ export class OpenCodeZenAdapter implements ProviderAdapter {
   }
 
   async listModels(key: string): Promise<AIModelMetadata[]> {
-    const response = await fetch(`${this.baseUrl}/models`);
+    const response = await providerFetch(`${this.baseUrl}/models`);
     if (!response.ok) throw { status: response.status, message: `Zen models error: ${response.statusText}` };
     
     const data = await response.json();
@@ -435,7 +486,7 @@ export class OpenCodeZenAdapter implements ProviderAdapter {
     const endpoint = this.getEndpoint(modelId);
     const headers = this.getHeaders(k, modelId);
     
-    const response = await fetch(endpoint, {
+    const response = await providerFetch(endpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -465,4 +516,3 @@ export class AIProviderManager {
     return adapter;
   }
 }
-
