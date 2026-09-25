@@ -35,7 +35,9 @@ check('public log endpoint is schema/size/redaction/rate-limited',
   server.includes("express.json({ limit: '32kb' })") && server.includes('ClientErrorSchema.safeParse') &&
   server.includes('redactAuditString(parsed.data.message)') && server.includes('clientErrorLimiter'));
 check('expensive limiter is keyed by verified user',
-  /keyGenerator:\s*\(req:\s*express\.Request\)\s*=>\s*`user:\$\{(?:\(req as any\)\.)?user\?\.id \|\| 'missing-auth'\}`/.test(server));
+  server.includes('const expensiveUserLimiter = rateLimit({') &&
+  server.includes("keyGenerator: (req: express.Request) => `user:${req.user?.id || 'missing-auth'}`") &&
+  !server.includes("keyGenerator: (req: express.Request) => req.ip"));
 check('module capability discovery refreshes durable state',
   registry.includes('public static async listForContext') && registry.includes('await storage.refreshModuleSettings()'));
 check('module execution fails closed when durable state cannot be verified',
