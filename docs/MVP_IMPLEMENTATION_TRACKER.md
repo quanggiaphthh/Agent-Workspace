@@ -4,21 +4,25 @@
 > Agent entry point: `AGENTS.md`.  
 > Historical checkpoints: `PROJECT_MASTER_PLAN.md`.  
 > Scope/reuse policy: `docs/MVP_COMPLETION_PLAN_REUSE_FIRST.md`.  
-> Detailed execution: `docs/MVP_EXECUTION_PHASES.md`.
+> Detailed execution: `docs/MVP_EXECUTION_PHASES.md`.  
+> Current corrective report: `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md`.
 
 ## 1. Current canonical context
 
 - **MVP: FINAL PASS / LOCKED.**
 - Canonical production/deployed checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
-- Canonical GitHub Actions for the deployed production checkpoint: `36015708311` — run #96 — **SUCCESS**.
+- Canonical GitHub Actions for deployed production: `36015708311` — run #96 — **SUCCESS**.
+- Current validated R1 corrective source checkpoint: `05a85501f8d98013ffcaa9d24d95e406493f1f34`.
+- Canonical GitHub Actions for R1 source: `36082014418` — run #135 — **SUCCESS**.
+- R1 status: **SOURCE / STATIC PASS; LIVE PROMOTION PENDING**.
 - Production URL: `https://ais-pre-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - Development URL: `https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - GĐ1–GĐ4 / M1 and W4–W12: **FINAL PASS / LOCKED**.
-- Current next workstream: **None inside MVP. Any new feature is post-MVP and must open a new bounded workstream.**
-- Current business capability count: **10**.
+- Current next gate: **bounded real Firebase/Gemini/browser deployment smoke for R1 only**.
+- Deployed W12 capability count: **10**; validated R1 source capability count: **12**.
 - Product mode: **single-user personal app, not public**.
-- Post-MVP modules and marketplace/public plugin ecosystem remain deferred.
-- Documentation-only commits may advance repository HEAD after the deployed checkpoint; they do **not** create a new production checkpoint.
+- Post-MVP product modules and marketplace/public plugin ecosystem remain deferred.
+- Documentation-only commits may advance repository HEAD; they do **not** replace either source or deployed checkpoints.
 
 ## 2. Mandatory implementation gates
 
@@ -48,6 +52,7 @@ Do not reopen a locked MVP area without a reproducible regression, security issu
 | W10 | MVP integrated acceptance | FINAL PASS / LOCKED | closed |
 | W11 | security/operations hardening | FINAL PASS / LOCKED | closed |
 | W12 | UAT/deployment/release | **FINAL PASS / LOCKED** | closed |
+| R1 | Post-MVP Agent + Task reliability/security corrective | **SOURCE / STATIC PASS** | deploy candidate + bounded live smoke |
 
 ## 4. Locked MVP foundation
 
@@ -63,62 +68,97 @@ Do not reopen without a reproducible regression:
 - modular Task enable/disable/re-enable isolation with durable data preservation;
 - Task REST endpoints fail closed while the Task module is disabled;
 - Vietnamese Core Shell, Home, Agent, Task and Settings UX;
-- Agent Task list/create/update (`system.tasks.update` requires confirmation);
 - valid `YYYY-MM-DD` Task due-date validation at server/Agent boundaries;
 - production diagnostic Firebase test route unavailable;
 - HTTP security headers, payload limits, rate limiting and runtime health controls;
 - dependency high/critical CI policy with a narrow, expiring reviewed ADK/adm-zip exception;
 - Task create/edit modal respects `isOpen` and does not auto-open when entering the Task module.
 
-## 5. W10 evidence
+## 5. R1 corrective source scope
 
-W10 proved the real end-user path in AI Studio/Firebase/Gemini:
+R1 is a regression/security corrective, not a new product feature workstream. It reuses existing authorities and adds no dependency or second runtime/registry/storage system.
 
-`login → Home/Agent/Task/Settings → Task list/create → Task update HITL deny/approve → reload → Temporary Chat isolation → upload/attach file → Gemini content answer → cancellation → Task disable/re-enable → recoverable-error continuation`
+Validated source behavior now includes:
 
-All 12 live acceptance scenarios passed.
+- bounded Task cursor pagination while preserving complete current UI listing;
+- exact-title Task resolution with explicit `none | unique | ambiguous` outcome;
+- Firestore aggregate Task stats beyond the previous first-100 boundary;
+- Agent Task search plus delete parity; update/delete require deterministic Task identity;
+- `system.tasks.delete` is high-risk and requires server-authoritative HITL;
+- Task create/update/delete outputs request refresh through existing UI-action semantics;
+- trusted request-scoped Agent context cannot be overridden by client/dynamic ADK state;
+- live and durable transcripts do not expose model reasoning;
+- failed tool results remain failures in live UI and reloaded history;
+- recovered HITL is only a candidate and is revalidated by server confirmation authority;
+- historical/reloaded user turns with insufficient attachment provenance are replay-unsafe;
+- SSE line/stream size is bounded;
+- server-validated UI actions are projected through `clientCapabilityRegistry`, not direct alternate UI authority;
+- durable history cannot replay old UI actions; new live UI actions are applied at most once per `toolCallId`;
+- Task list and Home stats consume the existing `canvas.refreshRequested` event.
 
-## 6. W11 evidence
+Current R1 business capability inventory: **12** = Memory 2 + Task 5 + Web Search 1 + UI 4.
 
-See `docs/W11_SECURITY_OPERATIONS_REPORT.md`.
+## 6. R1 verification evidence
 
-Key corrections:
+Corrective source checkpoint:
 
-- production owner UID binding is fail-closed;
-- Firebase verifier detail is not reflected to the caller;
-- canonical `storage.rules` denies direct browser Storage access;
-- `firebase.json` wires named Firestore rules/indexes and Storage rules;
-- dependency audit fails new high/critical advisories while documenting one narrow, expiring ADK→adm-zip exception;
-- W11 security QA is part of canonical CI.
+`05a85501f8d98013ffcaa9d24d95e406493f1f34`
 
-## 7. W12 final release evidence
+GitHub Actions run `36082014418` (#135): **SUCCESS**.
 
-The final release sequence completed successfully:
+Passed gates:
 
-1. canonical production checkpoint deployed: `3cb25f3c38917577e6b0106324b136a099883d9a`;
-2. Firestore and Storage deny-all direct-client rules deployed successfully;
-3. production `/api/health` healthy;
-4. production Firebase diagnostic test route unavailable;
-5. Task REST/API/Agent boundaries respect Task module enabled/disabled state;
-6. invalid due dates are rejected before persistence;
-7. owner login, Agent chat, attachment/Gemini, persistent/temporary chat, cancellation and Task HITL flows passed live verification;
-8. Task disable/re-enable preserves durable Task data;
-9. Task modal regression was corrected and redeployed: entering Task no longer opens the form automatically; create/edit/cancel/backdrop/save behavior all passed live smoke;
-10. canonical GitHub Actions run #96 passed dependency policy, manifest checks, TypeScript, targeted tests, full Vitest, QA Stage 1–5, W11 Security QA and production build.
+- dependency/security policy;
+- production manifest verification;
+- TypeScript;
+- targeted GĐ4 tests;
+- capability tool bridge;
+- full Vitest;
+- QA Stage 1–5;
+- W11 Security QA;
+- production build;
+- final manifest verification.
 
-## 8. Rollback / operational anchor
+See `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md` for detailed Pass A–E evidence.
+
+## 7. R1 live promotion gate
+
+Do not declare the R1 source as deployed merely because CI is green. Promotion requires a bounded live run against the real Firebase/Gemini/browser environment proving:
+
+1. persistent Agent chat streams normally;
+2. Task title search distinguishes unique/ambiguous outcomes;
+3. Task update/delete HITL deny and approve paths are correct;
+4. Agent create/update/delete refreshes Task list and Home stats exactly once;
+5. loading/restoring history does not replay old navigation/refresh/notification effects;
+6. Temporary Chat and cancellation remain isolated;
+7. Task disable/re-enable still blocks/restores Task surfaces without data loss;
+8. `/api/health` remains healthy with persistent components.
+
+Only after those checks pass may `PROJECT_MASTER_PLAN.md` replace the deployed production checkpoint and rollback anchor.
+
+## 8. W10–W12 deployed evidence
+
+The currently deployed W12 checkpoint already proved the original MVP release path:
+
+`login → Home/Agent/Task/Settings → Task list/create/update HITL → reload → Temporary Chat → upload/attach → Gemini document read → cancellation → Task disable/re-enable → recoverable-error continuation`.
+
+It also passed production rules/security smoke and the final Task create/edit modal corrective.
+
+R1 source validation does not invalidate that deployment evidence; it remains the rollback anchor until R1 is promoted.
+
+## 9. Rollback / operational anchor
 
 - Stable deployed checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and other production secrets across redeploy/rollback.
 - Source rollback does not automatically revert or delete Firestore/Storage data.
 - Rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
 
-## 9. Final completion rule — satisfied
+## 10. Current completion rule
 
-The deployed application has now demonstrated:
-
-`Đăng nhập duy nhất owner → UI tiếng Việt → persistent/temporary Agent chat → upload/attach document → Gemini reads it → Agent create/update Task through canonical gateway/HITL → Task UI reflects state → reload preserves state → disable/re-enable Task without breaking Core/Agent → common-error recovery`,
-
-with Firestore/Storage direct-client access denied and the exact deployed commit recorded.
+The deployed application remains:
 
 **MVP FINAL PASS / LOCKED.**
+
+The separate R1 corrective is:
+
+**SOURCE / STATIC PASS — LIVE PROMOTION PENDING.**
