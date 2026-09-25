@@ -11,7 +11,8 @@
 > **R1 exact previously deployed stable checkpoint:**
 > `ee570f44516d639f7a6e00f5da3dc6427d597034`.\
 > **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL
-> PASS / LOCKED; POST-MVP R2 FINAL PASS / LOCKED**.\
+> PASS / LOCKED; POST-MVP R2 FINAL PASS / LOCKED; H1 FINAL PASS /
+> LOCKED**.\
 > Documentation-only closeout commits do not replace the R2
 > implementation checkpoint.
 
@@ -163,6 +164,12 @@ areas unless the current change can affect them.
                                                   #152 SUCCESS; Live
                                                   Promotion PASS; Live
                                                   Evidence Corrective PASS
+
+  H1                      **FINAL PASS / LOCKED** repository hygiene,
+                                                  Express request
+                                                  typing, metadata and
+                                                  lockfile cleanup;
+                                                  Actions/Vitest PASS
   ------------------------------------------------------------------------
 
 Current deployed business capability inventory remains **12** --- Memory
@@ -369,3 +376,5 @@ marketplace/remote plugin loading merely to replace static imports.
 **POST-MVP R1 --- FINAL PASS / LOCKED.**
 
 **POST-MVP R2 --- FINAL PASS / LOCKED.**
+
+**H1 --- FINAL PASS / LOCKED.**

@@ -39,6 +39,7 @@ hard trigger**, not FIX NOW.
 -   R1 --- **FINAL PASS / LOCKED**
 -   R2 --- **FINAL PASS / LOCKED**
 -   R2 canonical closeout --- **COMPLETE**
+-   H1 cleanup closeout --- **COMPLETE**
 -   R2 implementation checkpoint:
     `83e6c8940f21d43c3d791446f0d8017f65b866cd`
 -   R2 implementation CI: run #152 / `36089895220` / SUCCESS
@@ -82,27 +83,27 @@ No full test, build, deploy or live smoke was run.
                                                                capabilities, audit, modules and static                                                                                                
                                                                serving.                                                                                                                               
 
-  F03        Low          IMPROVEMENT   Auth/Typing            Request identity/request metadata still `server.ts` auth middleware, permission middleware, AI routes, capability routes and module    NEXT BATCH
-                                                               rely on repeated `(req as any).user` /  routes.                                                                                        
+  F03        Low          IMPROVEMENT   Auth/Typing            Request identity/request metadata still `server.ts` auth middleware, permission middleware, AI routes, capability routes and module    RESOLVED /
+                                                               rely on repeated `(req as any).user` /  routes.                                                                                        STALE
                                                                `(req as any).requestId` casts.                                                                                                        
 
-  F04        Info         CONFIRMED     Package metadata       Package is still named `react-example`  `package.json`, `package-lock.json`, `bun.lock`.                                               NEXT BATCH
-                                                               version `0.0.0`.                                                                                                                       
+  F04        Info         CONFIRMED     Package metadata       Package is still named `react-example`  `package.json`, `package-lock.json`, `bun.lock`.                                               RESOLVED /
+                                                               version `0.0.0`.                                                                                                                       STALE
 
-  F05        Info         CONFIRMED     Dependencies/Build     `vite` is declared in both              `package.json`.                                                                                NEXT BATCH
-                                                               `dependencies` and `devDependencies` at                                                                                                
+  F05        Info         CONFIRMED     Dependencies/Build     `vite` is declared in both              `package.json`.                                                                                RESOLVED /
+                                                               `dependencies` and `devDependencies` at                                                                                                STALE
                                                                the same `^6.2.3` range. This is                                                                                                       
                                                                metadata duplication, not evidence of                                                                                                  
                                                                two runtime Vite versions.                                                                                                             
 
-  F06        Low          CONFIRMED     Lockfile authority     Both `package-lock.json` and `bun.lock` repository root; both lockfiles identify the same `react-example` workspace.                   NEXT BATCH
-                                                               are tracked. Canonical CI has been                                                                                                     
+  F06        Low          CONFIRMED     Lockfile authority     Both `package-lock.json` and `bun.lock` repository root; both lockfiles identify the same `react-example` workspace.                   RESOLVED /
+                                                               are tracked. Canonical CI has been                                                                                                     STALE
                                                                npm-oriented, but two generated lock                                                                                                   
                                                                authorities can drift if both are                                                                                                      
                                                                maintained manually.                                                                                                                   
 
-  F07        Info         CONFIRMED     Documentation          Root README remains the AI Studio       `README.md`: "Run and deploy your AI Studio app", generic local steps.                         NEXT BATCH
-                                                               starter/template README and does not                                                                                                   
+  F07        Info         CONFIRMED     Documentation          Root README remains the AI Studio       `README.md`: "Run and deploy your AI Studio app", generic local steps.                         RESOLVED /
+                                                               starter/template README and does not                                                                                                   STALE
                                                                describe current Agent-Workspace                                                                                                       
                                                                architecture, canonical npm workflow or                                                                                                
                                                                security/deployment constraints.                                                                                                       

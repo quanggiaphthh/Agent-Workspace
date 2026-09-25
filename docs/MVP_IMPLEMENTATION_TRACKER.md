@@ -26,7 +26,8 @@
     `f583ef1842bfd75cc8dbb56cee6bc9dd1eeb88c1`.
 -   Closeout-baseline CI: `36097654993` --- run #156 --- **SUCCESS**,
     full Vitest **400/400 PASS**.
--   GĐ1--GĐ4 / M1, W4--W12, R1 and R2: **FINAL PASS / LOCKED**.
+-   **H1 cleanup closeout baseline: current HEAD --- SUCCESS.**
+-   GĐ1--GĐ4 / M1, W4--W12, R1, R2 and H1: **FINAL PASS / LOCKED**.
 -   Current next gate: **None. All currently approved workstreams are
     closed.**
 -   Current deployed business capability count: **12** = Memory 2 + Task
@@ -103,6 +104,9 @@ security issue, or explicitly approved post-MVP scope.
 
   R2                Provider/runtime         FINAL PASS /      closed
                     reliability hardening    LOCKED            
+
+  H1                Repository hygiene and   FINAL PASS /      closed
+                    type safety              LOCKED            
   ------------------------------------------------------------------------------
 
 No R3 or successor workstream is opened by this tracker.
@@ -260,6 +264,8 @@ CI and was not forced against a real provider.
 **POST-MVP R1 --- FINAL PASS / LOCKED.**
 
 **POST-MVP R2 --- FINAL PASS / LOCKED.**
+
+**H1 --- FINAL PASS / LOCKED.**
 
 All currently approved workstreams are closed. No R3 is opened by this
 record.
