@@ -12,6 +12,74 @@ export interface ExecuteResult<T = any> {
   risk?: 'low' | 'medium' | 'high';
 }
 
+export type ServerUiActionProjection =
+  | { capabilityId: 'ui.openModule'; input: { moduleId: string } }
+  | { capabilityId: 'ui.openEntity'; input: { moduleId: string; entityType: string; entityId: string; label?: string } }
+  | { capabilityId: 'ui.refresh'; input: { target?: string } }
+  | { capabilityId: 'ui.showNotification'; input: { message: string; type?: 'info' | 'success' | 'warning' | 'error' } };
+
+/**
+ * Projects only server-validated UI capability output into an existing local UI
+ * capability. Unknown/malformed payloads fail closed and never become local
+ * actions. Capability gateway wrappers use { success, result }; direct output is
+ * also accepted for compatibility with existing UI-local call shapes.
+ */
+export function projectServerUiAction(value: unknown): ServerUiActionProjection | null {
+  if (!value || typeof value !== 'object') return null;
+  const wrapper = value as Record<string, any>;
+  if (wrapper.success === false) return null;
+  const payload = wrapper.result && typeof wrapper.result === 'object'
+    ? wrapper.result as Record<string, any>
+    : wrapper;
+
+  if (payload.uiAction === 'openModule') {
+    return typeof payload.moduleId === 'string' && payload.moduleId.trim()
+      ? { capabilityId: 'ui.openModule', input: { moduleId: payload.moduleId } }
+      : null;
+  }
+
+  if (payload.uiAction === 'openEntity') {
+    const entity = payload.entity;
+    if (!entity || typeof entity !== 'object') return null;
+    if (typeof entity.moduleId !== 'string' || !entity.moduleId.trim()) return null;
+    if (typeof entity.entityType !== 'string' || !entity.entityType.trim()) return null;
+    if (typeof entity.entityId !== 'string' || !entity.entityId.trim()) return null;
+    return {
+      capabilityId: 'ui.openEntity',
+      input: {
+        moduleId: entity.moduleId,
+        entityType: entity.entityType,
+        entityId: entity.entityId,
+        ...(typeof entity.label === 'string' && entity.label.trim() ? { label: entity.label } : {}),
+      },
+    };
+  }
+
+  if (payload.uiAction === 'refresh') {
+    return {
+      capabilityId: 'ui.refresh',
+      input: typeof payload.target === 'string' && payload.target.trim()
+        ? { target: payload.target }
+        : {},
+    };
+  }
+
+  if (payload.uiAction === 'showNotification') {
+    const notification = payload.notification;
+    if (!notification || typeof notification !== 'object') return null;
+    if (typeof notification.message !== 'string' || !notification.message.trim()) return null;
+    const type = ['info', 'success', 'warning', 'error'].includes(notification.type)
+      ? notification.type as 'info' | 'success' | 'warning' | 'error'
+      : undefined;
+    return {
+      capabilityId: 'ui.showNotification',
+      input: { message: notification.message, ...(type ? { type } : {}) },
+    };
+  }
+
+  return null;
+}
+
 class ClientCapabilityRegistry {
   private localCapabilities: Map<string, CapabilityDescriptor<any, any>> = new Map();
 
@@ -107,6 +175,13 @@ class ClientCapabilityRegistry {
 }
 
 export const clientCapabilityRegistry = new ClientCapabilityRegistry();
+
+export async function applyServerUiAction(value: unknown): Promise<boolean> {
+  const projection = projectServerUiAction(value);
+  if (!projection) return false;
+  const executed = await clientCapabilityRegistry.execute(projection.capabilityId, projection.input);
+  return executed.success;
+}
 
 // Register standard UI capabilities on client
 clientCapabilityRegistry.register({
