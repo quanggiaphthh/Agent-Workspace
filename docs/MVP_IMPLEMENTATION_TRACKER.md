@@ -12,8 +12,8 @@
 - **MVP: FINAL PASS / LOCKED.**
 - Canonical production/deployed checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
 - Canonical GitHub Actions for deployed production: `36015708311` — run #96 — **SUCCESS**.
-- Current validated R1 corrective source checkpoint: `05a85501f8d98013ffcaa9d24d95e406493f1f34`.
-- Canonical GitHub Actions for R1 source: `36082014418` — run #135 — **SUCCESS**.
+- Current validated R1 corrective source checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
+- Canonical GitHub Actions for R1 source: `36086993597` — run #142 — **SUCCESS**.
 - R1 status: **SOURCE / STATIC PASS; LIVE PROMOTION PENDING**.
 - Production URL: `https://ais-pre-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - Development URL: `https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
@@ -94,7 +94,9 @@ Validated source behavior now includes:
 - SSE line/stream size is bounded;
 - server-validated UI actions are projected through `clientCapabilityRegistry`, not direct alternate UI authority;
 - durable history cannot replay old UI actions; new live UI actions are applied at most once per `toolCallId`;
-- Task list and Home stats consume the existing `canvas.refreshRequested` event.
+- Task list and Home stats consume the existing `canvas.refreshRequested` event;
+- `ErrorBoundary` crash telemetry now emits the strict `/api/log-error` contract rather than a rejected legacy payload;
+- authenticated unknown `/api/*` routes now fail as JSON `404 API_ROUTE_NOT_FOUND` before SPA fallback.
 
 Current R1 business capability inventory: **12** = Memory 2 + Task 5 + Web Search 1 + UI 4.
 
@@ -102,9 +104,9 @@ Current R1 business capability inventory: **12** = Memory 2 + Task 5 + Web Searc
 
 Corrective source checkpoint:
 
-`05a85501f8d98013ffcaa9d24d95e406493f1f34`
+`ee570f44516d639f7a6e00f5da3dc6427d597034`
 
-GitHub Actions run `36082014418` (#135): **SUCCESS**.
+GitHub Actions run `36086993597` (#142): **SUCCESS**.
 
 Passed gates:
 
@@ -119,7 +121,9 @@ Passed gates:
 - production build;
 - final manifest verification.
 
-See `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md` for detailed Pass A–E evidence.
+Focused R1.1 regression coverage additionally locks the ErrorBoundary telemetry payload shape and JSON API 404 boundary.
+
+See `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md` for detailed Pass A–F evidence.
 
 ## 7. R1 live promotion gate
 
@@ -132,7 +136,9 @@ Do not declare the R1 source as deployed merely because CI is green. Promotion r
 5. loading/restoring history does not replay old navigation/refresh/notification effects;
 6. Temporary Chat and cancellation remain isolated;
 7. Task disable/re-enable still blocks/restores Task surfaces without data loss;
-8. `/api/health` remains healthy with persistent components.
+8. `/api/health` remains healthy with persistent components;
+9. client ErrorBoundary reports a valid bounded telemetry payload when exercised;
+10. authenticated unknown API paths return JSON 404 and never SPA HTML.
 
 Only after those checks pass may `PROJECT_MASTER_PLAN.md` replace the deployed production checkpoint and rollback anchor.
 
