@@ -5,7 +5,8 @@
 > Historical checkpoints: `PROJECT_MASTER_PLAN.md`.  
 > Scope/reuse policy: `docs/MVP_COMPLETION_PLAN_REUSE_FIRST.md`.  
 > Detailed execution: `docs/MVP_EXECUTION_PHASES.md`.  
-> Locked R1 report: `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md`.
+> Locked R1 report: `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md`.  
+> Current R2 report: `docs/POST_MVP_R2_RUNTIME_RELIABILITY_HARDENING.md`.
 
 ## 1. Current canonical context
 
@@ -13,14 +14,18 @@
 - **Post-MVP R1: FINAL PASS / LOCKED.**
 - Canonical production/deployed checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
 - Canonical GitHub Actions for deployed R1 source: `36086993597` — run #142 — **SUCCESS**.
+- Current validated R2 source checkpoint: `83e6c8940f21d43c3d791446f0d8017f65b866cd`.
+- Canonical GitHub Actions for R2 source: `36089895220` — run #152 — **SUCCESS**.
+- **R2 status: SOURCE / STATIC PASS; LIVE PROMOTION PENDING.**
 - Previous known-good deployed checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
 - Production URL: `https://ais-pre-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - Development URL: `https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - GĐ1–GĐ4 / M1, W4–W12 and R1: **FINAL PASS / LOCKED**.
+- Current next gate: **bounded live deployment/smoke for R2 only**.
 - Current deployed business capability count: **12** = Memory 2 + Task 5 + Web Search 1 + UI 4.
 - Product mode: **single-user personal app, not public**.
 - Post-MVP product modules and marketplace/public plugin ecosystem remain deferred.
-- Documentation-only commits may advance repository HEAD; they do **not** replace the deployed source checkpoint.
+- Documentation-only commits may advance repository HEAD; they do **not** replace source or deployed checkpoints.
 
 ## 2. Mandatory implementation gates
 
@@ -50,7 +55,8 @@ Do not reopen a locked MVP/R1 area without a reproducible regression, security i
 | W10 | MVP integrated acceptance | FINAL PASS / LOCKED | closed |
 | W11 | security/operations hardening | FINAL PASS / LOCKED | closed |
 | W12 | UAT/deployment/release | FINAL PASS / LOCKED | closed |
-| R1 | Post-MVP Agent + Task reliability/security corrective | **FINAL PASS / LOCKED** | closed |
+| R1 | Post-MVP Agent + Task reliability/security corrective | FINAL PASS / LOCKED | closed |
+| R2 | Provider/runtime reliability hardening | **SOURCE / STATIC PASS** | deploy candidate + bounded live smoke |
 
 ## 4. Locked MVP/R1 foundation
 
@@ -89,67 +95,69 @@ Do not reopen without a reproducible regression:
 - `ErrorBoundary` crash telemetry emits the strict `/api/log-error` contract;
 - authenticated unknown `/api/*` routes fail as JSON `404 API_ROUTE_NOT_FOUND` before SPA fallback.
 
-## 5. R1 canonical source verification
+## 5. R1 deployed evidence
 
-Corrective source checkpoint:
+R1 deployed source checkpoint:
 
 `ee570f44516d639f7a6e00f5da3dc6427d597034`
 
 GitHub Actions run `36086993597` (#142): **SUCCESS**.
 
-Passed gates:
-
-- dependency/security policy;
-- production manifest verification;
-- TypeScript;
-- targeted GĐ4 tests;
-- capability tool bridge;
-- full Vitest;
-- QA Stage 1–5;
-- W11 Security QA;
-- production build;
-- final manifest verification.
-
-Focused R1.1 regression coverage additionally locks the ErrorBoundary telemetry payload shape and JSON API 404 boundary.
-
-## 6. R1 live promotion evidence
-
-R1 was deployed from the exact validated source checkpoint `ee570f44516d639f7a6e00f5da3dc6427d597034` and passed the bounded real Firebase/Gemini/browser promotion gate.
-
-Passed live scenarios:
-
-1. persistent Agent chat stream/complete;
-2. Task exact-title search distinguishes unique and ambiguous outcomes;
-3. Task update HITL deny/approve semantics;
-4. Task delete HITL deny/approve semantics;
-5. Agent Task create/update/delete refreshes Task list and Home stats exactly once;
-6. restored history does not replay prior UI side effects;
-7. Temporary Chat and cancellation remain isolated;
-8. Task disable/re-enable hides/blocks/restores Task surfaces while preserving data;
-9. `/api/health` reports healthy persistent components;
-10. ErrorBoundary telemetry is accepted by `/api/log-error`;
-11. authenticated unknown `/api/*` paths return JSON `404 API_ROUTE_NOT_FOUND` rather than SPA HTML.
+R1 also passed bounded live Firebase/Gemini/browser promotion covering Agent streaming, Task unique/ambiguous search, update/delete HITL, exactly-once Task/Home refresh, replay safety, Temporary Chat/cancellation, Task disable/re-enable, health, ErrorBoundary telemetry and JSON API 404 behavior.
 
 ### Port/ingress note
 
-The live environment exposes `PORT=8080`, while the current application source listens locally on port 3000. The AI Studio deployment wrapper forwards hosted ingress to the local application port, and the live production smoke passed on this mapping. This is accepted for the current AI Studio deployment only; hard-coded port 3000 remains a portability debt for other deployment methods.
+The live environment exposes `PORT=8080`, while the current application source listens locally on port 3000. The AI Studio deployment wrapper forwards hosted ingress to the local application port, and R1 live smoke passed on this mapping. This is accepted for the current AI Studio deployment only; hard-coded port 3000 remains a portability debt for other deployment methods.
 
-## 7. Deployment / rollback anchor
+## 6. R2 source verification
 
-- Canonical deployed checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
+Validated R2 source checkpoint:
+
+`83e6c8940f21d43c3d791446f0d8017f65b866cd`
+
+GitHub Actions run `36089895220` (#152): **SUCCESS**.
+
+R2 adds no dependency and changes no Agent/Task business behavior. It bounds external provider-management HTTP lifetime through a shared provider request policy:
+
+- default 20-second timeout;
+- optional `AI_PROVIDER_TIMEOUT_MS` override bounded to 1–120 seconds;
+- invalid values fall back to the default;
+- Google, OpenAI, Anthropic, NVIDIA NIM and OpenCodeZen adapters use the same helper;
+- timeout becomes a safe `PROVIDER_TIMEOUT` / 504-style failure;
+- focused behavior test proves a hung request is aborted deterministically.
+
+See `docs/POST_MVP_R2_RUNTIME_RELIABILITY_HARDENING.md`.
+
+## 7. R2 live promotion gate
+
+Do not replace the production anchor merely because CI is green. Promotion requires bounded live verification on the real environment:
+
+1. deploy exact R2 source checkpoint;
+2. owner login succeeds;
+3. Settings → Trợ lý AI loads the Gemini model list with the existing credential;
+4. valid credential/model connection test succeeds;
+5. an invalid credential remains a bounded recoverable error;
+6. Agent chat quick smoke remains unaffected;
+7. `/api/health` remains healthy.
+
+The synthetic timeout path is already behavior-tested in CI and does not need to be forced against a real provider.
+
+## 8. Deployment / rollback anchor
+
+- Canonical deployed checkpoint remains: `ee570f44516d639f7a6e00f5da3dc6427d597034` until R2 live promotion passes.
 - Previous known-good deployed checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and other production secrets across redeploy/rollback.
 - Source rollback does not automatically revert or delete Firestore/Storage data.
 - Rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
 
-## 8. Current completion rule
+## 9. Current completion rule
 
-The deployed application is:
+The deployed application remains:
 
 **AGENT-WORKSPACE MVP — FINAL PASS / LOCKED.**
 
-The completed corrective is:
-
 **POST-MVP R1 — FINAL PASS / LOCKED.**
 
-Any future work must be explicitly classified as a reproducible regression/security corrective or a new post-MVP bounded workstream/module.
+The current bounded reliability workstream is:
+
+**POST-MVP R2 — SOURCE / STATIC PASS; LIVE PROMOTION PENDING.**
