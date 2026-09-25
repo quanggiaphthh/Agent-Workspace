@@ -35,11 +35,12 @@ describe('AI provider request timeout policy', () => {
     })));
 
     const request = new GoogleAdapter().listModels('test-key');
-    await vi.advanceTimersByTimeAsync(1000);
-
-    await expect(request).rejects.toMatchObject({
+    const rejection = expect(request).rejects.toMatchObject({
       code: 'PROVIDER_TIMEOUT',
       status: 504,
     });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await rejection;
   });
 });
