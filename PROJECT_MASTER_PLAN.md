@@ -3,8 +3,10 @@
 > **Authority:** canonical technical checkpoints and locked evidence.  
 > **Canonical production/deployed checkpoint:** `ee570f44516d639f7a6e00f5da3dc6427d597034`.  
 > **Canonical GitHub Actions for deployed R1 source:** `36086993597` — run #142 — SUCCESS.  
+> **Current validated R2 source checkpoint:** `83e6c8940f21d43c3d791446f0d8017f65b866cd`.  
+> **Canonical GitHub Actions for R2 source:** `36089895220` — run #152 — SUCCESS.  
 > **Previous known-good deployed checkpoint:** `3cb25f3c38917577e6b0106324b136a099883d9a`.  
-> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED**.  
+> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED; POST-MVP R2 SOURCE / STATIC PASS — LIVE PROMOTION PENDING**.  
 > Documentation-only commits may advance repository HEAD without creating a new production checkpoint.
 
 ## 1. Canonical authority model
@@ -17,6 +19,7 @@
 - `docs/ARCHITECTURE_GUARDRAILS.md` — mandatory architecture constraints.
 - `docs/CANONICAL_REUSE_MATRIX_SOURCE_LEVEL.md` — source/package/API reuse decisions.
 - `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md` — locked R1 corrective evidence and live-promotion record.
+- `docs/POST_MVP_R2_RUNTIME_RELIABILITY_HARDENING.md` — current R2 provider/runtime reliability evidence and promotion gate.
 
 Coding agents read `AGENTS.md` first. If wording conflicts, the Tracker is current-status authority; this file governs locked checkpoint evidence; Architecture Guardrails govern mandatory architecture constraints.
 
@@ -76,9 +79,10 @@ A gate failure or unsupported seam requires STOP, not an architectural workaroun
 | W10 | FINAL PASS / LOCKED | integrated live MVP acceptance |
 | W11 | FINAL PASS / LOCKED | security + operations hardening |
 | W12 | FINAL PASS / LOCKED | production deployment, release smoke and final Task-modal corrective |
-| R1 | **FINAL PASS / LOCKED** | Agent/Task trust, query, mutation, recovery, UI-action reliability and pre-promotion operability corrective; deployed source `ee570f4...`, Actions #142 SUCCESS, bounded live smoke PASS |
+| R1 | FINAL PASS / LOCKED | Agent/Task trust, query, mutation, recovery, UI-action reliability and pre-promotion operability corrective; deployed source `ee570f4...`, Actions #142 SUCCESS, bounded live smoke PASS |
+| R2 | **SOURCE / STATIC PASS; LIVE PROMOTION PENDING** | external provider HTTP lifetime bounded; source `83e6c89...`, Actions #152 SUCCESS |
 
-Current deployed business capability inventory: **12** — Memory 2, Task 5, Web Search 1, UI 4.
+Current deployed business capability inventory remains **12** — Memory 2, Task 5, Web Search 1, UI 4.
 
 ## 5. Locked product scope
 
@@ -90,13 +94,13 @@ The deployed product is a **single-user personal app, not public**.
 
 Deferred post-MVP modules remain: Biên tập; Quản lý tài liệu; Research; Định dạng văn bản hành chính; RAG/vector DB; connector ecosystem; marketplace/public plugin ecosystem; multi-user/team/org/billing; custom Agent runtime.
 
-R1 did not add a new product module. It is a locked regression/security corrective inside the Agent/Task boundary.
+R1 and R2 do not add new product modules. R1 is a locked Agent/Task reliability corrective; R2 is a bounded provider/runtime reliability hardening pass.
 
 A standalone File Library is not an MVP workstream.
 
 ## 6. Locked deployed behavior
 
-The deployed application now proves:
+The currently deployed R1 application proves:
 
 `Firebase owner login → Vietnamese Core Shell/Home/Agent/Task/Settings → persistent/temporary Agent chat → browser upload → canonical fileId attachment → authorized run-scoped ADK artifact → Gemini reads document → deterministic Task list/search/create/update/delete → HITL deny/approve → exactly-once Task/Home refresh → reload persistence without replaying UI side effects → cancellation without stale completion → Task disable/re-enable with durable data preservation → recoverable-error continuation`.
 
@@ -134,20 +138,9 @@ Locked deployed properties include:
 - Development URL: `https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - Previous known-good deployed checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
 
-### 7.2 Canonical source CI
+### 7.2 Canonical R1 source CI
 
-GitHub Actions run `36086993597` (#142) succeeded on the exact R1 deployed source checkpoint, including:
-
-- dependency policy;
-- production manifest verification;
-- TypeScript;
-- targeted GĐ4 regressions;
-- capability tool bridge;
-- full Vitest;
-- QA Stage 1–5;
-- W11 Security QA;
-- production build;
-- final manifest verification.
+GitHub Actions run `36086993597` (#142) succeeded on the exact R1 deployed source checkpoint, including dependency policy, manifest verification, TypeScript, targeted regressions, capability tool bridge, full Vitest, QA Stage 1–5, W11 Security QA, production build and final manifest verification.
 
 ### 7.3 R1 live promotion verification
 
@@ -165,34 +158,58 @@ The exact source checkpoint `ee570f44516d639f7a6e00f5da3dc6427d597034` was deplo
 10. ErrorBoundary telemetry accepted;
 11. unknown authenticated `/api/*` returns JSON 404 rather than SPA HTML.
 
-### 7.4 Port / ingress deployment note
+### 7.4 R2 source verification
 
-The live environment exposes `PORT=8080`, while the current source binds its local server to port 3000. The current AI Studio deployment wrapper forwards hosted ingress to the local port 3000 server, and the production smoke proves that mapping works for this deployment environment.
+Validated R2 source checkpoint:
 
-This does **not** establish hard-coded port 3000 as a portable Cloud Run contract. Port binding remains a future deployment-portability debt if deployment moves outside the current AI Studio wrapper.
+`83e6c8940f21d43c3d791446f0d8017f65b866cd`
 
-## 8. Rollback / operations anchor
+GitHub Actions run `36089895220` (#152): **SUCCESS**.
 
-- Current stable deployed production checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
+R2 changes no Agent/Task business policy and adds no dependency. All provider-management HTTP calls are routed through one bounded request helper with a 20-second default timeout, an optional `AI_PROVIDER_TIMEOUT_MS` override constrained to 1–120 seconds, parent abort propagation, and safe `PROVIDER_TIMEOUT` / 504-style failure semantics. The focused regression test proves a non-responsive provider request is aborted deterministically.
+
+R2 remains **source/static verified only** until bounded live promotion passes.
+
+### 7.5 Port / ingress deployment note
+
+The live environment exposes `PORT=8080`, while the current source binds its local server to port 3000. The current AI Studio deployment wrapper forwards hosted ingress to the local port 3000 server, and the R1 production smoke proves that mapping works for this deployment environment.
+
+This does **not** establish hard-coded port 3000 as a portable Cloud Run contract. R2 intentionally does not change port binding without an explicit replacement AI Studio ingress contract; port binding remains deployment-portability debt if deployment moves outside the current wrapper.
+
+## 8. R2 live promotion gate
+
+Before R2 replaces the production anchor, deploy the exact validated R2 source checkpoint and prove on the real environment:
+
+1. owner login succeeds;
+2. Settings → Trợ lý AI loads the Gemini model list using the existing credential;
+3. a valid credential/model connection test succeeds;
+4. an invalid credential remains a bounded recoverable error;
+5. Agent chat quick smoke remains unaffected;
+6. `/api/health` remains healthy.
+
+The provider-timeout failure itself is already behavior-tested deterministically in CI and does not need to be forced against a live provider.
+
+## 9. Rollback / operations anchor
+
+- Current stable deployed production checkpoint remains `ee570f44516d639f7a6e00f5da3dc6427d597034` until R2 live promotion succeeds.
 - Previous known-good rollback checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and all production secrets across redeploy/rollback.
 - Source rollback does not automatically delete or revert Firestore/Storage data.
 - Security rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
 - Keep the narrow ADK→adm-zip dependency exception under its documented expiry/review policy; do not use `npm audit fix --force` as a release shortcut.
 
-## 9. Post-MVP boundary
+## 10. Post-MVP boundary
 
 MVP and R1 are closed. Do not reopen locked areas for enhancement work.
 
-Future work must be explicitly classified as one of:
-
-1. reproducible regression/security corrective; or
-2. a new post-MVP bounded workstream/module.
+R2 is the only active reliability workstream and is limited to the verified provider HTTP lifetime corrective. Future work must be explicitly classified as a reproducible regression/security corrective or a new post-MVP bounded workstream/module.
 
 Static packaged module composition remains intentional. Do not introduce marketplace/remote plugin loading merely to replace static imports.
 
-## 10. Current completion rule
+## 11. Current completion rule
 
 **AGENT-WORKSPACE MVP — FINAL PASS / LOCKED.**
 
 **POST-MVP R1 — FINAL PASS / LOCKED.**
+
+**POST-MVP R2 — SOURCE / STATIC PASS; LIVE PROMOTION PENDING.**
