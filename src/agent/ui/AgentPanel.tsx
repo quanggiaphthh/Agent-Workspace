@@ -4,55 +4,43 @@ import { AgentChatThread } from './AgentChatThread';
 import { AgentCoordinationHistory } from './AgentCoordinationHistory';
 import { AgentMemoryPanel } from './AgentMemoryPanel';
 import { Button } from '../../components/ui/Button';
-import {
-  Bot,
-  ChevronRight,
-  Layers,
-  Tag,
-  X,
-  MessageSquare,
-  History,
-  Brain,
-} from 'lucide-react';
+import { Bot, Brain, ChevronRight, Focus, History, Layers, Minimize2, Tag, X } from 'lucide-react';
 import { AdkToolHandler } from './AdkToolHandler';
 import { useContextStore } from '../../core/context/contextStore';
 import { moduleRegistry } from '../../core/modules/moduleRegistry';
 import { useAIKeysStore } from '../../modules/settings/aiKeysStore';
+import type { AgentDisplayMode } from '../../app/shell/AppShell';
 
 interface AgentPanelProps {
-  collapsed: boolean;
-  onToggleCollapse: () => void;
-  isMobile?: boolean;
+  mode: AgentDisplayMode;
+  onOpen: (trigger?: HTMLElement) => void;
+  onClose: () => void;
+  onFocus: () => void;
+  onRestore: () => void;
+  isOverlay?: boolean;
 }
 
-export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: AgentPanelProps) {
+type AgentSurface = 'chat' | 'history' | 'memory';
+
+export function AgentPanel({ mode, onOpen, onClose, onFocus, onRestore, isOverlay = false }: AgentPanelProps) {
   const activeModuleId = useContextStore(state => state.activeModule);
   const selectedEntity = useContextStore(state => state.selectedEntity);
   const setSelectedEntity = useContextStore(state => state.setSelectedEntity);
-  const [activeTab, setActiveTab] = useState<'chat' | 'memory' | 'history'>('chat');
+  const memoryEnabled = useAIKeysStore(state => state.memoryEnabled);
   const agentProvider = useAIKeysStore(state => state.agentProvider);
+  const [surface, setSurface] = useState<AgentSurface>('chat');
+  const [contextOpen, setContextOpen] = useState(false);
   const activeModule = moduleRegistry.resolve(activeModuleId || 'home');
   const activeModuleName = activeModule?.meta?.name || 'Trang hiện tại';
+  const isFocus = mode === 'focus';
 
-  if (collapsed && !isMobile) {
+  if (mode === 'closed' && !isOverlay) {
     return (
-      <div id="agent-panel" aria-label="Bảng Trợ lý" className="w-12 border-l border-neutral-200 bg-white flex flex-col items-center py-4 gap-4 shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onToggleCollapse}
-          title="Mở bảng Trợ lý"
-          aria-label="Mở bảng Trợ lý"
-          className="h-8 w-8 text-neutral-600 hover:text-neutral-900"
-        >
-          <Bot className="h-5 w-5 text-neutral-800" />
+      <aside id="agent-panel" aria-label="Trợ lý AI" className="w-12 border-l border-neutral-200 bg-white flex flex-col items-center py-3 shrink-0">
+        <Button variant="ghost" size="icon" onClick={(event) => onOpen(event.currentTarget)} title="Mở Trợ lý AI" aria-label="Mở Trợ lý AI" aria-expanded="false" aria-controls="agent-panel-content" className="h-10 w-10 text-neutral-700 hover:text-neutral-950 focus-visible:ring-2 focus-visible:ring-neutral-500">
+          <Bot className="h-5 w-5" />
         </Button>
-        <span
-          className="text-[11px] font-semibold text-neutral-400 uppercase tracking-widest -rotate-90 origin-center whitespace-nowrap mt-8"
-        >
-          Trung tâm Trợ lý
-        </span>
-      </div>
+      </aside>
     );
   }
 
@@ -61,123 +49,54 @@ export function AgentPanel({ collapsed, onToggleCollapse, isMobile = false }: Ag
       <AdkToolHandler />
       <aside
         id="agent-panel"
-        aria-label="Bảng Trợ lý"
-        className={`border-l border-neutral-200 bg-white flex flex-col shrink-0 h-full ${
-          isMobile ? 'w-full' : 'w-[340px] xl:w-[380px] 2xl:w-[420px]'
-        }`}
+        aria-label="Trợ lý AI"
+        className={`border-l border-neutral-200 bg-white flex flex-col min-w-0 h-full ${isFocus ? 'w-full flex-1' : isOverlay ? 'w-full' : 'w-[440px] max-w-[46vw] shrink-0'}`}
       >
-        <div className="p-3.5 border-b border-neutral-200 bg-neutral-50/70 space-y-2 shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-md bg-neutral-900 text-white flex items-center justify-center">
-                <Bot className="h-4 w-4" />
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-neutral-900 tracking-tight">Trợ lý AI</span>
-                </div>
-                <span className="text-[10px] text-neutral-500">Hỗ trợ theo ngữ cảnh hiện tại</span>
+        <div className="px-3 py-2.5 border-b border-neutral-200 bg-white shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="h-8 w-8 rounded-lg bg-neutral-900 text-white flex items-center justify-center shrink-0"><Bot className="h-4 w-4" /></div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-neutral-900">Trợ lý AI</div>
+                <div className="text-[10px] text-neutral-500">{agentProvider === 'google' ? 'Sẵn sàng hỗ trợ theo ngữ cảnh' : 'Kiểm tra cấu hình Trợ lý trong Cài đặt'}</div>
               </div>
             </div>
 
             <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onToggleCollapse}
-                title="Thu gọn bảng"
-                aria-label="Thu gọn bảng Trợ lý"
-                className="h-7 w-7 text-neutral-400 hover:text-neutral-700"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-          
-          {agentProvider !== 'google' && (
-            <div className="p-2 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] leading-relaxed flex items-start gap-1.5 shadow-3xs">
-              <span className="text-amber-500 font-bold shrink-0">⚠️</span>
-              <span>
-                Trợ lý đang dùng cấu hình mặc định. Bạn có thể kiểm tra lại trong <strong>Cài đặt</strong>.
-              </span>
-            </div>
-          )}
-
-          <div className="p-2 rounded bg-white border border-neutral-200/80 text-[11px] space-y-1" aria-label="Ngữ cảnh hiện tại">
-            <div className="flex items-center justify-between text-neutral-500">
-              <span className="flex items-center gap-1">
-                <Layers className="h-3 w-3 text-neutral-400" />
-                Đang ở:
-              </span>
-              <span className="font-semibold text-neutral-800 truncate max-w-[170px]">{activeModuleName}</span>
-            </div>
-
-            {selectedEntity && (
-              <div className="flex items-center justify-between text-neutral-500 pt-1 border-t border-neutral-100">
-                <span className="flex items-center gap-1">
-                  <Tag className="h-3 w-3 text-neutral-400" />
-                  Mục đang chọn:
-                </span>
-                <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 text-[10px]">
-                  Đã chọn
-                  <button
-                    type="button"
-                    onClick={() => setSelectedEntity(null)}
-                    aria-label="Bỏ chọn mục"
-                    className="hover:text-rose-600 ml-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 rounded"
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </span>
+              <div className="relative">
+                <button type="button" onClick={() => setContextOpen(value => !value)} aria-expanded={contextOpen} aria-controls="agent-context-details" className="h-8 max-w-40 inline-flex items-center gap-1.5 px-2.5 rounded-full border border-neutral-200 bg-neutral-50 text-[11px] font-medium text-neutral-700 hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500">
+                  <Layers className="h-3.5 w-3.5 text-neutral-500" /><span className="truncate">{activeModuleName}</span>
+                </button>
+                {contextOpen && (
+                  <div id="agent-context-details" className="absolute right-0 top-10 z-30 w-64 rounded-xl border border-neutral-200 bg-white p-3 shadow-lg text-[11px] space-y-2" role="status">
+                    <div className="font-semibold text-neutral-900">Ngữ cảnh Trợ lý</div>
+                    <div className="flex justify-between gap-3"><span className="text-neutral-500">Phân hệ</span><span className="font-medium text-neutral-800 truncate">{activeModuleName}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-neutral-500">Bộ nhớ</span><span className="font-medium text-neutral-800">{memoryEnabled ? 'Đang bật' : 'Đang tắt'}</span></div>
+                    {selectedEntity && (
+                      <div className="pt-2 border-t border-neutral-100 flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1 text-neutral-600"><Tag className="h-3 w-3" />1 mục đang chọn</span>
+                        <button type="button" onClick={() => setSelectedEntity(null)} aria-label="Bỏ chọn mục" className="p-1 rounded hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"><X className="h-3 w-3" /></button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          <div className="flex bg-neutral-200/70 p-0.5 rounded-lg text-xs font-medium" role="tablist" aria-label="Các khu vực Trợ lý">
-            <button
-              type="button"
-              onClick={() => setActiveTab('chat')}
-              role="tab"
-              aria-selected={activeTab === 'chat'}
-              aria-controls="agent-panel-content"
-              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${activeTab === 'chat' ? 'bg-white text-neutral-900 shadow-2xs font-bold' : 'text-neutral-600 hover:text-neutral-900'}`}
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              <span>Trò chuyện</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('memory')}
-              role="tab"
-              aria-selected={activeTab === 'memory'}
-              aria-controls="agent-panel-content"
-              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${activeTab === 'memory' ? 'bg-white text-neutral-900 shadow-2xs font-bold' : 'text-neutral-600 hover:text-neutral-900'}`}
-            >
-              <Brain className="h-3.5 w-3.5" />
-              <span>Bộ nhớ AI</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('history')}
-              role="tab"
-              aria-selected={activeTab === 'history'}
-              aria-controls="agent-panel-content"
-              className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md transition-all ${activeTab === 'history' ? 'bg-white text-neutral-900 shadow-2xs font-bold' : 'text-neutral-600 hover:text-neutral-900'}`}
-            >
-              <History className="h-3.5 w-3.5" />
-              <span>Nhật ký</span>
-            </button>
+              <Button variant={surface === 'history' ? 'secondary' : 'ghost'} size="icon" onClick={() => setSurface(surface === 'history' ? 'chat' : 'history')} title="Hội thoại" aria-label="Mở Hội thoại" aria-pressed={surface === 'history'} className="h-8 w-8"><History className="h-4 w-4" /></Button>
+              <Button variant={surface === 'memory' ? 'secondary' : 'ghost'} size="icon" onClick={() => setSurface(surface === 'memory' ? 'chat' : 'memory')} title="Bộ nhớ" aria-label="Mở Bộ nhớ" aria-pressed={surface === 'memory'} className="h-8 w-8"><Brain className="h-4 w-4" /></Button>
+              {isFocus ? (
+                <Button variant="ghost" size="icon" onClick={onRestore} title="Thu nhỏ" aria-label="Thu nhỏ Trợ lý về bảng bên" className="h-8 w-8"><Minimize2 className="h-4 w-4" /></Button>
+              ) : (
+                <Button variant="ghost" size="icon" onClick={onFocus} title="Mở không gian tập trung" aria-label="Mở Trợ lý ở chế độ tập trung" className="h-8 w-8"><Focus className="h-4 w-4" /></Button>
+              )}
+              <Button variant="ghost" size="icon" onClick={onClose} title="Đóng Trợ lý" aria-label="Đóng Trợ lý AI" className="h-8 w-8"><ChevronRight className="h-4 w-4" /></Button>
+            </div>
           </div>
         </div>
 
-        <div id="agent-panel-content" role="tabpanel" className="min-h-0 flex-1 flex flex-col overflow-hidden relative">
-          {activeTab === 'chat' ? (
-            <AgentChatThread />
-          ) : activeTab === 'memory' ? (
-            <AgentMemoryPanel />
-          ) : (
-            <AgentCoordinationHistory onOpenChat={() => setActiveTab('chat')} />
-          )}
+        <div className="sr-only" aria-live="polite">{surface === 'chat' ? 'Trò chuyện' : surface === 'history' ? 'Hội thoại' : 'Bộ nhớ'}</div>
+        <div id="agent-panel-content" className="min-h-0 flex-1 flex flex-col overflow-hidden relative">
+          {surface === 'chat' ? <AgentChatThread /> : surface === 'memory' ? <AgentMemoryPanel /> : <AgentCoordinationHistory onOpenChat={() => setSurface('chat')} />}
         </div>
       </aside>
     </AdkRuntimeProvider>
