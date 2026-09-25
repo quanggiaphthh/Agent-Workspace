@@ -282,8 +282,8 @@ app.get('/api/test/firebase-connection', async (req, res) => {
   } catch (err: any) {
     console.error('>>> [DIAGNOSTIC PROBE FAIL]:', err.message);
     res.status(500).json({ 
-      success: false, 
-      error: err.message, 
+      success: false,
+      error: err.message,
       code: err.code, // Useful for PERMISSION_DENIED
       diagnostics: diagInfo 
     });
@@ -1065,6 +1065,12 @@ app.post('/api/modules/:id/toggle', requirePermission('module.manage'), async (r
     console.error('Module persistence error:', fatalErrorSummary(err));
     res.status(503).json({ error: redactAuditString(err?.message || 'Module settings persistence unavailable.') });
   }
+});
+
+// Keep API misses inside the JSON API contract instead of letting the SPA
+// catch-all return index.html to an API client.
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API route not found.', code: 'API_ROUTE_NOT_FOUND' });
 });
 
 async function startServer() {
