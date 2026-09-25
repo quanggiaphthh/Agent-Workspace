@@ -13,6 +13,17 @@ export function getErrorBoundaryMessage(_error: unknown): string {
   return 'Không thể hiển thị giao diện lúc này. Vui lòng tải lại trang.';
 }
 
+export function buildClientErrorReport(error: Error, componentStack?: string | null) {
+  return {
+    message: error.message || error.toString(),
+    source: 'ErrorBoundary',
+    ...(error.stack ? { stack: error.stack } : {}),
+    context: {
+      componentStack: componentStack || '',
+    },
+  };
+}
+
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
@@ -28,7 +39,7 @@ export class ErrorBoundary extends Component<Props, State> {
     fetch('/api/log-error', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: error.toString(), stack: error.stack, info: errorInfo.componentStack })
+      body: JSON.stringify(buildClientErrorReport(error, errorInfo.componentStack))
     }).catch(console.error);
   }
 
