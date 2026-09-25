@@ -1,4 +1,4 @@
-364f231e2221ca1f2b68841b0b9e8c63ff74ebcf2caefaa22eb55c92c5188060  src/app/shell/AppShell.tsx
+57f9c1e9be3347c2efcc1f331758b8bd2e01cd0048b3c698161aa52eb826b5a2  src/app/shell/AppShell.tsx
 e057140632fbba3ce009c9c849add880dbfee059ef19b1aded7a466a642ee04d  src/modules/home/HomeModule.tsx
 c6526ddd410ee6c18bebe031a0d9ab61a245fdb67c84f24282c4d560a843444d  src/modules/home/FileUploadCard.tsx
 b6a35b57698957e7b6c6f2df34ca0a137e41f302683a6e821da81482ea27b9f9  src/modules/tasks/TasksStatsWidget.tsx
