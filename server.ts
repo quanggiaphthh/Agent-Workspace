@@ -214,6 +214,17 @@ app.use('/api', async (req: express.Request, res: express.Response, next: expres
   }
 });
 
+// Protected /api handlers run only after the server identity middleware above.
+// Keep Express.Request.user optional globally because /api/health and /api/log-error
+// are intentionally public, and narrow the authenticated invariant only where needed.
+function requireAuthenticatedUser(req: express.Request) {
+  const user = req.user;
+  if (!user) {
+    throw Object.assign(new Error('Unauthorized: Missing user identity'), { status: 401 });
+  }
+  return user;
+}
+
 // Shared authorization middleware
 function requirePermission(permission: string) {
   return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -356,7 +367,7 @@ app.post('/api/ai/test-key', expensiveUserLimiter, async (req, res) => {
 app.get('/api/ai/models', expensiveUserLimiter, async (req, res) => {
   const providerParsed = AIProviderIdSchema.safeParse(req.query.providerId);
   const credentialId = typeof req.query.credentialId === 'string' ? req.query.credentialId.trim() : '';
-  const user = req.user;
+  const user = requireAuthenticatedUser(req);
   if (!providerParsed.success || !credentialId) {
     return res.status(400).json({ error: 'Invalid providerId or credentialId.' });
   }
@@ -384,7 +395,7 @@ app.get('/api/ai/models', expensiveUserLimiter, async (req, res) => {
 
 app.post('/api/ai/test-model', expensiveUserLimiter, async (req, res) => {
   const parsed = TestModelSchema.safeParse(req.body);
-  const user = req.user;
+  const user = requireAuthenticatedUser(req);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid model test request.' });
 
   let resolvedSecret: string | undefined;
@@ -408,7 +419,7 @@ app.post('/api/ai/test-model', expensiveUserLimiter, async (req, res) => {
 });
 
 app.get('/api/ai/credentials/agent-options', async (req, res) => {
-  const user = req.user;
+  const user = requireAuthenticatedUser(req);
   try {
     res.json(await CredentialService.listAgentCredentialOptions(user.id));
   } catch (err: any) {
@@ -418,7 +429,7 @@ app.get('/api/ai/credentials/agent-options', async (req, res) => {
 });
 
 app.get('/api/ai/credentials', async (req, res) => {
-  const user = req.user;
+  const user = requireAuthenticatedUser(req);
   try {
     res.json(await CredentialService.listCredentials(user.id));
   } catch (err: any) {
@@ -429,7 +440,7 @@ app.get('/api/ai/credentials', async (req, res) => {
 
 app.post('/api/ai/credentials', async (req, res) => {
   const parsed = CredentialCreateSchema.safeParse(req.body);
-  const user = req.user;
+  const user = requireAuthenticatedUser(req);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid credential payload.' });
 
   try {
@@ -444,7 +455,7 @@ app.post('/api/ai/credentials', async (req, res) => {
 
 app.patch('/api/ai/credentials/:id', async (req, res) => {
   const parsed = CredentialUpdateSchema.safeParse(req.body);
-  const user = req.user;
+  const user = requireAuthenticatedUser(req);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid credential update payload.' });
 
   try {
@@ -457,7 +468,7 @@ app.patch('/api/ai/credentials/:id', async (req, res) => {
 });
 
 app.post('/api/ai/credentials/reorder', async (req, res) => {
-  const user = req.user;
+  const user = requireAuthenticatedUser(req);
   const providerParsed = AIProviderIdSchema.safeParse(req.body?.providerId);
   const credentialIds = Array.isArray(req.body?.credentialIds)
     ? req.body.credentialIds.filter((item: unknown): item is string => typeof item === 'string')
@@ -475,7 +486,7 @@ app.post('/api/ai/credentials/reorder', async (req, res) => {
 });
 
 app.delete('/api/ai/credentials/:id', async (req, res) => {
-  const user = req.user;
+  const user = requireAuthenticatedUser(req);
   try {
     await CredentialService.deleteCredential(user.id, req.params.id);
     res.json({ success: true });
@@ -511,7 +522,7 @@ const MemoryPatchSchema = z.object({
 // The browser never receives Firebase Storage authority; owner and storage identity are server-derived.
 app.post('/api/files', requirePermission('files.write'), express.raw({ type: () => true, limit: MAX_FILE_BYTES }), async (req, res) => {
   const startedAt = Date.now();
-  const user = req.user;
+  const user = requireAuthenticatedUser(req);
   const mimeType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   let originalName = String(req.headers['x-file-name'] || 'file');
   try { originalName = decodeURIComponent(originalName); } catch { /* sanitizer handles raw value */ }
@@ -536,7 +547,7 @@ app.post('/api/files', requirePermission('files.write'), express.raw({ type: () 
 });
 
 app.get('/api/files/:fileId', requirePermission('files.read'), async (req, res) => {
-  const user=req.user;
+  const user=requireAuthenticatedUser(req);
   try { return res.json({ file: await userFileService.resolve(user.id, req.params.fileId) }); }
   catch(error:any){ const status=error instanceof FileDomainError?error.status:500; return res.status(status).json({error:error instanceof FileDomainError?error.message:'File resolve failed.',code:error instanceof FileDomainError?error.code:'FILE_RESOLVE_FAILED'}); }
 });
@@ -548,7 +559,7 @@ app.use('/api/files', (error: any, _req: express.Request, res: express.Response,
 
 app.get('/api/tasks', requirePermission('tasks.read'), async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     const status = z.enum(['todo', 'in-progress', 'completed', 'all']).catch('all').parse(req.query.status);
     res.json({ tasks: await UserDataService.listTasks(user.id, status) });
   } catch (err: any) {
@@ -558,7 +569,7 @@ app.get('/api/tasks', requirePermission('tasks.read'), async (req, res) => {
 
 app.get('/api/tasks/stats', requirePermission('tasks.read'), async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     res.json(await UserDataService.taskStats(user.id));
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to load task stats' });
@@ -569,7 +580,7 @@ app.post('/api/tasks', requirePermission('tasks.write'), async (req, res) => {
   const parsed = TaskCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid task', details: parsed.error.issues });
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     res.status(201).json({ task: await UserDataService.createTask(user.id, parsed.data) });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to create task' });
@@ -580,7 +591,7 @@ app.patch('/api/tasks/:id', requirePermission('tasks.write'), async (req, res) =
   const parsed = TaskPatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid task patch', details: parsed.error.issues });
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     res.json({ task: await UserDataService.updateTask(user.id, req.params.id, parsed.data) });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to update task' });
@@ -589,7 +600,7 @@ app.patch('/api/tasks/:id', requirePermission('tasks.write'), async (req, res) =
 
 app.delete('/api/tasks/:id', requirePermission('tasks.delete'), async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     await UserDataService.deleteTask(user.id, req.params.id);
     res.json({ success: true });
   } catch (err: any) {
@@ -599,7 +610,7 @@ app.delete('/api/tasks/:id', requirePermission('tasks.delete'), async (req, res)
 
 app.get('/api/memory', requirePermission('memory.read'), async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     const status = z.enum(['approved', 'pending', 'all']).catch('all').parse(req.query.status);
     const limit = z.coerce.number().int().min(1).max(100).catch(50).parse(req.query.limit);
     res.json({ memories: await UserDataService.listMemories(user.id, {
@@ -617,7 +628,7 @@ app.post('/api/memory', requirePermission('memory.write'), async (req, res) => {
   const parsed = MemoryCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid memory', details: parsed.error.issues });
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     res.status(201).json({ memory: await UserDataService.addMemory(user.id, {
       ...parsed.data,
       status: 'approved',
@@ -632,7 +643,7 @@ app.patch('/api/memory/:id', requirePermission('memory.write'), async (req, res)
   const parsed = MemoryPatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid memory patch', details: parsed.error.issues });
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     res.json({ memory: await UserDataService.updateMemory(user.id, req.params.id, parsed.data) });
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to update memory' });
@@ -641,7 +652,7 @@ app.patch('/api/memory/:id', requirePermission('memory.write'), async (req, res)
 
 app.delete('/api/memory/:id', requirePermission('memory.delete'), async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     await UserDataService.deleteMemory(user.id, req.params.id);
     res.json({ success: true });
   } catch (err: any) {
@@ -651,7 +662,7 @@ app.delete('/api/memory/:id', requirePermission('memory.delete'), async (req, re
 
 app.post('/api/agent/sessions/branch', async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     const sourceClientId = parseClientSessionId(req.body.sourceSessionId);
     const beforeUserTurn = z.coerce.number().int().min(0).max(10000).parse(req.body.beforeUserTurn);
     const temporaryMode = req.body.temporaryMode === true;
@@ -696,7 +707,7 @@ app.post('/api/agent/sessions/branch', async (req, res) => {
 // Persistent Agent session history. Temporary sessions intentionally never appear here.
 app.get('/api/agent/sessions', async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     const limit = z.coerce.number().int().min(1).max(100).catch(50).parse(req.query.limit);
     const summaries = await adkSessionService.listSessionSummaries(AGENT_APP_NAME, user.id, limit);
     res.json({
@@ -715,7 +726,7 @@ app.get('/api/agent/sessions', async (req, res) => {
 
 app.get('/api/agent/sessions/:sessionId', async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     const clientId = parseClientSessionId(req.params.sessionId);
     const session = await adkSessionService.getSession({
       appName: AGENT_APP_NAME,
@@ -737,7 +748,7 @@ app.get('/api/agent/sessions/:sessionId', async (req, res) => {
 
 app.delete('/api/agent/sessions/:sessionId', async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     const clientId = parseClientSessionId(req.params.sessionId);
     await adkSessionService.deleteSession({
       appName: AGENT_APP_NAME,
@@ -953,7 +964,7 @@ app.post('/api/agent/chat', expensiveUserLimiter, async (req, res) => {
 // List Capabilities
 app.get('/api/capabilities', async (req, res) => {
   try {
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     const caps = (await ServerCapabilityRegistry.listForContext({
       user,
       appContext: { user, availableCapabilities: [] },
@@ -988,7 +999,7 @@ app.post('/api/capabilities/execute', expensiveUserLimiter, async (req, res) => 
       return res.status(400).json({ error: 'confirmationId must be a string when provided.' });
     }
 
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     const appContext = context && typeof context === 'object' && !Array.isArray(context)
       ? { ...context, user }
       : { user, availableCapabilities: [] };
@@ -1047,7 +1058,7 @@ app.get('/api/modules', async (_req, res) => {
 app.post('/api/modules/:id/toggle', requirePermission('module.manage'), async (req, res) => {
   try {
     const { id } = req.params;
-    const user = req.user;
+    const user = requireAuthenticatedUser(req);
     await storage.hydrate();
     const mod = storage.getData().moduleSettings[id];
 
