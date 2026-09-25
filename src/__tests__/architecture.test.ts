@@ -11,7 +11,7 @@ import { ExecutionContext } from '../../shared/contracts/capability';
 import { packagedClientModules, registerPackagedClientModules } from '../moduleComposition';
 import { eventBus } from '../core/events/eventBus';
 import { getBootstrapErrorMessage } from '../App';
-import { getErrorBoundaryMessage } from '../ErrorBoundary';
+import { buildClientErrorReport, getErrorBoundaryMessage } from '../ErrorBoundary';
 
 /**
  * P1 PREFLIGHT & P0.3 ARCHITECTURAL INVARIANT TESTS
@@ -41,6 +41,16 @@ describe('Architectural Invariants P1 Preflight', () => {
       expect(getErrorBoundaryMessage(new Error('internal stack trace'))).toBe(
         'Không thể hiển thị giao diện lúc này. Vui lòng tải lại trang.'
       );
+    });
+
+    it('maps ErrorBoundary telemetry to the strict client-log contract', () => {
+      const report = buildClientErrorReport(new Error('render failed'), 'at Workspace');
+
+      expect(report.message).toBe('render failed');
+      expect(report.source).toBe('ErrorBoundary');
+      expect(report.context).toEqual({ componentStack: 'at Workspace' });
+      expect(report).not.toHaveProperty('error');
+      expect(report).not.toHaveProperty('info');
     });
 
     it('should seed module settings from catalog during initialization', () => {
