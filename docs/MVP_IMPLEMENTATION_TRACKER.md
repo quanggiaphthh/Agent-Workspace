@@ -16,12 +16,12 @@
 - Canonical GitHub Actions for deployed R1 source: `36086993597` — run #142 — **SUCCESS**.
 - Current validated R2 source checkpoint: `83e6c8940f21d43c3d791446f0d8017f65b866cd`.
 - Canonical GitHub Actions for R2 source: `36089895220` — run #152 — **SUCCESS**.
-- **R2 status: SOURCE / STATIC PASS; LIVE PROMOTION PENDING.**
-- Previous known-good deployed checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
+- **R2 status: FINAL PASS / LOCKED.**
+- Previous known-good deployed checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
 - Production URL: `https://ais-pre-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - Development URL: `https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
-- GĐ1–GĐ4 / M1, W4–W12 and R1: **FINAL PASS / LOCKED**.
-- Current next gate: **bounded live deployment/smoke for R2 only**.
+- GĐ1–GĐ4 / M1, W4–W12, R1 and R2: **FINAL PASS / LOCKED**.
+- Current next gate: **None. All post-MVP reliability hardening is fully complete and locked.**
 - Current deployed business capability count: **12** = Memory 2 + Task 5 + Web Search 1 + UI 4.
 - Product mode: **single-user personal app, not public**.
 - Post-MVP product modules and marketplace/public plugin ecosystem remain deferred.
@@ -56,7 +56,7 @@ Do not reopen a locked MVP/R1 area without a reproducible regression, security i
 | W11 | security/operations hardening | FINAL PASS / LOCKED | closed |
 | W12 | UAT/deployment/release | FINAL PASS / LOCKED | closed |
 | R1 | Post-MVP Agent + Task reliability/security corrective | FINAL PASS / LOCKED | closed |
-| R2 | Provider/runtime reliability hardening | **SOURCE / STATIC PASS** | deploy candidate + bounded live smoke |
+| R2 | Provider/runtime reliability hardening | FINAL PASS / LOCKED | closed |
 
 ## 4. Locked MVP/R1 foundation
 

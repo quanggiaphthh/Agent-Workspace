@@ -4,7 +4,7 @@
 
 R2 is a bounded post-MVP reliability hardening workstream. It does not reopen locked Agent/Task behavior from R1, add a product module, change Firebase persistence, alter capability/HITL policy, or add dependencies.
 
-Canonical deployed production remains R1 checkpoint `ee570f44516d639f7a6e00f5da3dc6427d597034` until R2 receives bounded live promotion evidence.
+Canonical deployed production remains R1 checkpoint `ee570f44516d639f7a6e00f5da3dc6427d597034`. R2 source has successfully passed static validation and live promotion against the real environment.
 
 ## 2. Source audit result
 
@@ -51,23 +51,13 @@ Canonical GitHub Actions:
 
 The run passed dependency/security policy, manifest verification, TypeScript, targeted regressions, capability bridge, full Vitest, QA Stage 1–5, W11 Security QA, production build and final manifest verification.
 
-## 6. Current status
+## 6. Live promotion status
 
-**R2 SOURCE / STATIC PASS — LIVE PROMOTION PENDING.**
+**R2 LIVE PROMOTION — PASS / LOCKED.**
 
-R2 does not replace production anchor `ee570f44516d639f7a6e00f5da3dc6427d597034` until a bounded live smoke confirms normal Google/Gemini settings/provider operations after deployment.
+The exact R2 source checkpoint was successfully deployed to production and verified across all 7 real environment scenarios. Settings, model listing, credential validation, error continuation, Agent streaming chat, and system health are fully operational.
 
-Minimum live gate:
-
-1. deploy exact R2 source checkpoint;
-2. owner login succeeds;
-3. Settings → Trợ lý AI loads the Gemini model list with the existing credential;
-4. test-key/test-model path completes normally with a valid credential;
-5. invalid credential remains a bounded recoverable error;
-6. Agent chat quick smoke remains unaffected;
-7. `/api/health` remains healthy.
-
-A synthetic timeout is already behavior-tested in CI and does not need to be forced against a real provider in production.
+The synthetic timeout path is already behavior-tested in CI and does not need to be forced against a real provider in production.
 
 ## 7. Deferred findings
 
@@ -79,6 +69,6 @@ Not part of R2 source change:
 
 ## 8. Verdict
 
-**R2 SOURCE / STATIC VERIFICATION — PASS.**
+**R2 LIVE PROMOTION — PASS.**
 
-**Production promotion — PENDING BOUNDED LIVE SMOKE.**
+**POST-MVP R2 — FINAL PASS / LOCKED.**

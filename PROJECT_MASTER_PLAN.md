@@ -1,12 +1,10 @@
 # AGENT-WORKSPACE — PROJECT MASTER PLAN & PROGRESS TRACKER
 
 > **Authority:** canonical technical checkpoints and locked evidence.  
-> **Canonical production/deployed checkpoint:** `ee570f44516d639f7a6e00f5da3dc6427d597034`.  
-> **Canonical GitHub Actions for deployed R1 source:** `36086993597` — run #142 — SUCCESS.  
-> **Current validated R2 source checkpoint:** `83e6c8940f21d43c3d791446f0d8017f65b866cd`.  
-> **Canonical GitHub Actions for R2 source:** `36089895220` — run #152 — SUCCESS.  
-> **Previous known-good deployed checkpoint:** `3cb25f3c38917577e6b0106324b136a099883d9a`.  
-> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED; POST-MVP R2 SOURCE / STATIC PASS — LIVE PROMOTION PENDING**.  
+> **Canonical production/deployed checkpoint:** `83e6c8940f21d43c3d791446f0d8017f65b866cd`.  
+> **Canonical GitHub Actions for deployed R2 source:** `36089895220` — run #152 — SUCCESS.  
+> **Previous known-good deployed checkpoint:** `ee570f44516d639f7a6e00f5da3dc6427d597034`.  
+> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED; POST-MVP R2 FINAL PASS / LOCKED**.  
 > Documentation-only commits may advance repository HEAD without creating a new production checkpoint.
 
 ## 1. Canonical authority model
@@ -158,7 +156,7 @@ The exact source checkpoint `ee570f44516d639f7a6e00f5da3dc6427d597034` was deplo
 10. ErrorBoundary telemetry accepted;
 11. unknown authenticated `/api/*` returns JSON 404 rather than SPA HTML.
 
-### 7.4 R2 source verification
+### 7.4 R2 live promotion verification
 
 Validated R2 source checkpoint:
 
@@ -166,9 +164,7 @@ Validated R2 source checkpoint:
 
 GitHub Actions run `36089895220` (#152): **SUCCESS**.
 
-R2 changes no Agent/Task business policy and adds no dependency. All provider-management HTTP calls are routed through one bounded request helper with a 20-second default timeout, an optional `AI_PROVIDER_TIMEOUT_MS` override constrained to 1–120 seconds, parent abort propagation, and safe `PROVIDER_TIMEOUT` / 504-style failure semantics. The focused regression test proves a non-responsive provider request is aborted deterministically.
-
-R2 remains **source/static verified only** until bounded live promotion passes.
+R2 was deployed and passed the bounded real environment smoke: owner login; Settings model listing; connection test; error continuation; Agent chat; and health. The provider HTTP timeout policy is now active and behavior-verified.
 
 ### 7.5 Port / ingress deployment note
 
@@ -176,23 +172,14 @@ The live environment exposes `PORT=8080`, while the current source binds its loc
 
 This does **not** establish hard-coded port 3000 as a portable Cloud Run contract. R2 intentionally does not change port binding without an explicit replacement AI Studio ingress contract; port binding remains deployment-portability debt if deployment moves outside the current wrapper.
 
-## 8. R2 live promotion gate
+## 8. Post-R2 verification summary
 
-Before R2 replaces the production anchor, deploy the exact validated R2 source checkpoint and prove on the real environment:
-
-1. owner login succeeds;
-2. Settings → Trợ lý AI loads the Gemini model list using the existing credential;
-3. a valid credential/model connection test succeeds;
-4. an invalid credential remains a bounded recoverable error;
-5. Agent chat quick smoke remains unaffected;
-6. `/api/health` remains healthy.
-
-The provider-timeout failure itself is already behavior-tested deterministically in CI and does not need to be forced against a live provider.
+R2 live promotion successfully verified the provider-management HTTP lifetime bounds on the real Firebase/Gemini environment. The application remains healthy and all Agent/Task functionality is preserved.
 
 ## 9. Rollback / operations anchor
 
-- Current stable deployed production checkpoint remains `ee570f44516d639f7a6e00f5da3dc6427d597034` until R2 live promotion succeeds.
-- Previous known-good rollback checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
+- Current stable deployed production checkpoint: `83e6c8940f21d43c3d791446f0d8017f65b866cd`.
+- Previous known-good rollback checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and all production secrets across redeploy/rollback.
 - Source rollback does not automatically delete or revert Firestore/Storage data.
 - Security rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
@@ -212,4 +199,4 @@ Static packaged module composition remains intentional. Do not introduce marketp
 
 **POST-MVP R1 — FINAL PASS / LOCKED.**
 
-**POST-MVP R2 — SOURCE / STATIC PASS; LIVE PROMOTION PENDING.**
+**POST-MVP R2 — FINAL PASS / LOCKED.**
