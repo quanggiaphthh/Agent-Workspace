@@ -1,24 +1,22 @@
 # AGENT-WORKSPACE — PROJECT MASTER PLAN & PROGRESS TRACKER
 
 > **Authority:** canonical technical checkpoints and locked evidence.  
-> **Canonical production/deployed checkpoint:** `3cb25f3c38917577e6b0106324b136a099883d9a`.  
-> **Canonical GitHub Actions for production checkpoint:** `36015708311` — run #96 — SUCCESS.  
-> **Current validated corrective source checkpoint:** `ee570f44516d639f7a6e00f5da3dc6427d597034`.  
-> **Canonical GitHub Actions for corrective source checkpoint:** `36086993597` — run #142 — SUCCESS.  
-> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 SOURCE/STATIC PASS**.  
-> **Next:** bounded live deployment/smoke for R1 only; do not replace the deployed checkpoint until that gate passes.  
-> Documentation-only commits may advance repository HEAD after either source checkpoint without creating a new production checkpoint.
+> **Canonical production/deployed checkpoint:** `ee570f44516d639f7a6e00f5da3dc6427d597034`.  
+> **Canonical GitHub Actions for deployed R1 source:** `36086993597` — run #142 — SUCCESS.  
+> **Previous known-good deployed checkpoint:** `3cb25f3c38917577e6b0106324b136a099883d9a`.  
+> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED**.  
+> Documentation-only commits may advance repository HEAD without creating a new production checkpoint.
 
 ## 1. Canonical authority model
 
-- `AGENTS.md` — operational entry point for coding agents; routes agents to current-status, architecture and task-relevant canonical documents without duplicating them.
+- `AGENTS.md` — operational entry point for coding agents.
 - `PROJECT_MASTER_PLAN.md` — locked technical checkpoints and evidence.
 - `docs/MVP_COMPLETION_PLAN_REUSE_FIRST.md` — MVP scope, critical path and reuse governance.
 - `docs/MVP_IMPLEMENTATION_TRACKER.md` — operational current status.
 - `docs/MVP_EXECUTION_PHASES.md` — detailed execution sequence/history.
 - `docs/ARCHITECTURE_GUARDRAILS.md` — mandatory architecture constraints.
 - `docs/CANONICAL_REUSE_MATRIX_SOURCE_LEVEL.md` — source/package/API reuse decisions.
-- `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md` — current bounded post-MVP regression/security corrective evidence and promotion gate.
+- `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md` — locked R1 corrective evidence and live-promotion record.
 
 Coding agents read `AGENTS.md` first. If wording conflicts, the Tracker is current-status authority; this file governs locked checkpoint evidence; Architecture Guardrails govern mandatory architecture constraints.
 
@@ -77,15 +75,12 @@ A gate failure or unsupported seam requires STOP, not an architectural workaroun
 | W9 | FINAL PASS / LOCKED | Settings + local module management UX |
 | W10 | FINAL PASS / LOCKED | integrated live MVP acceptance |
 | W11 | FINAL PASS / LOCKED | security + operations hardening |
-| W12 | **FINAL PASS / LOCKED** | production deployment, release smoke and final Task-modal corrective |
-| R1 | **SOURCE / STATIC PASS; LIVE PROMOTION PENDING** | Agent/Task trust, query, mutation, recovery, UI-action reliability and pre-promotion operability corrective; source `ee570f4...`, Actions #142 SUCCESS |
+| W12 | FINAL PASS / LOCKED | production deployment, release smoke and final Task-modal corrective |
+| R1 | **FINAL PASS / LOCKED** | Agent/Task trust, query, mutation, recovery, UI-action reliability and pre-promotion operability corrective; deployed source `ee570f4...`, Actions #142 SUCCESS, bounded live smoke PASS |
 
-Capability inventory:
+Current deployed business capability inventory: **12** — Memory 2, Task 5, Web Search 1, UI 4.
 
-- deployed W12 checkpoint: **10 business capabilities**;
-- validated R1 corrective source: **12 business capabilities** — Memory 2, Task 5, Web Search 1, UI 4.
-
-## 5. Locked MVP scope
+## 5. Locked product scope
 
 Canonical MVP remains exactly:
 
@@ -95,15 +90,15 @@ The deployed product is a **single-user personal app, not public**.
 
 Deferred post-MVP modules remain: Biên tập; Quản lý tài liệu; Research; Định dạng văn bản hành chính; RAG/vector DB; connector ecosystem; marketplace/public plugin ecosystem; multi-user/team/org/billing; custom Agent runtime.
 
-R1 does not add a new product module. It is a regression/security corrective inside the already-deployed Agent/Task boundary.
+R1 did not add a new product module. It is a locked regression/security corrective inside the Agent/Task boundary.
 
 A standalone File Library is not an MVP workstream.
 
-## 6. Locked deployed end-user path and R1 delta
+## 6. Locked deployed behavior
 
-The currently deployed W12 application proved:
+The deployed application now proves:
 
-`Firebase owner login → Vietnamese Core Shell/Home/Agent/Task/Settings → persistent/temporary Agent chat → browser upload → canonical fileId attachment → authorized run-scoped ADK artifact → Gemini reads document → Agent list/create/update Task → HITL deny/approve → Task UI update → reload persistence → cancellation without stale completion → Task disable/re-enable with durable data preservation → recoverable-error continuation`
+`Firebase owner login → Vietnamese Core Shell/Home/Agent/Task/Settings → persistent/temporary Agent chat → browser upload → canonical fileId attachment → authorized run-scoped ADK artifact → Gemini reads document → deterministic Task list/search/create/update/delete → HITL deny/approve → exactly-once Task/Home refresh → reload persistence without replaying UI side effects → cancellation without stale completion → Task disable/re-enable with durable data preservation → recoverable-error continuation`.
 
 Locked deployed properties include:
 
@@ -115,69 +110,71 @@ Locked deployed properties include:
 - encrypted personal AI credentials with secret redaction;
 - production diagnostic Firebase test route unavailable;
 - strict Task due-date validation (`YYYY-MM-DD` or empty);
-- Task update through `system.tasks.update` requires server-authoritative confirmation;
+- bounded Task cursor pagination with deterministic exact-title resolution;
+- Task aggregate statistics not truncated at the first 100 records;
+- `system.tasks.delete` with mandatory server-authoritative HITL;
+- trusted Agent context cannot be overridden by client/dynamic ADK state;
+- live/durable transcripts do not expose model reasoning;
+- recovered HITL remains server-revalidated;
+- SSE buffering is bounded;
+- server-validated UI actions go through `clientCapabilityRegistry` and are replay-safe/exactly-once per `toolCallId`;
+- Task list and Home stats refresh automatically after successful Agent Task mutations;
 - Task module disable hides navigation/widgets/capabilities and blocks Task REST operations while preserving data;
-- Task create/edit modal respects `isOpen`, does not auto-open on route entry, and closes correctly via cancel/backdrop/save;
-- dependency security policy and W11 Security QA included in canonical CI.
-
-R1 source adds, but has not yet been promoted to production:
-
-- bounded Task cursor pagination and exact-title deterministic search/disambiguation;
-- aggregate Task stats beyond the first 100 records;
-- `system.tasks.delete` with server-authoritative HITL;
-- trusted Agent context boundary hardening;
-- safe tool failure/recovery presentation and hidden reasoning suppression;
-- recovered HITL candidate semantics and replay-safe durable history;
-- bounded SSE buffering;
-- canonical, replay-safe, exactly-once client projection of server-validated UI actions;
-- automatic Task list/Home-stats refresh after successful Agent Task mutations;
-- valid ErrorBoundary telemetry mapped to the strict `/api/log-error` schema;
-- explicit authenticated JSON 404 handling for unknown `/api/*` routes before the SPA fallback.
+- Task create/edit modal respects `isOpen` and does not auto-open on route entry;
+- `ErrorBoundary` telemetry conforms to the strict `/api/log-error` schema;
+- unknown authenticated `/api/*` routes return JSON `404 API_ROUTE_NOT_FOUND` rather than SPA HTML;
+- dependency security policy and W11 Security QA are included in canonical CI.
 
 ## 7. Release evidence
 
-### 7.1 Deployed production checkpoint
+### 7.1 Canonical deployed production checkpoint
 
-- Exact deployed source commit: `3cb25f3c38917577e6b0106324b136a099883d9a`.
+- Exact deployed source commit: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
 - Production URL: `https://ais-pre-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - Development URL: `https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
-- Firestore and Storage rules deployment: SUCCESS.
+- Previous known-good deployed checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
 
-### 7.2 Deployed production CI
+### 7.2 Canonical source CI
 
-GitHub Actions run `36015708311` (#96) succeeded on the exact deployed production checkpoint, including:
+GitHub Actions run `36086993597` (#142) succeeded on the exact R1 deployed source checkpoint, including:
 
 - dependency policy;
 - production manifest verification;
 - TypeScript;
 - targeted GĐ4 regressions;
+- capability tool bridge;
 - full Vitest;
 - QA Stage 1–5;
 - W11 Security QA;
 - production build;
 - final manifest verification.
 
-### 7.3 Deployed live release verification
+### 7.3 R1 live promotion verification
 
-W10 live acceptance passed the full end-user flow. W12 production smoke then proved release/security boundaries. A final reproducible Task-modal regression was corrected in commit `3cb25f3c...`, deployed, and passed six focused browser scenarios: no auto-open on Task entry; create opens; cancel closes; backdrop closes; edit opens correct data and cancels safely; successful create saves and closes.
+The exact source checkpoint `ee570f44516d639f7a6e00f5da3dc6427d597034` was deployed and passed the bounded real Firebase/Gemini/browser smoke:
 
-### 7.4 R1 corrective source verification
+1. persistent Agent chat stream/complete;
+2. Task search distinguishes unique/ambiguous results;
+3. Task update HITL deny/approve;
+4. Task delete HITL deny/approve;
+5. create/update/delete refreshes Task UI and Home stats exactly once;
+6. restored history does not replay old UI actions;
+7. Temporary Chat and cancellation remain isolated;
+8. Task disable/re-enable blocks/restores Task surfaces without data loss;
+9. `/api/health` healthy;
+10. ErrorBoundary telemetry accepted;
+11. unknown authenticated `/api/*` returns JSON 404 rather than SPA HTML.
 
-Validated R1 corrective source checkpoint:
+### 7.4 Port / ingress deployment note
 
-`ee570f44516d639f7a6e00f5da3dc6427d597034`
+The live environment exposes `PORT=8080`, while the current source binds its local server to port 3000. The current AI Studio deployment wrapper forwards hosted ingress to the local port 3000 server, and the production smoke proves that mapping works for this deployment environment.
 
-GitHub Actions `36086993597` (#142) succeeded on that exact source checkpoint, including dependency/security policy, manifest verification, TypeScript, targeted GĐ4 gates, capability tool bridge, full Vitest, QA Stage 1–5, W11 Security QA, production build and final manifest verification.
-
-The same run includes focused regression coverage for the ErrorBoundary telemetry contract and the JSON API-404 boundary introduced in the bounded R1.1 pre-promotion corrective.
-
-Detailed R1 evidence: `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md`.
-
-R1 is **not** a deployed production checkpoint yet.
+This does **not** establish hard-coded port 3000 as a portable Cloud Run contract. Port binding remains a future deployment-portability debt if deployment moves outside the current AI Studio wrapper.
 
 ## 8. Rollback / operations anchor
 
-- Stable deployed production checkpoint remains: `3cb25f3c38917577e6b0106324b136a099883d9a` until R1 live promotion succeeds.
+- Current stable deployed production checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
+- Previous known-good rollback checkpoint: `3cb25f3c38917577e6b0106324b136a099883d9a`.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and all production secrets across redeploy/rollback.
 - Source rollback does not automatically delete or revert Firestore/Storage data.
 - Security rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
@@ -185,21 +182,17 @@ R1 is **not** a deployed production checkpoint yet.
 
 ## 9. Post-MVP boundary
 
-MVP is closed. Do not reopen W4–W12 for enhancement work.
+MVP and R1 are closed. Do not reopen locked areas for enhancement work.
 
 Future work must be explicitly classified as one of:
 
-1. reproducible MVP regression/security corrective; or
+1. reproducible regression/security corrective; or
 2. a new post-MVP bounded workstream/module.
-
-R1 is classified under item 1 and is currently at **source/static PASS, live promotion pending**.
 
 Static packaged module composition remains intentional. Do not introduce marketplace/remote plugin loading merely to replace static imports.
 
 ## 10. Current completion rule
 
-The original MVP completion rule remains satisfied on the deployed W12 checkpoint:
-
 **AGENT-WORKSPACE MVP — FINAL PASS / LOCKED.**
 
-R1 can replace the deployed production anchor only after bounded real Firebase/Gemini/browser smoke proves the corrective end-to-end behavior documented in the R1 report.
+**POST-MVP R1 — FINAL PASS / LOCKED.**
