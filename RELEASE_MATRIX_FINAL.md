@@ -1,5 +1,8 @@
 # Release Matrix Final — Modular Agent Webapp v14
 
+> [!WARNING]
+> **HISTORICAL / SUPERSEDED STATUS SNAPSHOT.** This matrix is retained as GĐ5/GĐ6 verification evidence only. Do **not** use the `59 PASS / 3 BLOCKED` summary or the blocker rows below as the current canonical project status. Current status authority is `docs/MVP_IMPLEMENTATION_TRACKER.md`; locked checkpoint evidence is `PROJECT_MASTER_PLAN.md`. Later W12 deployment/live verification and post-MVP R1 canonical CI supersede the environment limitations recorded here.
+
 This matrix is carried forward from the checker-accepted GĐ5 Verification Supplement. GĐ6 performs packaging/documentation only and adds no new runtime evidence; therefore statuses are not upgraded in GĐ6.
 
 **Summary:** 59 PASS / 3 BLOCKED / 0 FAIL / 0 OUT OF SCOPE
