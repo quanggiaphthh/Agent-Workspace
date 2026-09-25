@@ -26,7 +26,10 @@ check('personal credentials remain AES-256-GCM protected', protector.includes("'
 check('audit redaction covers bearer, token, credential and secret material', /bearer/i.test(audit) && /token/i.test(audit) && /credential/i.test(audit) && /secret/i.test(audit));
 check('production HTTP guards remain present', server.includes('helmet(') && server.includes('productionCsp') && server.includes('express-rate-limit'));
 check('authenticated JSON payloads remain bounded', server.includes("express.json({ limit: '1mb' })"));
-check('expensive provider/Agent requests retain per-user limiting', server.includes('expensiveUserLimiter') && server.includes("user:${(req as any).user?.id || 'missing-auth'}"));
+check('expensive provider/Agent requests retain per-user limiting',
+  server.includes('const expensiveUserLimiter = rateLimit({') &&
+  server.includes("keyGenerator: (req: express.Request) => `user:${req.user?.id || 'missing-auth'}`") &&
+  !server.includes("keyGenerator: (req: express.Request) => req.ip"));
 check('file ingestion does not accept ZIP archives', !filePolicy.includes('application/zip'));
 check('Agent construction does not enable an ADK skills loader', !/skill(?:s|Loader|Toolset)/i.test(rootAgent));
 check('environment files remain ignored except the template', gitignore.includes('.env*') && gitignore.includes('!.env.example'));
