@@ -9,7 +9,9 @@
 > **H2 documentation closeout:** `2b979e0305a663c5d17a045d9c699230a4ca0cfb`; closeout CI `36191531441` --- run #180 --- SUCCESS.  
 > **H3 implementation/verification checkpoint:** `4761c12888daf07dca0d8e12526bc812ca6dd467`; canonical CI `36195511128` --- run #182 --- SUCCESS.
 > **H3 documentation closeout:** `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3`; closeout CI `36204398675` --- run #183 --- SUCCESS.
-> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED; POST-MVP R2 FINAL PASS / LOCKED; H1 FINAL PASS / LOCKED; H2 FINAL PASS / LOCKED; H3 FINAL PASS / LOCKED**.
+> **H4 implementation/verification checkpoint:** `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d`; canonical CI `36214906016` --- run #190 --- SUCCESS.
+> **H4 closeout-evidence commit:** `a1d7c2778275ae11ccf47db4751b23920b82d2ff`; canonical CI `36215176584` --- run #191 --- SUCCESS.
+> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED; POST-MVP R2 FINAL PASS / LOCKED; H1 FINAL PASS / LOCKED; H2 FINAL PASS / LOCKED; H3 FINAL PASS / LOCKED; H4 FINAL PASS / LOCKED**.
 > **R3: NOT OPENED.**  
 > Documentation-only closeout commits do not replace implementation checkpoints.
 
@@ -26,6 +28,7 @@
 - `docs/POST_MVP_R2_RUNTIME_RELIABILITY_HARDENING.md` --- locked R2 provider/runtime reliability, live-promotion and live-evidence record.
 - `docs/POST_MVP_H2_AGENT_WORKSPACE_UX_CLOSEOUT.md` --- locked H2 Agent Workspace UX implementation/verification and documentation-closeout evidence.
 - `docs/POST_MVP_H3_PERSONAL_TASK_WORKSPACE_CLOSEOUT.md` --- locked H3 Personal Task Workspace implementation/verification and documentation-closeout evidence.
+- `docs/H4_SECURITY_DATA_BOUNDEDNESS_DESIGN.md` --- H4 implementation/verification and closeout evidence.
 
 Coding agents read `AGENTS.md` first. If wording conflicts, the Tracker is current-status authority; this file governs locked checkpoint evidence; Architecture Guardrails govern mandatory architecture constraints.
 
@@ -90,6 +93,7 @@ A gate failure or unsupported seam requires STOP, not an architectural workaroun
 | H1 | **FINAL PASS / LOCKED** | repository hygiene, Express request typing, metadata and lockfile cleanup; TypeScript/Vitest/build PASS |
 | H2 | **FINAL PASS / LOCKED** | bounded Agent Workspace UX at client/UI projection boundary; implementation `ef123bc2...`; Actions #179 SUCCESS; closeout #180 SUCCESS |
 | H3 | **FINAL PASS / LOCKED** | bounded post-MVP Personal Task Workspace UX improvement: Board/List dual view, 3 canonical statuses, smart filters, Quick Add, Task Detail side panel, canonical status workflow and responsive bounded UX; implementation `4761c128...`; Actions #182 SUCCESS; closeout #183 SUCCESS |
+| H4 | **FINAL PASS / LOCKED** | bounded security/data hardening: diagnostic identity exception removed; bounded Memory reads; chunked retry-safe owned-data cleanup; implementation `dbf17228...`; Actions #190 SUCCESS; closeout evidence #191 SUCCESS |
 
 Current deployed business capability inventory remains **12** --- Memory 2, Task 5, Web Search 1, UI 4.
 
@@ -103,7 +107,7 @@ The deployed product is a **single-user personal app, not public**.
 
 Deferred post-MVP modules remain: Biên tập; Quản lý tài liệu; Research; Định dạng văn bản hành chính; RAG/vector DB; connector ecosystem; marketplace/public plugin ecosystem; multi-user/team/org/billing; custom Agent runtime.
 
-R1 and R2 do not add new product modules. H1 is maintenance. H2 is a bounded Agent Workspace UX improvement and H3 is a bounded Personal Task Workspace UX improvement; neither adds a product module, redesigns the backend/schema, or replaces runtime authorities.
+R1 and R2 do not add new product modules. H1 is maintenance. H2 is a bounded Agent Workspace UX improvement, H3 is a bounded Personal Task Workspace UX improvement, and H4 is bounded security/data hardening; none adds a product module or replaces runtime authorities.
 
 A standalone File Library is not an MVP workstream.
 
@@ -138,7 +142,9 @@ Locked deployed properties include:
 - Task create/edit modal respects `isOpen` and does not auto-open on route entry;
 - `ErrorBoundary` telemetry conforms to the strict `/api/log-error` schema;
 - unknown authenticated `/api/*` routes return JSON `404 API_ROUTE_NOT_FOUND` rather than SPA HTML;
-- dependency security policy and W11 Security QA are included in canonical CI.
+- dependency security policy and W11 Security QA are included in canonical CI;
+- Memory listing is server-bounded and deterministic; keyword matching uses an explicit bounded newest-candidate window rather than an unbounded collection read;
+- destructive owned Task/Memory cleanup is processed in bounded Firestore chunks and is retry-safe after partial progress.
 
 H2 preserves these authorities and behaviors while improving the Agent workspace UI projection. H2 does not migrate the Agent runtime to assistant-ui, change ADK/Gemini execution, alter session/history persistence, change attachment/fileId semantics, replace HITL authority, or create a parallel capability/module registry.
 
@@ -161,10 +167,14 @@ The historical W12 wording “Task create/edit modal” is preserved as historic
 - H3 implementation CI: `36195511128` (#182) --- **SUCCESS**, H3 targeted **6/6 PASS**, full Vitest **412/412 PASS** across **43 files**, QA Stage 1--5 PASS, W11 Security QA **15/15 PASS**, production build PASS and final manifest verification PASS.
 - H3 documentation closeout: `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3`.
 - H3 closeout CI: `36204398675` (#183) --- **SUCCESS**.
+- H4 implementation checkpoint: `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d`.
+- H4 implementation CI: `36214906016` (#190) --- **SUCCESS**.
+- H4 closeout-evidence commit: `a1d7c2778275ae11ccf47db4751b23920b82d2ff`.
+- H4 closeout-evidence CI: `36215176584` (#191) --- **SUCCESS**.
 - Production URL: `https://ais-pre-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - Development URL: `https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 
-R2 live deployment was verified to contain the R2 implementation behavior and passed Live Promotion. The available evidence does **not** independently establish an exact current deployed commit SHA; therefore this plan does not label the R2 implementation checkpoint, H2 checkpoint, or documentation closeout commits as the exact current deployed source.
+R2 live deployment was verified to contain the R2 implementation behavior and passed Live Promotion. The available evidence does **not** independently establish an exact current deployed commit SHA; therefore this plan does not label later implementation or documentation checkpoints as the exact current deployed source.
 
 ### 7.2 Canonical R1 source CI
 
@@ -220,15 +230,23 @@ Bounded AI Studio Preview runtime/visual evidence confirmed Board/List dual view
 
 The transient initial Task-list load failure that recovered after refresh remains a deferred observation because it was not reproduced as a stable canonical-source defect. The AI Studio Preview `/tasks` → `/` refresh behavior remains an environment-specific observation, not a canonical production-source defect. Neither observation opens corrective work or a successor workstream.
 
-### 7.7 Port / ingress deployment note
+### 7.7 H4 Security & Data Boundedness verification
+
+**H4 --- FINAL PASS / LOCKED.**
+
+H4 preserves the private single-owner architecture while removing the legacy Firebase diagnostic identity exception and bounding selected data operations. The integrated implementation checkpoint is `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d`, canonical Actions #190 (`36214906016`) **SUCCESS**. The closeout-evidence commit `a1d7c2778275ae11ccf47db4751b23920b82d2ff` passed Actions #191 (`36215176584`) **SUCCESS**.
+
+H4-B locks Memory results to default 50 / maximum 100 with a newest 500-document keyword candidate window and deterministic `createdAt desc` + document-ID ordering. H4-C deletes owned Task/Memory documents in repeated chunks of 400, propagates later failures and permits safe retry from remaining documents. No schema, dependency, search subsystem, product module or multi-user authority was added.
+
+### 7.8 Port / ingress deployment note
 
 The live environment exposes `PORT=8080`, while the current source binds its local server to port 3000. The current AI Studio deployment wrapper forwards hosted ingress to the local port 3000 server, and live smoke evidence proves that mapping works for this deployment environment.
 
 This does **not** establish hard-coded port 3000 as a portable Cloud Run contract. Port binding remains deployment-portability debt if deployment moves outside the current wrapper.
 
-## 8. Post-R2 / H2 / H3 verification summary
+## 8. Post-R2 / H2 / H3 / H4 verification summary
 
-R2 live promotion and the live-evidence corrective verified provider-management HTTP lifetime hardening on the real Firebase/Gemini environment without reopening locked Agent/Task behavior. H1 subsequently closed repository-hygiene/type-safety maintenance. H2 then improved the Agent workspace UI/client projection without replacing runtime authorities and passed canonical implementation CI #179 plus documentation-closeout CI #180. H3 then improved the existing Personal Task Workspace UI/client projection, passed canonical implementation CI #182 and documentation-closeout CI #183, and has bounded Preview runtime/visual evidence without a new production deployment/UAT claim.
+R2 live promotion and the live-evidence corrective verified provider-management HTTP lifetime hardening on the real Firebase/Gemini environment without reopening locked Agent/Task behavior. H1 subsequently closed repository-hygiene/type-safety maintenance. H2 improved the Agent workspace UI/client projection, H3 improved the Personal Task Workspace UI/client projection, and H4 closed the bounded security/data-hardening scope. H4 implementation CI #190 and closeout-evidence CI #191 are successful. No successor workstream is opened by this closeout.
 
 ## 9. Rollback / operations anchor
 
@@ -239,6 +257,7 @@ R2 live promotion and the live-evidence corrective verified provider-management 
 - H2 documentation closeout `2b979e0305a663c5d17a045d9c699230a4ca0cfb` is documentation evidence, not an exact deployed-source assertion.
 - H3 implementation/verification checkpoint: `4761c12888daf07dca0d8e12526bc812ca6dd467`.
 - H3 documentation closeout `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3` and closeout CI #183 are documentation evidence and do not redefine exact deployed-source SHA semantics. H3 Preview runtime/visual evidence is bounded evidence only, not production deployment/UAT.
+- H4 implementation checkpoint `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d` and closeout evidence `a1d7c2778275ae11ccf47db4751b23920b82d2ff` do not assert an exact current deployed-source SHA.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and all production secrets across redeploy/rollback.
 - Source rollback does not automatically delete or revert Firestore/Storage data.
 - Security rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
@@ -246,7 +265,7 @@ R2 live promotion and the live-evidence corrective verified provider-management 
 
 ## 10. Post-MVP boundary
 
-MVP, R1, R2, H1, H2 and H3 are closed. Do not reopen locked areas for enhancement work without a reproducible regression/security issue or an explicitly approved bounded workstream.
+MVP, R1, R2, H1, H2, H3 and H4 are closed. Do not reopen locked areas for enhancement work without a reproducible regression/security issue or an explicitly approved bounded workstream.
 
 There is no currently approved successor workstream in this record. **R3 is NOT OPENED.** Any future work must be explicitly classified as a reproducible regression/security corrective or an independently approved post-MVP bounded workstream/module.
 
@@ -265,5 +284,7 @@ Static packaged module composition remains intentional. Do not introduce marketp
 **H2 --- FINAL PASS / LOCKED.**
 
 **H3 --- FINAL PASS / LOCKED.**
+
+**H4 --- FINAL PASS / LOCKED.**
 
 **R3 --- NOT OPENED.**
