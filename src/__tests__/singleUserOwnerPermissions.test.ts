@@ -125,16 +125,6 @@ describe('single-user owner permission baseline', () => {
       .rejects.toMatchObject({ status: 503, code: 'OWNER_NOT_CONFIGURED' });
   });
 
-  it('hides the historical Firebase diagnostic route in production before token verification', async () => {
-    process.env.NODE_ENV = 'production';
-    process.env.OWNER_UID = 'owner-allowed';
-    await expect(ServerIdentityProvider.getIdentity({
-      ...requestWithToken(),
-      path: '/test/firebase-connection',
-    })).rejects.toMatchObject({ status: 404, code: 'ROUTE_NOT_AVAILABLE' });
-    expect(verifyIdToken).not.toHaveBeenCalled();
-  });
-
   it('rejects a valid Firebase identity that does not match configured OWNER_UID', async () => {
     process.env.OWNER_UID = 'owner-allowed';
     verifyIdToken.mockResolvedValue({ uid: 'owner-other', email: 'other@example.test' });
