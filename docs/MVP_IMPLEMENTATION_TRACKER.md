@@ -8,6 +8,7 @@
 > Locked R1 report: `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md`.  
 > Locked R2 report: `docs/POST_MVP_R2_RUNTIME_RELIABILITY_HARDENING.md`.  
 > Locked H2 closeout: `docs/POST_MVP_H2_AGENT_WORKSPACE_UX_CLOSEOUT.md`.
+> Locked H3 closeout: `docs/POST_MVP_H3_PERSONAL_TASK_WORKSPACE_CLOSEOUT.md`.
 
 ## 1. Current canonical context
 
@@ -16,6 +17,7 @@
 - **Post-MVP R2: FINAL PASS / LOCKED.**
 - **H1: FINAL PASS / LOCKED.**
 - **H2: FINAL PASS / LOCKED.**
+- **H3: FINAL PASS / LOCKED.**
 - R1 exact previously deployed stable checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
 - Canonical GitHub Actions for R1 source: `36086993597` --- run #142 --- **SUCCESS**.
 - R2 implementation checkpoint: `83e6c8940f21d43c3d791446f0d8017f65b866cd`.
@@ -26,7 +28,11 @@
 - Canonical H2 implementation CI: `36191114409` --- run #179 --- **SUCCESS**, full Vitest **406/406 PASS**; QA Stage 1--5 PASS; W11 Security QA **15/15 PASS**; production build PASS; final manifest verification PASS.
 - H2 documentation closeout commit: `2b979e0305a663c5d17a045d9c699230a4ca0cfb`.
 - H2 closeout CI: `36191531441` --- run #180 --- **SUCCESS**.
-- GĐ1--GĐ4 / M1, W4--W12, R1, R2, H1 and H2: **FINAL PASS / LOCKED**.
+- H3 implementation/verification checkpoint: `4761c12888daf07dca0d8e12526bc812ca6dd467`.
+- H3 implementation CI: `36195511128` --- run #182 --- **SUCCESS**, full Vitest **412/412 PASS** across **43 files**; H3 targeted **6/6 PASS**; QA Stage 1--5 PASS; W11 Security QA **15/15 PASS**; production build PASS; final manifest verification PASS.
+- H3 documentation closeout commit: `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3`.
+- H3 closeout CI: `36204398675` --- run #183 --- **SUCCESS**.
+- GĐ1--GĐ4 / M1, W4--W12, R1, R2, H1, H2 and H3: **FINAL PASS / LOCKED**.
 - Current next gate: **None. No successor workstream is approved by this tracker.**
 - **R3: NOT OPENED.**
 - Current deployed business capability count: **12** = Memory 2 + Task 5 + Web Search 1 + UI 4.
@@ -45,7 +51,7 @@ Then:
 
 `IMPLEMENT → CHECKER → LIVE RUNTIME (if required) → CANONICAL CI → LOCK`
 
-Do not reopen a locked MVP/R1/R2/H1/H2 area without a reproducible regression, security issue, or explicitly approved post-MVP scope.
+Do not reopen a locked MVP/R1/R2/H1/H2/H3 area without a reproducible regression, security issue, or explicitly approved post-MVP scope.
 
 ## 3. Workstream tracker
 
@@ -67,6 +73,7 @@ Do not reopen a locked MVP/R1/R2/H1/H2 area without a reproducible regression, s
 | R2 | Provider/runtime reliability hardening | FINAL PASS / LOCKED | closed |
 | H1 | Repository hygiene and type safety | FINAL PASS / LOCKED | closed |
 | H2 | Agent Workspace UX — bounded client/UI projection improvement | **FINAL PASS / LOCKED** | closed |
+| H3 | Personal Task Workspace UX — bounded client/UI improvement | **FINAL PASS / LOCKED** | closed |
 
 No R3 or successor workstream is opened by this tracker.
 
@@ -181,18 +188,45 @@ Closeout GitHub Actions run `36191531441` (#180): **SUCCESS**.
 
 See `docs/POST_MVP_H2_AGENT_WORKSPACE_UX_CLOSEOUT.md`.
 
-## 9. Deployment / rollback anchor
+## 9. H3 implementation and closeout evidence
+
+**H3 --- FINAL PASS / LOCKED.**
+
+H3 is a bounded Personal Task Workspace UX improvement within the existing Task/client projection boundary. It adds Board/List dual view, exactly three canonical statuses, compact smart filters, Quick Add, Task Detail side-panel editing, canonical status movement and responsive bounded UX. It does not add a new product module, backend/schema redesign, runtime authority, dependency or parallel Task authority.
+
+Implementation/verification checkpoint:
+
+`4761c12888daf07dca0d8e12526bc812ca6dd467`
+
+Canonical GitHub Actions run `36195511128` (#182): **SUCCESS**, H3 targeted **6/6 PASS**, full Vitest **412/412 PASS** across **43 files**, QA Stage 1--5 PASS, W11 Security QA **15/15 PASS**, production build PASS and final production-manifest verification PASS.
+
+Locked H3 closeout:
+
+`docs/POST_MVP_H3_PERSONAL_TASK_WORKSPACE_CLOSEOUT.md`
+
+Documentation closeout commit:
+
+`66a7bc195fd4f95bd2ab295dc3830464c76ce2a3`
+
+Closeout GitHub Actions run `36204398675` (#183): **SUCCESS**.
+
+Bounded AI Studio Preview runtime/visual evidence confirmed Board/List dual view, exactly three canonical columns, real Task data, create UX, Task Detail side panel, canonical status mutation, refresh persistence, iPad landscape layout and App Shell coexistence. This evidence is bounded Preview evidence only and does not claim new production deployment/UAT. The transient initial Task-list load failure and Preview `/tasks` → `/` refresh behavior remain non-blocking environment-specific/deferred observations; neither opens corrective work.
+
+The historical W12 wording “Task create/edit modal” is preserved as historical behavior. H3 supersedes only the current edit UX: create remains modal, while edit/detail uses the Task Detail side panel.
+
+## 10. Deployment / rollback anchor
 
 - R2 implementation checkpoint: `83e6c8940f21d43c3d791446f0d8017f65b866cd`.
 - R1 exact previously deployed stable/rollback checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
 - R2 documentation closeout baseline `f583ef1842bfd75cc8dbb56cee6bc9dd1eeb88c1` is not an implementation checkpoint.
 - H2 implementation/verification checkpoint is `ef123bc2fa7b20f5ffac11f4506a09c798d1dfa8`; H2 documentation closeout commit `2b979e0305a663c5d17a045d9c699230a4ca0cfb` is documentation evidence and does not redefine deployment SHA semantics.
+- H3 implementation/verification checkpoint is `4761c12888daf07dca0d8e12526bc812ca6dd467`; H3 documentation closeout commit `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3` and closeout CI #183 are documentation evidence and do not redefine exact deployed-source SHA semantics.
 - R2 live deployment was verified to contain R2 implementation behavior and passed Live Promotion; the available evidence does not independently establish an exact current deployed commit SHA.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and other production secrets across redeploy/rollback.
 - Source rollback does not automatically revert or delete Firestore/Storage data.
 - Rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
 
-## 10. Current completion rule
+## 11. Current completion rule
 
 **AGENT-WORKSPACE MVP --- FINAL PASS / LOCKED.**
 
@@ -203,6 +237,8 @@ See `docs/POST_MVP_H2_AGENT_WORKSPACE_UX_CLOSEOUT.md`.
 **H1 --- FINAL PASS / LOCKED.**
 
 **H2 --- FINAL PASS / LOCKED.**
+
+**H3 --- FINAL PASS / LOCKED.**
 
 **R3 --- NOT OPENED.**
 

@@ -7,7 +7,9 @@
 > **R1 exact previously deployed stable checkpoint:** `ee570f44516d639f7a6e00f5da3dc6427d597034`.  
 > **H2 implementation/verification checkpoint:** `ef123bc2fa7b20f5ffac11f4506a09c798d1dfa8`; canonical CI `36191114409` --- run #179 --- SUCCESS.  
 > **H2 documentation closeout:** `2b979e0305a663c5d17a045d9c699230a4ca0cfb`; closeout CI `36191531441` --- run #180 --- SUCCESS.  
-> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED; POST-MVP R2 FINAL PASS / LOCKED; H1 FINAL PASS / LOCKED; H2 FINAL PASS / LOCKED**.  
+> **H3 implementation/verification checkpoint:** `4761c12888daf07dca0d8e12526bc812ca6dd467`; canonical CI `36195511128` --- run #182 --- SUCCESS.
+> **H3 documentation closeout:** `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3`; closeout CI `36204398675` --- run #183 --- SUCCESS.
+> **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED; POST-MVP R2 FINAL PASS / LOCKED; H1 FINAL PASS / LOCKED; H2 FINAL PASS / LOCKED; H3 FINAL PASS / LOCKED**.
 > **R3: NOT OPENED.**  
 > Documentation-only closeout commits do not replace implementation checkpoints.
 
@@ -23,6 +25,7 @@
 - `docs/POST_MVP_R1_AGENT_TASK_RELIABILITY_CORRECTIVE.md` --- locked R1 corrective evidence and live-promotion record.
 - `docs/POST_MVP_R2_RUNTIME_RELIABILITY_HARDENING.md` --- locked R2 provider/runtime reliability, live-promotion and live-evidence record.
 - `docs/POST_MVP_H2_AGENT_WORKSPACE_UX_CLOSEOUT.md` --- locked H2 Agent Workspace UX implementation/verification and documentation-closeout evidence.
+- `docs/POST_MVP_H3_PERSONAL_TASK_WORKSPACE_CLOSEOUT.md` --- locked H3 Personal Task Workspace implementation/verification and documentation-closeout evidence.
 
 Coding agents read `AGENTS.md` first. If wording conflicts, the Tracker is current-status authority; this file governs locked checkpoint evidence; Architecture Guardrails govern mandatory architecture constraints.
 
@@ -86,6 +89,7 @@ A gate failure or unsupported seam requires STOP, not an architectural workaroun
 | R2 | **FINAL PASS / LOCKED** | provider HTTP lifetime hardening; implementation `83e6c89...`, Actions #152 SUCCESS; Live Promotion PASS; Live Evidence Corrective PASS |
 | H1 | **FINAL PASS / LOCKED** | repository hygiene, Express request typing, metadata and lockfile cleanup; TypeScript/Vitest/build PASS |
 | H2 | **FINAL PASS / LOCKED** | bounded Agent Workspace UX at client/UI projection boundary; implementation `ef123bc2...`; Actions #179 SUCCESS; closeout #180 SUCCESS |
+| H3 | **FINAL PASS / LOCKED** | bounded post-MVP Personal Task Workspace UX improvement: Board/List dual view, 3 canonical statuses, smart filters, Quick Add, Task Detail side panel, canonical status workflow and responsive bounded UX; implementation `4761c128...`; Actions #182 SUCCESS; closeout #183 SUCCESS |
 
 Current deployed business capability inventory remains **12** --- Memory 2, Task 5, Web Search 1, UI 4.
 
@@ -99,7 +103,7 @@ The deployed product is a **single-user personal app, not public**.
 
 Deferred post-MVP modules remain: Biên tập; Quản lý tài liệu; Research; Định dạng văn bản hành chính; RAG/vector DB; connector ecosystem; marketplace/public plugin ecosystem; multi-user/team/org/billing; custom Agent runtime.
 
-R1 and R2 do not add new product modules. H1 is maintenance. H2 is a bounded Agent Workspace UX improvement and does not add a product module or replace runtime authorities.
+R1 and R2 do not add new product modules. H1 is maintenance. H2 is a bounded Agent Workspace UX improvement and H3 is a bounded Personal Task Workspace UX improvement; neither adds a product module, redesigns the backend/schema, or replaces runtime authorities.
 
 A standalone File Library is not an MVP workstream.
 
@@ -138,6 +142,8 @@ Locked deployed properties include:
 
 H2 preserves these authorities and behaviors while improving the Agent workspace UI projection. H2 does not migrate the Agent runtime to assistant-ui, change ADK/Gemini execution, alter session/history persistence, change attachment/fileId semantics, replace HITL authority, or create a parallel capability/module registry.
 
+The historical W12 wording “Task create/edit modal” is preserved as historical behavior. H3 evolves only the current edit UX: Task creation remains modal, while Task edit/detail is now presented in the Task Detail side panel.
+
 ## 7. Release evidence
 
 ### 7.1 Checkpoint and deployment semantics
@@ -151,6 +157,10 @@ H2 preserves these authorities and behaviors while improving the Agent workspace
 - H2 implementation CI: `36191114409` (#179) --- **SUCCESS**, full Vitest **406/406 PASS**, QA Stage 1--5 PASS, W11 **15/15 PASS**, production build PASS and final manifest verification PASS.
 - H2 documentation closeout: `2b979e0305a663c5d17a045d9c699230a4ca0cfb`.
 - H2 closeout CI: `36191531441` (#180) --- **SUCCESS**.
+- H3 implementation/verification checkpoint: `4761c12888daf07dca0d8e12526bc812ca6dd467`.
+- H3 implementation CI: `36195511128` (#182) --- **SUCCESS**, H3 targeted **6/6 PASS**, full Vitest **412/412 PASS** across **43 files**, QA Stage 1--5 PASS, W11 Security QA **15/15 PASS**, production build PASS and final manifest verification PASS.
+- H3 documentation closeout: `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3`.
+- H3 closeout CI: `36204398675` (#183) --- **SUCCESS**.
 - Production URL: `https://ais-pre-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 - Development URL: `https://ais-dev-3hkmqjcbdyqj2c6m3q4vm3-34773317344.asia-southeast1.run.app`.
 
@@ -196,15 +206,29 @@ The H2 documentation closeout commit `2b979e0305a663c5d17a045d9c699230a4ca0cfb` 
 
 H2 remains bounded to Agent workspace UI/client projection: Closed/Panel/Focus workspace states, responsive presentation, canonical context/suggestion projection, composer/attachment affordance, conversation/memory secondary surfaces, activity/HITL presentation and accessibility improvements. Canonical runtime and security authorities remain unchanged.
 
-### 7.6 Port / ingress deployment note
+### 7.6 H3 Personal Task Workspace verification
+
+**H3 --- FINAL PASS / LOCKED.**
+
+H3 is a bounded post-MVP Personal Task Workspace UX improvement at the existing Task/client projection boundary. It adds Board/List dual view, exactly three canonical statuses (**Cần làm / Đang thực hiện / Hoàn thành**), compact smart filters, Quick Add, Task Detail side-panel editing, canonical status workflow and bounded responsive desktop/iPad/narrow presentation while preserving existing search/filter/sort and Task CRUD. It does not add a new product module, backend/schema redesign, runtime authority or dependency.
+
+The H3 implementation/verification checkpoint `4761c12888daf07dca0d8e12526bc812ca6dd467` passed canonical Actions #182 (`36195511128`) with H3 targeted **6/6 PASS**, full Vitest **412/412 PASS** across **43 files**, QA Stage 1--5 PASS, W11 Security QA **15/15 PASS**, production build PASS and final production-manifest verification PASS.
+
+The H3 documentation closeout commit `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3` then passed canonical Actions #183 (`36204398675`) with **SUCCESS**.
+
+Bounded AI Studio Preview runtime/visual evidence confirmed Board/List dual view, the three canonical columns, real Task data rendering, create UX, Task Detail side panel, canonical status mutation, persistence after refresh, iPad landscape layout and App Shell coexistence. This is bounded Preview evidence only and does **not** claim a new production deployment/UAT for H3.
+
+The transient initial Task-list load failure that recovered after refresh remains a deferred observation because it was not reproduced as a stable canonical-source defect. The AI Studio Preview `/tasks` → `/` refresh behavior remains an environment-specific observation, not a canonical production-source defect. Neither observation opens corrective work or a successor workstream.
+
+### 7.7 Port / ingress deployment note
 
 The live environment exposes `PORT=8080`, while the current source binds its local server to port 3000. The current AI Studio deployment wrapper forwards hosted ingress to the local port 3000 server, and live smoke evidence proves that mapping works for this deployment environment.
 
 This does **not** establish hard-coded port 3000 as a portable Cloud Run contract. Port binding remains deployment-portability debt if deployment moves outside the current wrapper.
 
-## 8. Post-R2 / H2 verification summary
+## 8. Post-R2 / H2 / H3 verification summary
 
-R2 live promotion and the live-evidence corrective verified provider-management HTTP lifetime hardening on the real Firebase/Gemini environment without reopening locked Agent/Task behavior. H1 subsequently closed repository-hygiene/type-safety maintenance. H2 then improved the Agent workspace UI/client projection without replacing runtime authorities and passed canonical implementation CI #179 plus documentation-closeout CI #180.
+R2 live promotion and the live-evidence corrective verified provider-management HTTP lifetime hardening on the real Firebase/Gemini environment without reopening locked Agent/Task behavior. H1 subsequently closed repository-hygiene/type-safety maintenance. H2 then improved the Agent workspace UI/client projection without replacing runtime authorities and passed canonical implementation CI #179 plus documentation-closeout CI #180. H3 then improved the existing Personal Task Workspace UI/client projection, passed canonical implementation CI #182 and documentation-closeout CI #183, and has bounded Preview runtime/visual evidence without a new production deployment/UAT claim.
 
 ## 9. Rollback / operations anchor
 
@@ -213,6 +237,8 @@ R2 live promotion and the live-evidence corrective verified provider-management 
 - R2 documentation closeout baseline `f583ef1842bfd75cc8dbb56cee6bc9dd1eeb88c1` is not an implementation checkpoint.
 - H2 implementation/verification checkpoint: `ef123bc2fa7b20f5ffac11f4506a09c798d1dfa8`.
 - H2 documentation closeout `2b979e0305a663c5d17a045d9c699230a4ca0cfb` is documentation evidence, not an exact deployed-source assertion.
+- H3 implementation/verification checkpoint: `4761c12888daf07dca0d8e12526bc812ca6dd467`.
+- H3 documentation closeout `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3` and closeout CI #183 are documentation evidence and do not redefine exact deployed-source SHA semantics. H3 Preview runtime/visual evidence is bounded evidence only, not production deployment/UAT.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and all production secrets across redeploy/rollback.
 - Source rollback does not automatically delete or revert Firestore/Storage data.
 - Security rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
@@ -220,7 +246,7 @@ R2 live promotion and the live-evidence corrective verified provider-management 
 
 ## 10. Post-MVP boundary
 
-MVP, R1, R2, H1 and H2 are closed. Do not reopen locked areas for enhancement work without a reproducible regression/security issue or an explicitly approved bounded workstream.
+MVP, R1, R2, H1, H2 and H3 are closed. Do not reopen locked areas for enhancement work without a reproducible regression/security issue or an explicitly approved bounded workstream.
 
 There is no currently approved successor workstream in this record. **R3 is NOT OPENED.** Any future work must be explicitly classified as a reproducible regression/security corrective or an independently approved post-MVP bounded workstream/module.
 
@@ -237,5 +263,7 @@ Static packaged module composition remains intentional. Do not introduce marketp
 **H1 --- FINAL PASS / LOCKED.**
 
 **H2 --- FINAL PASS / LOCKED.**
+
+**H3 --- FINAL PASS / LOCKED.**
 
 **R3 --- NOT OPENED.**
