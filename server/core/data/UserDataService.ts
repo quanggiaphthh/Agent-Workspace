@@ -47,6 +47,7 @@ const MAX_TASK_TITLE_MATCHES = 20;
 const DEFAULT_MEMORY_RESULT_LIMIT = 50;
 const MAX_MEMORY_RESULT_LIMIT = 100;
 const MEMORY_SEARCH_CANDIDATE_LIMIT = 500;
+const USER_DATA_DELETE_CHUNK_SIZE = 400;
 
 function dataError(status: number, message: string): Error & { status?: number } {
   const error = new Error(message) as Error & { status?: number };
@@ -362,14 +363,27 @@ export class UserDataService {
     await ref.delete();
   }
 
+  /**
+   * Deletes owned Task/Memory data in bounded chunks. Earlier committed chunks
+   * remain deleted if a later commit fails; callers receive that failure and a
+   * retry safely continues from the remaining owned documents.
+   */
   public static async deleteAllUserData(userId: string): Promise<void> {
     const collections = ['agent_tasks', 'agent_memories'];
     for (const collectionName of collections) {
-      const snapshot = await adminFirestore.collection(collectionName).where('userId', '==', userId).get();
-      if (snapshot.empty) continue;
-      const batch = adminFirestore.batch();
-      snapshot.docs.forEach((doc) => batch.delete(doc.ref));
-      await batch.commit();
+      while (true) {
+        const snapshot = await adminFirestore
+          .collection(collectionName)
+          .where('userId', '==', userId)
+          .orderBy(FieldPath.documentId())
+          .limit(USER_DATA_DELETE_CHUNK_SIZE)
+          .get();
+        if (snapshot.empty) break;
+
+        const batch = adminFirestore.batch();
+        snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
     }
   }
 }
