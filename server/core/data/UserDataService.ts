@@ -44,6 +44,9 @@ export interface MemoryRecord {
 const DEFAULT_TASK_PAGE_SIZE = 100;
 const MAX_TASK_PAGE_SIZE = 100;
 const MAX_TASK_TITLE_MATCHES = 20;
+const DEFAULT_MEMORY_RESULT_LIMIT = 50;
+const MAX_MEMORY_RESULT_LIMIT = 100;
+const MEMORY_SEARCH_CANDIDATE_LIMIT = 500;
 
 function dataError(status: number, message: string): Error & { status?: number } {
   const error = new Error(message) as Error & { status?: number };
@@ -127,6 +130,11 @@ function normalizeMemory(doc: QueryDocumentSnapshot<DocumentData> | DocumentSnap
 function clampTaskPageSize(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_TASK_PAGE_SIZE;
   return Math.max(1, Math.min(MAX_TASK_PAGE_SIZE, Math.floor(value as number)));
+}
+
+function clampMemoryResultLimit(value: number | undefined): number {
+  if (!Number.isFinite(value)) return DEFAULT_MEMORY_RESULT_LIMIT;
+  return Math.max(1, Math.min(MAX_MEMORY_RESULT_LIMIT, Math.floor(value as number)));
 }
 
 function encodeTaskCursor(createdAtMs: number, id: string): string {
@@ -293,6 +301,12 @@ export class UserDataService {
     };
   }
 
+  /**
+   * Returns a bounded newest-first Memory result set. Keyword search is a
+   * substring match over the newest bounded candidate window; it is not an
+   * exhaustive full-collection search. This keeps Firestore reads bounded
+   * without introducing a second search/index authority.
+   */
   public static async listMemories(userId: string, options: {
     status?: MemoryStatus | 'all';
     category?: string;
@@ -300,16 +314,19 @@ export class UserDataService {
     limit?: number;
   } = {}): Promise<MemoryRecord[]> {
     const status = options.status || 'all';
+    const resultLimit = clampMemoryResultLimit(options.limit);
+    const keyword = options.query?.trim().toLocaleLowerCase('vi');
     let q: Query = adminFirestore.collection('agent_memories').where('userId', '==', userId);
     if (status !== 'all') q = q.where('status', '==', status);
     if (options.category) q = q.where('category', '==', options.category);
+    q = q.orderBy('createdAt', 'desc').orderBy(FieldPath.documentId(), 'desc');
+    q = q.limit(keyword ? MEMORY_SEARCH_CANDIDATE_LIMIT : resultLimit);
+
     const snapshot = await q.get();
-    const keyword = options.query?.trim().toLocaleLowerCase('vi');
-    const filtered = snapshot.docs
+    const memories = snapshot.docs
       .map(normalizeMemory)
-      .filter((memory) => !keyword || `${memory.content} ${memory.category} ${memory.source}`.toLocaleLowerCase('vi').includes(keyword))
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    return filtered.slice(0, Math.max(1, Math.min(options.limit || 50, 100)));
+      .filter((memory) => !keyword || `${memory.content} ${memory.category} ${memory.source}`.toLocaleLowerCase('vi').includes(keyword));
+    return memories.slice(0, resultLimit);
   }
 
   public static async addMemory(userId: string, input: {
