@@ -1,61 +1,79 @@
-# H4 — Security & Data Boundedness Hardening — Design
+# H4 — Security & Data Boundedness Hardening — Closeout Evidence
 
-Status: DESIGN FOR REVIEW — NO PRODUCTION IMPLEMENTATION AUTHORIZED
+Status: IMPLEMENTATION VERIFIED — DOCUMENTATION CLOSEOUT IN PROGRESS
 
-Baseline at design start: `cfba989eb26575675818ce18fb7febf82e410b10`
+Design baseline: `cfba989eb26575675818ce18fb7febf82e410b10`
+
+Implementation checkpoint: `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d`
+
+Canonical implementation CI: GitHub Actions `36214906016` — run #190 — **SUCCESS**.
 
 ## 1. Purpose
 
 H4 is a bounded post-H3 hardening workstream for the existing private single-owner Agent-Workspace. It addresses three confirmed technical debts without reopening or redesigning MVP, R1, R2, H1, H2, or H3.
 
-Success means reducing residual diagnostic attack surface and making selected data operations demonstrably bounded while preserving existing user-visible contracts, canonical authorities, Task/Agent behavior, Firebase ownership, and module architecture.
+The implementation reduces residual diagnostic attack surface and makes selected data operations demonstrably bounded while preserving existing user-visible contracts, canonical authorities, Task/Agent behavior, Firebase ownership, and module architecture.
 
-## 2. Locked scope
+## 2. Implemented scope
 
-H4 contains exactly three production concerns:
+### H4-A — Legacy Firebase diagnostic identity exception removed
 
-### H4-A — Remove legacy Firebase diagnostic probe
+The historical production-only `/test/firebase-connection` exception in `ServerIdentityProvider` was removed. The stale test invariant that required that identity-provider special case was removed after canonical CI demonstrated it was the only failing historical assertion.
 
-Remove the historical `/api/test/firebase-connection` route from `server.ts`.
+Implementation evidence:
 
-After the route is absent, remove only the now-dead production special-case in `ServerIdentityProvider` that returns 404 for `/test/firebase-connection`.
+- corrective production commit: `68175d05b45a108831f949db6b0de16ccee09cfc`;
+- stale-test corrective commit: `c125e4780c04c7ccee11a1f9b2422de83397e4c1`;
+- canonical GitHub Actions run #188, ID `36214551404`: **SUCCESS**.
 
-Do not replace the route with another public/protected diagnostic endpoint. Existing `/api/health` remains the canonical runtime health surface.
+No replacement diagnostic identity bypass/exception was introduced. `/api/health` remains the supported runtime health surface.
 
-### H4-B — Bound Memory reads without silently changing search semantics
+### H4-B — Memory reads bounded with explicit candidate-window semantics
 
-Current `UserDataService.listMemories()` can fetch the full matching Firestore collection and only then perform keyword filtering, sorting, and result slicing in process memory.
+`UserDataService.listMemories()` no longer performs an unbounded collection read followed by process-only slicing.
 
-H4 must eliminate unbounded collection reads.
+Locked behavior:
 
-The implementation must reuse existing Firestore query/pagination patterns where possible. It must not implement a deceptive `.limit(N)` change that claims global keyword-search semantics while searching only the first N documents.
+- default result limit: 50;
+- hard maximum returned results: 100;
+- keyword candidate window: newest 500 matching owner/status/category documents;
+- deterministic Firestore ordering: `createdAt desc`, then document ID descending;
+- Firestore `.limit(...)` is applied before `.get()`;
+- status/category filters remain server-side;
+- Vietnamese case-insensitive substring matching over `content + category + source` remains in process over the bounded candidate window;
+- public result shape remains `Promise<MemoryRecord[]>`;
+- keyword search is explicitly a bounded candidate-window search, not an exhaustive global full-collection search.
 
-Required design rule:
+Implementation checkpoint for H4-B: `805c5f119d23585027de6553af45d425536cad98`.
 
-- non-keyword memory listing must be server-bounded with deterministic ordering and a bounded limit;
-- keyword search must have an explicit bounded search contract. If exact global substring search cannot be preserved without a search index/schema change, H4 must choose and document a bounded candidate-window behavior rather than adding a new search subsystem;
-- no new external search dependency, Firestore schema migration, or parallel memory authority is permitted in H4;
-- Agent and UI consumers must receive the same result shape they receive today unless a separately approved contract change is required.
+Canonical GitHub Actions run #189, ID `36214757411`: **SUCCESS**.
 
-### H4-C — Chunk destructive user-data deletion
+No search subsystem, schema migration, external dependency, or parallel Memory authority was introduced.
 
-Current destructive user-data cleanup must not depend on loading an unbounded collection and committing an arbitrarily large single Firestore batch.
+### H4-C — Destructive user-data cleanup bounded in chunks
 
-Deletion must process owned documents in bounded chunks until exhausted.
+`UserDataService.deleteAllUserData(userId)` now deletes owned Task/Memory documents in repeated bounded Firestore chunks rather than loading each full owned collection and committing one arbitrarily large batch.
 
-Required properties:
+Locked behavior:
 
-- preserve owner/user scoping;
-- preserve existing endpoint/caller semantics;
-- bounded query size per iteration;
-- bounded write batch per iteration;
-- continue until no owned documents remain;
-- fail closed on Firestore error;
-- do not introduce background jobs, queues, new persistence authorities, or new dependencies.
+- named chunk size: 400 documents;
+- owner/user scoping remains mandatory;
+- deterministic document-ID ordering;
+- each query is bounded by the chunk size;
+- each chunk uses one bounded Firestore write batch;
+- processing continues until no owned documents remain;
+- Firestore failures propagate to the caller rather than reporting false success;
+- already committed earlier chunks remain deleted if a later chunk fails;
+- retry safely continues from remaining owned documents;
+- public method signature remains `deleteAllUserData(userId): Promise<void>`.
 
-## 3. Explicit non-goals
+H4 integrated implementation checkpoint: `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d`.
 
-H4 does NOT include:
+Canonical GitHub Actions run #190, ID `36214906016`: **SUCCESS**.
+
+## 3. Explicit non-goals preserved
+
+H4 did NOT introduce:
 
 - multi-key credential encryption or key migration;
 - credential zeroization guarantees;
@@ -69,82 +87,80 @@ H4 does NOT include:
 - ADK/Gemini replacement;
 - `adm-zip` dependency exception resolution;
 - generic security refactoring;
-- new module, new database, or new dependency.
+- new module, database, persistence authority, search service, queue, background job, or dependency.
 
 The time-bounded ADK/`adm-zip` exception remains a separate security review deadline before 2026-10-31.
 
-## 4. Architecture constraints
+## 4. Architecture authorities preserved
 
 The following remain canonical and unchanged:
 
-- Firebase Admin SDK is the server persistence authority;
-- Firebase ID-token verification and `OWNER_UID` remain identity authority;
-- Firestore/Storage client rules remain deny-by-default/server-authoritative;
-- `UserDataService` remains the canonical Task/Memory data service;
-- existing Agent capability registry and HITL/idempotency authorities remain unchanged;
-- no client-side Firestore fallback is permitted;
-- no new registry, context store, identity provider, or persistence layer is permitted.
+- Firebase Admin SDK — server persistence authority;
+- Firebase ID-token verification + `OWNER_UID` — identity authority;
+- Firestore/Storage client rules — deny-by-default/server-authoritative;
+- `UserDataService` — canonical Task/Memory data service;
+- existing Agent capability registry, HITL and idempotency authorities;
+- no client-side Firestore fallback;
+- no parallel registry, context store, identity provider or persistence layer.
 
-## 5. Preferred implementation shape
+MVP/R1/R2/H1/H2/H3 remain locked and R3 remains unopened.
 
-### 5.1 Diagnostic route
+## 5. Canonical verification evidence
 
-Expected production delta is limited to `server.ts`, `server/core/auth/identityProvider.ts`, and directly related tests/documentation if present.
+The integrated H4 implementation checkpoint `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d` passed canonical GitHub Actions run #190 (`36214906016`). The verification job completed successfully across all repository gates, including:
 
-Deletion is preferred over adding another environment flag because the probe was an acceptance diagnostic and H4 no longer needs it as an application route.
+1. production dependency audit;
+2. production manifest verification;
+3. TypeScript;
+4. targeted GĐ4 tests;
+5. capability tool bridge;
+6. targeted GĐ4 2A gateway;
+7. targeted GĐ4 2B client;
+8. full Vitest;
+9. QA Stage 1;
+10. QA Stage 2;
+11. QA Stage 3A;
+12. QA Stage 3B;
+13. QA Stage 3C;
+14. QA Stage 4A;
+15. QA Stage 4B;
+16. QA Stage 4C;
+17. QA Stage 4D;
+18. QA Stage 5;
+19. W11 Security QA;
+20. production build;
+21. final production-manifest verification.
 
-### 5.2 Memory boundedness
+No failing verification step remained at the integrated checkpoint.
 
-Prefer a small reusable bounded-query primitive inside or immediately adjacent to `UserDataService` rather than a new service.
+## 6. Rollback and failure semantics
 
-For ordinary listing, use deterministic Firestore ordering and a server-enforced maximum.
+H4 remains independently revertible as a bounded hardening change.
 
-For keyword search, implementation must first enumerate current consumers and preserve the actual required behavior. A bounded candidate window is acceptable for the current personal application only if its limitation is explicit and tested. A future full-text/indexed search system is outside H4.
+Memory queries and destructive cleanup fail closed on persistence errors. Chunked destructive cleanup is intentionally retry-safe rather than cross-collection atomic: a later failure is surfaced, and a retry continues from documents still owned by the user.
 
-### 5.3 Destructive cleanup
+The H4 Memory keyword contract is intentionally bounded to the newest candidate window. A future exhaustive full-text/indexed search system, if ever required, must be a separately approved workstream.
 
-Prefer repeated Firestore queries with a fixed page/chunk size and one bounded batch per chunk. Avoid retaining all document snapshots across the whole collection.
+## 7. Residual items outside H4
 
-The chunk size must remain safely below Firestore batch operational limits and should be represented by a named constant with tests proving multi-chunk behavior.
+H4 does not claim to close the broader audit roadmap. In particular:
 
-## 6. Verification requirements
+- live IAM/ADC and Rules evidence remains governed by the existing deployment/security evidence, not by H4;
+- credential multi-key rotation remains outside H4;
+- backup/export automation remains outside H4;
+- frontend XSS/token-storage deep audit remains outside H4;
+- the ADK/`adm-zip` temporary security exception must still be reviewed before 2026-10-31;
+- multi-user/public SaaS remains explicitly out of scope.
 
-Before implementation is eligible for lock:
+## 8. Completion rule
 
-1. targeted tests prove the Firebase diagnostic route is absent and no special production route exception remains;
-2. targeted Memory tests prove the server never performs an unbounded memory list query and that result limits/keyword behavior match the approved bounded contract;
-3. targeted cleanup tests prove datasets larger than one chunk are deleted across multiple bounded batches;
-4. existing Task and Memory capability behavior remains compatible;
-5. TypeScript passes with zero errors;
-6. targeted Vitest passes;
-7. full Vitest passes;
-8. production build passes;
-9. existing canonical QA/security/manifest gates required by the repository pass;
-10. no dependency, schema, Firebase Rules, Agent runtime, Task UX, or H1-H3 architecture changes are introduced.
+Production implementation and canonical implementation verification are complete.
 
-## 7. Rollback and failure semantics
+H4 becomes `FINAL PASS / LOCKED` only when canonical status documents are reconciled and the resulting documentation-only closeout commit passes canonical GitHub Actions.
 
-H4 must be independently revertible as a bounded hardening change.
-
-Memory queries and destructive cleanup fail closed on persistence errors. H4 must not silently return success after partial deletion failure. Existing API error handling remains authoritative unless tests prove a bounded correction is necessary.
-
-Removing the diagnostic route has no replacement/rollback requirement; `/api/health` remains available for supported health checks.
-
-## 8. Risk assessment
-
-Primary implementation risk is semantic regression in Memory keyword search. This is why a simple `.limit()` patch is prohibited without an explicit bounded search contract.
-
-Secondary risk is partial destructive cleanup. Chunking reduces Firestore operational risk but means a later chunk can fail after earlier chunks succeeded. Existing delete-all semantics therefore must be audited and tests must document/reconcile retry behavior before implementation is locked.
-
-The diagnostic-route removal is low risk.
-
-## 9. Completion rule
-
-H4 may become `FINAL PASS / LOCKED` only after implementation, canonical verification, and documentation closeout are separately evidenced.
-
-Until then:
+Until that final documentation CI succeeds:
 
 - MVP/R1/R2/H1/H2/H3 remain `FINAL PASS / LOCKED`;
-- H4 is not authorized for implementation merely by the existence of this design document;
+- H4 remains **IMPLEMENTATION VERIFIED — DOCUMENTATION CLOSEOUT IN PROGRESS**;
 - R3 remains `NOT OPENED`;
-- no successor workstream is implied.
+- no successor workstream is implied or opened.
