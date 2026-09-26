@@ -24,7 +24,7 @@ import { adminFirestore, firebaseAdminConfig, probeFirestoreAdmin } from './serv
 import firebaseConfig from './firebase-applet-config.json';
 import { AIConfigSchema, type AIProviderId } from './shared/contracts/ai';
 import { z } from 'zod';
-import { UserDataService } from './server/core/data/UserDataService';
+import { UserDataService, isValidTaskDueDate, isValidTaskDueTime } from './server/core/data/UserDataService';
 import { computeRuntimeHealth } from './server/core/runtime/runtimeHealthPolicy';
 import { bindRequestCancellation, isCancellationError } from './server/core/runtime/requestCancellation';
 import { createExecutionDeadline } from './server/core/runtime/executionDeadline';
@@ -503,7 +503,8 @@ const TaskCreateSchema = z.object({
   status: z.enum(['todo', 'in-progress', 'completed']).optional(),
   priority: z.enum(['low', 'medium', 'high']).optional(),
   category: z.string().trim().min(1).max(100).optional(),
-  dueDate: z.string().max(64).optional(),
+  dueDate: z.string().max(10).refine(isValidTaskDueDate, 'dueDate must be YYYY-MM-DD or an empty string.').optional(),
+  dueTime: z.string().max(5).refine(isValidTaskDueTime, 'dueTime must be HH:mm or an empty string.').optional(),
 }).strict();
 const TaskPatchSchema = TaskCreateSchema.partial().strict();
 const MemoryCreateSchema = z.object({

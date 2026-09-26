@@ -15,8 +15,10 @@ export interface TaskRecord {
   priority: TaskPriority;
   category: string;
   dueDate: string;
+  dueTime?: string;
   createdAt: string | null;
   updatedAt: string | null;
+  completedAt?: string | null;
 }
 
 export interface TaskListPage {
@@ -65,10 +67,21 @@ export function isValidTaskDueDate(value: string): boolean {
     && parsed.getUTCDate() === day;
 }
 
+export function isValidTaskDueTime(value: string): boolean {
+  return value === '' || /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
 function assertTaskDueDate(value: unknown): void {
   if (value === undefined) return;
   if (typeof value !== 'string' || !isValidTaskDueDate(value)) {
     throw dataError(400, 'Invalid dueDate. Use YYYY-MM-DD or an empty string.');
+  }
+}
+
+function assertTaskDueTime(value: unknown): void {
+  if (value === undefined) return;
+  if (typeof value !== 'string' || !isValidTaskDueTime(value)) {
+    throw dataError(400, 'Invalid dueTime. Use HH:mm or an empty string.');
   }
 }
 
@@ -98,10 +111,12 @@ function toIso(value: unknown): string | null {
   return null;
 }
 
-function normalizeTask(doc: QueryDocumentSnapshot<DocumentData> | DocumentSnapshot<DocumentData>): TaskRecord {
-  const data = doc.data() || {};
+export function normalizeTaskData(id: string, data: DocumentData = {}): TaskRecord {
+  const dueTime = typeof data.dueTime === 'string' && isValidTaskDueTime(data.dueTime) && data.dueTime
+    ? data.dueTime
+    : undefined;
   return {
-    id: doc.id,
+    id,
     userId: String(data.userId || ''),
     title: String(data.title || ''),
     description: String(data.description || ''),
@@ -111,7 +126,23 @@ function normalizeTask(doc: QueryDocumentSnapshot<DocumentData> | DocumentSnapsh
     dueDate: String(data.dueDate || ''),
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
+    ...(dueTime ? { dueTime } : {}),
+    completedAt: toIso(data.completedAt),
   };
+}
+
+function normalizeTask(doc: QueryDocumentSnapshot<DocumentData> | DocumentSnapshot<DocumentData>): TaskRecord {
+  return normalizeTaskData(doc.id, doc.data() || {});
+}
+
+export function buildTaskStatusPatch<T extends { status?: TaskStatus }>(
+  patch: T,
+  completedAt: Timestamp = Timestamp.now(),
+  currentStatus?: TaskStatus,
+): T & { completedAt?: Timestamp | null } {
+  if (patch.status === 'completed' && currentStatus !== 'completed') return { ...patch, completedAt };
+  if (patch.status !== undefined && patch.status !== 'completed' && currentStatus === 'completed') return { ...patch, completedAt: null };
+  return patch;
 }
 
 function normalizeMemory(doc: QueryDocumentSnapshot<DocumentData> | DocumentSnapshot<DocumentData>): MemoryRecord {
@@ -248,32 +279,39 @@ export class UserDataService {
     priority?: TaskPriority;
     category?: string;
     dueDate?: string;
+    dueTime?: string;
   }): Promise<TaskRecord> {
     await assertTasksModuleEnabled();
     assertTaskDueDate(input.dueDate);
+    assertTaskDueTime(input.dueTime);
     const now = Timestamp.now();
+    const status = input.status || 'todo';
     const ref = await adminFirestore.collection('agent_tasks').add({
       userId,
       title: input.title.trim(),
       description: input.description?.trim() || '',
-      status: input.status || 'todo',
+      status,
       priority: input.priority || 'medium',
       category: input.category || 'Công việc',
       dueDate: input.dueDate || '',
+      dueTime: input.dueTime || '',
       createdAt: now,
       updatedAt: now,
+      ...(status === 'completed' ? { completedAt: now } : {}),
     });
     return normalizeTask(await ref.get());
   }
 
-  public static async updateTask(userId: string, id: string, patch: Partial<Pick<TaskRecord, 'title' | 'description' | 'status' | 'priority' | 'category' | 'dueDate'>>): Promise<TaskRecord> {
+  public static async updateTask(userId: string, id: string, patch: Partial<Pick<TaskRecord, 'title' | 'description' | 'status' | 'priority' | 'category' | 'dueDate' | 'dueTime'>>): Promise<TaskRecord> {
     await assertTasksModuleEnabled();
     assertTaskDueDate(patch.dueDate);
-    const { ref } = await getOwnedDoc('agent_tasks', id, userId);
+    assertTaskDueTime(patch.dueTime);
+    const { ref, snap } = await getOwnedDoc('agent_tasks', id, userId);
+    const now = Timestamp.now();
     const cleanPatch = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined)
+      Object.entries(buildTaskStatusPatch(patch, now, snap.get('status') as TaskStatus | undefined)).filter(([, value]) => value !== undefined)
     );
-    await ref.update({ ...cleanPatch, updatedAt: Timestamp.now() });
+    await ref.update({ ...cleanPatch, updatedAt: now });
     return normalizeTask(await ref.get());
   }
 

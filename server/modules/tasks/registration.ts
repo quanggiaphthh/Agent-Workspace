@@ -1,16 +1,19 @@
 import { z } from 'zod';
 import { ServerCapabilityRegistry } from '../../core/capabilities/serverCapabilityRegistry';
-import { UserDataService, isValidTaskDueDate } from '../../core/data/UserDataService';
+import { UserDataService, isValidTaskDueDate, isValidTaskDueTime } from '../../core/data/UserDataService';
 import type { ModuleMetadata } from '../../core/modules/moduleCatalog';
 
 const taskDueDateSchema = z.string().max(10).refine(isValidTaskDueDate, {
   message: 'dueDate must be YYYY-MM-DD or an empty string.',
 });
+const taskDueTimeSchema = z.string().max(5).refine(isValidTaskDueTime, {
+  message: 'dueTime must be HH:mm or an empty string.',
+});
 
 const taskSchema = z.object({
   id: z.string().max(256), userId: z.string().max(256), title: z.string().max(300), description: z.string().max(5000),
   status: z.enum(['todo', 'in-progress', 'completed']), priority: z.enum(['low', 'medium', 'high']),
-  category: z.string().max(100), dueDate: z.string().max(64), createdAt: z.string().nullable(), updatedAt: z.string().nullable(),
+  category: z.string().max(100), dueDate: z.string().max(64), dueTime: taskDueTimeSchema.optional(), createdAt: z.string().nullable(), updatedAt: z.string().nullable(), completedAt: z.string().nullable().optional(),
 }).strict();
 
 const refreshTasksSchema = {
@@ -26,13 +29,15 @@ const taskUpdateInputSchema = z.object({
   priority: z.enum(['low', 'medium', 'high']).optional(),
   category: z.string().trim().min(1).max(100).optional(),
   dueDate: taskDueDateSchema.optional(),
+  dueTime: taskDueTimeSchema.optional(),
 }).strict().refine((value) => (
   value.title !== undefined ||
   value.description !== undefined ||
   value.status !== undefined ||
   value.priority !== undefined ||
   value.category !== undefined ||
-  value.dueDate !== undefined
+  value.dueDate !== undefined ||
+  value.dueTime !== undefined
 ), { message: 'At least one task field must be updated.' });
 
 export const tasksModuleMetadata: ModuleMetadata = {
@@ -50,7 +55,7 @@ export const tasksModuleMetadata: ModuleMetadata = {
 export function registerTasksCapabilities(): void {
   ServerCapabilityRegistry.register({
     id: 'system.tasks.create', moduleId: 'tasks', description: 'Tạo đúng một nhiệm vụ mới khi người dùng thể hiện ý định tạo/lưu công việc rõ ràng. Không suy diễn một câu nhắc hoặc ý nghĩ chung thành yêu cầu tạo Task. Hành động được bảo vệ idempotency theo tool call.',
-    inputSchema: z.object({ title: z.string().trim().min(1).max(300), description: z.string().max(5000).optional(), priority: z.enum(['low', 'medium', 'high']).default('medium'), dueDate: taskDueDateSchema.optional(), category: z.string().trim().max(100).optional() }).strict(),
+    inputSchema: z.object({ title: z.string().trim().min(1).max(300), description: z.string().max(5000).optional(), priority: z.enum(['low', 'medium', 'high']).default('medium'), dueDate: taskDueDateSchema.optional(), dueTime: taskDueTimeSchema.optional(), category: z.string().trim().max(100).optional() }).strict(),
     outputSchema: z.object({ success: z.literal(true), taskId: z.string(), task: taskSchema, ...refreshTasksSchema }).strict(),
     risk: 'low', sideEffect: 'mutation', confirmationPolicy: 'none', permissions: ['tasks.write'],
     effects: ['Tạo một công việc mới theo yêu cầu rõ ràng của người dùng.'],

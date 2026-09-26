@@ -10,6 +10,7 @@
 > Locked H2 closeout: `docs/POST_MVP_H2_AGENT_WORKSPACE_UX_CLOSEOUT.md`.
 > Locked H3 closeout: `docs/POST_MVP_H3_PERSONAL_TASK_WORKSPACE_CLOSEOUT.md`.
 > H4 closeout evidence: `docs/H4_SECURITY_DATA_BOUNDEDNESS_DESIGN.md`.
+> H5 implementation/verification and canonical closeout evidence: this tracker and `PROJECT_MASTER_PLAN.md`.
 
 ## 1. Current canonical context
 
@@ -20,6 +21,7 @@
 - **H2: FINAL PASS / LOCKED.**
 - **H3: FINAL PASS / LOCKED.**
 - **H4: FINAL PASS / LOCKED.**
+- **H5: FINAL PASS / LOCKED.**
 - R1 exact previously deployed stable checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
 - Canonical GitHub Actions for R1 source: `36086993597` --- run #142 --- **SUCCESS**.
 - R2 implementation checkpoint: `83e6c8940f21d43c3d791446f0d8017f65b866cd`.
@@ -38,7 +40,9 @@
 - H4 implementation CI: `36214906016` --- run #190 --- **SUCCESS**.
 - H4 closeout-evidence commit: `a1d7c2778275ae11ccf47db4751b23920b82d2ff`.
 - H4 closeout-evidence CI: `36215176584` --- run #191 --- **SUCCESS**.
-- GĐ1--GĐ4 / M1, W4--W12, R1, R2, H1, H2, H3 and H4: **FINAL PASS / LOCKED**.
+- H5 implementation/verification checkpoint: `59a49451652a287c91eee7d792410a2faf3d7f98`.
+- H5 verification evidence: targeted H5/H3 **124/124 PASS**; full Vitest **423/423 PASS**; lint, build, canonical QA and security QA **PASS**; W11 Security QA **15/15 PASS**; critical security findings **0**.
+- GĐ1--GĐ4 / M1, W4--W12, R1, R2, H1, H2, H3, H4 and H5: **FINAL PASS / LOCKED**.
 - Current next gate: **None. No successor workstream is approved by this tracker.**
 - **R3: NOT OPENED.**
 - Current deployed business capability count: **12** = Memory 2 + Task 5 + Web Search 1 + UI 4.
@@ -57,7 +61,7 @@ Then:
 
 `IMPLEMENT → CHECKER → LIVE RUNTIME (if required) → CANONICAL CI → LOCK`
 
-Do not reopen a locked MVP/R1/R2/H1/H2/H3/H4 area without a reproducible regression, security issue, or explicitly approved post-MVP scope.
+Do not reopen a locked MVP/R1/R2/H1/H2/H3/H4/H5 area without a reproducible regression, security issue, or explicitly approved post-MVP scope.
 
 ## 3. Workstream tracker
 
@@ -81,6 +85,7 @@ Do not reopen a locked MVP/R1/R2/H1/H2/H3/H4 area without a reproducible regress
 | H2 | Agent Workspace UX — bounded client/UI projection improvement | **FINAL PASS / LOCKED** | closed |
 | H3 | Personal Task Workspace UX — bounded client/UI improvement | **FINAL PASS / LOCKED** | closed |
 | H4 | Security & Data Boundedness Hardening | **FINAL PASS / LOCKED** | closed |
+| H5 | Personal Task Daily Workflow — bounded Task UX/data enhancement | **FINAL PASS / LOCKED** | closed |
 
 No R3 or successor workstream is opened by this tracker.
 
@@ -243,7 +248,31 @@ Closeout-evidence GitHub Actions run `36215176584` (#191): **SUCCESS**.
 
 See `docs/H4_SECURITY_DATA_BOUNDEDNESS_DESIGN.md`.
 
-## 11. Deployment / rollback anchor
+## 11. H5 implementation and closeout evidence
+
+**H5 --- FINAL PASS / LOCKED.**
+
+H5 is a bounded Personal Task Daily Workflow enhancement within the existing canonical Task module. It adds backward-compatible due-date/time and server-authoritative completion metadata, the compact **Cần chú ý** center, deterministic daily attention filters, bounded recent completed-task Board projection with accessible List history, client-side reporting, Task Detail metadata/due-time editing, and preserves the three canonical statuses, REST/Agent Task capabilities, List search/filter/sort, permissions and responsive Board/List UX.
+
+The implementation reuses the existing `UserDataService`, canonical Task REST API, `ServerCapabilityRegistry`, `authFetch`, event bus, module authority, permissions, HITL and idempotency. It adds no dependency, migration, Firestore collection, status, reporting backend, parallel Task authority or runtime authority.
+
+Production implementation/verification checkpoint:
+
+`59a49451652a287c91eee7d792410a2faf3d7f98`
+
+Verification:
+
+- Targeted H5/H3: **124/124 PASS**.
+- Full Vitest: **423/423 PASS**.
+- Lint: **PASS**.
+- Build: **PASS**.
+- Canonical QA: **PASS**.
+- Security QA: **PASS**; W11 **15/15 PASS**; critical findings **0**.
+- Timezone corrective: **PASS** in default checker timezone, UTC and `Asia/Ho_Chi_Minh`.
+
+Documentation-only reconciliation does not replace the production checkpoint. R3 remains unopened and no H6 workstream is opened.
+
+## 12. Deployment / rollback anchor
 
 - R2 implementation checkpoint: `83e6c8940f21d43c3d791446f0d8017f65b866cd`.
 - R1 exact previously deployed stable/rollback checkpoint: `ee570f44516d639f7a6e00f5da3dc6427d597034`.
@@ -251,12 +280,13 @@ See `docs/H4_SECURITY_DATA_BOUNDEDNESS_DESIGN.md`.
 - H2 implementation/verification checkpoint is `ef123bc2fa7b20f5ffac11f4506a09c798d1dfa8`; H2 documentation closeout commit `2b979e0305a663c5d17a045d9c699230a4ca0cfb` is documentation evidence and does not redefine deployment SHA semantics.
 - H3 implementation/verification checkpoint is `4761c12888daf07dca0d8e12526bc812ca6dd467`; H3 documentation closeout commit `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3` and closeout CI #183 are documentation evidence and do not redefine exact deployed-source SHA semantics.
 - H4 implementation checkpoint is `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d`; H4 documentation evidence does not assert that checkpoint is the exact currently deployed source.
+- H5 implementation/verification checkpoint is `59a49451652a287c91eee7d792410a2faf3d7f98`; later documentation-only reconciliation does not replace this production checkpoint.
 - R2 live deployment was verified to contain R2 implementation behavior and passed Live Promotion; the available evidence does not independently establish an exact current deployed commit SHA.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and other production secrets across redeploy/rollback.
 - Source rollback does not automatically revert or delete Firestore/Storage data.
 - Rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
 
-## 12. Current completion rule
+## 13. Current completion rule
 
 **AGENT-WORKSPACE MVP --- FINAL PASS / LOCKED.**
 
@@ -271,6 +301,8 @@ See `docs/H4_SECURITY_DATA_BOUNDEDNESS_DESIGN.md`.
 **H3 --- FINAL PASS / LOCKED.**
 
 **H4 --- FINAL PASS / LOCKED.**
+
+**H5 --- FINAL PASS / LOCKED.**
 
 **R3 --- NOT OPENED.**
 

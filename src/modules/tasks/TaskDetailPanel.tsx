@@ -3,6 +3,7 @@ import { AlertCircle, Trash2, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import type { TaskFormValue } from './TaskFormModal';
 import type { TaskItem } from './TaskBoard';
+import { formatTaskTimestamp } from './taskUtils';
 
 type TaskDetailPanelProps = {
   task: TaskItem | null;
@@ -18,7 +19,7 @@ type TaskDetailPanelProps = {
 export function TaskDetailPanel({ task, canWrite, canDelete, saving, error = null, onClose, onSave, onDelete }: TaskDetailPanelProps) {
   const [form, setForm] = useState<TaskFormValue | null>(null);
 
-  useEffect(() => { setForm(task ? { title: task.title, description: task.description, status: task.status, priority: task.priority, category: task.category, dueDate: task.dueDate } : null); }, [task]);
+  useEffect(() => { setForm(task ? { title: task.title, description: task.description, status: task.status, priority: task.priority, category: task.category, dueDate: task.dueDate, dueTime: task.dueTime ?? '' } : null); }, [task]);
   useEffect(() => {
     if (!task) return;
     const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape' && !saving) onClose(); };
@@ -52,8 +53,14 @@ export function TaskDetailPanel({ task, canWrite, canDelete, saving, error = nul
               <label className="space-y-1.5 text-xs font-semibold text-neutral-700">Ưu tiên<select disabled={!canWrite} value={form.priority} onChange={(event) => setForm((value) => value && ({ ...value, priority: event.target.value as TaskFormValue['priority'] }))} className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm font-normal disabled:bg-neutral-50"><option value="high">Cao</option><option value="medium">Trung bình</option><option value="low">Thấp</option></select></label>
               <label className="space-y-1.5 text-xs font-semibold text-neutral-700">Phân loại<select disabled={!canWrite} value={form.category} onChange={(event) => setForm((value) => value && ({ ...value, category: event.target.value }))} className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm font-normal disabled:bg-neutral-50"><option value="Công việc">Công việc</option><option value="Cá nhân">Cá nhân</option><option value="Học tập">Học tập</option></select></label>
               <label className="space-y-1.5 text-xs font-semibold text-neutral-700">Hạn hoàn thành<input type="date" disabled={!canWrite} value={form.dueDate} onChange={(event) => setForm((value) => value && ({ ...value, dueDate: event.target.value }))} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2.5 text-sm font-normal disabled:bg-neutral-50" /></label>
+              <label className="space-y-1.5 text-xs font-semibold text-neutral-700">Hạn giờ<input type="time" disabled={!canWrite} value={form.dueTime} onChange={(event) => setForm((value) => value && ({ ...value, dueTime: event.target.value }))} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2.5 text-sm font-normal disabled:bg-neutral-50" /></label>
             </div>
             <label className="block space-y-1.5 text-xs font-semibold text-neutral-700">Mô tả<textarea rows={7} maxLength={5000} disabled={!canWrite} value={form.description} onChange={(event) => setForm((value) => value && ({ ...value, description: event.target.value }))} placeholder="Thông tin cần nhớ khi thực hiện…" className="mt-1 w-full resize-y rounded-xl border border-neutral-300 px-3 py-2.5 text-sm font-normal focus:outline-none focus:ring-2 focus:ring-neutral-900 disabled:bg-neutral-50" /></label>
+            <dl className="grid grid-cols-1 gap-3 rounded-xl bg-neutral-50 p-4 text-xs sm:grid-cols-3">
+              <div><dt className="font-semibold text-neutral-500">Ngày tạo</dt><dd className="mt-1 text-neutral-800">{formatTaskTimestamp(task.createdAt)}</dd></div>
+              <div><dt className="font-semibold text-neutral-500">Cập nhật lúc</dt><dd className="mt-1 text-neutral-800">{formatTaskTimestamp(task.updatedAt)}</dd></div>
+              <div><dt className="font-semibold text-neutral-500">Hoàn thành lúc</dt><dd className="mt-1 text-neutral-800">{formatTaskTimestamp(task.completedAt)}</dd></div>
+            </dl>
           </div>
           <footer className="flex items-center justify-between gap-3 border-t border-neutral-100 bg-white px-5 py-4">
             {canDelete ? <Button type="button" variant="ghost" onClick={() => onDelete(task)} disabled={saving} className="gap-2 text-rose-700 hover:bg-rose-50"><Trash2 className="h-4 w-4" /> Xóa</Button> : <span />}

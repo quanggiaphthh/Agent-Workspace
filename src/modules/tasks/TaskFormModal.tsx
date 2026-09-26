@@ -9,6 +9,7 @@ export type TaskFormValue = {
   priority: 'low' | 'medium' | 'high';
   category: string;
   dueDate: string;
+  dueTime: string;
 };
 
 interface TaskFormModalProps {
@@ -27,6 +28,7 @@ const emptyTask: TaskFormValue = {
   priority: 'medium',
   category: 'Công việc',
   dueDate: '',
+  dueTime: '',
 };
 
 export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = false, error = null }: TaskFormModalProps) {
@@ -94,6 +96,10 @@ export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = f
           </label>
           <label className="space-y-1.5 text-xs font-semibold text-neutral-700">Hạn hoàn thành
             <input type="date" value={form.dueDate} onChange={(e) => setForm((value) => ({ ...value, dueDate: e.target.value }))}
+              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm font-normal focus:outline-none focus:ring-2 focus:ring-neutral-900" />
+          </label>
+          <label className="space-y-1.5 text-xs font-semibold text-neutral-700">Hạn giờ
+            <input type="time" value={form.dueTime} onChange={(e) => setForm((value) => ({ ...value, dueTime: e.target.value }))}
               className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm font-normal focus:outline-none focus:ring-2 focus:ring-neutral-900" />
           </label>
         </div>
