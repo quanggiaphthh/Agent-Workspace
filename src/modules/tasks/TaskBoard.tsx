@@ -89,7 +89,7 @@ export function TaskBoard({ tasks, canWrite, busyId, onOpenTask, onMoveTask, onQ
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                           {task.priority === 'high' && <span className="rounded-full bg-amber-50 px-2 py-1 font-medium text-amber-800">Ưu tiên {priorityLabel[task.priority].toLowerCase()}</span>}
                           {task.dueDate && <span className={`inline-flex items-center gap-1 ${overdue ? 'font-medium text-rose-700' : 'text-neutral-500'}`}><Calendar className="h-3.5 w-3.5" />{overdue ? 'Quá hạn · ' : ''}{formatTaskDeadline(task)}</span>}
-                          {task.status === 'completed' && task.completedAt && <span className="text-neutral-400">Hoàn thành lúc {formatTaskTimestamp(task.completedAt)}</span>}
+                          {task.status === 'completed' && task.completedAt && <span className="text-neutral-400">Hoàn thành {formatTaskTimestamp(task.completedAt)}</span>}
                           {task.category && <span className="text-neutral-400">{task.category}</span>}
                         </div>
                       </button>

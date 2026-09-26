@@ -12,6 +12,7 @@ import { eventBus } from '../../core/events/eventBus';
 interface AppShellProps { children?: React.ReactNode; }
 export type AgentDisplayMode = 'closed' | 'panel' | 'focus';
 const HOME_OPEN_AGENT_EVENT = 'workspace:open-agent';
+const AGENT_DOCK_MEDIA_QUERY = '(min-width: 1600px)';
 
 export function nextAgentDisplayMode(mode: AgentDisplayMode, action: 'open' | 'close' | 'focus' | 'restore'): AgentDisplayMode {
   if (action === 'close') return 'closed';
@@ -27,7 +28,7 @@ export function AppShell({ children }: AppShellProps) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [viewport, setViewport] = useState<'wide' | 'medium' | 'narrow'>(() => {
     if (typeof window === 'undefined') return 'wide';
-    if (window.matchMedia('(min-width: 1280px)').matches) return 'wide';
+    if (window.matchMedia(AGENT_DOCK_MEDIA_QUERY).matches) return 'wide';
     if (window.matchMedia('(min-width: 768px)').matches) return 'medium';
     return 'narrow';
   });
@@ -35,7 +36,7 @@ export function AppShell({ children }: AppShellProps) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const wide = window.matchMedia('(min-width: 1280px)');
+    const wide = window.matchMedia(AGENT_DOCK_MEDIA_QUERY);
     const medium = window.matchMedia('(min-width: 768px)');
     const sync = () => setViewport(wide.matches ? 'wide' : medium.matches ? 'medium' : 'narrow');
     sync();
