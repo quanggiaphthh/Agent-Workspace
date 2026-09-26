@@ -13,16 +13,6 @@ export class ServerIdentityProvider {
    * tests and local development.
    */
   public static async getIdentity(req: any): Promise<UserContext> {
-    // Historical Firestore diagnostics remain available only outside production.
-    // Hiding the route at the shared auth boundary avoids exposing project/config
-    // metadata or probe writes on the deployed personal application.
-    if (process.env.NODE_ENV === 'production' && req?.path === '/test/firebase-connection') {
-      const routeErr = new Error('Not found.');
-      (routeErr as any).status = 404;
-      (routeErr as any).code = 'ROUTE_NOT_AVAILABLE';
-      throw routeErr;
-    }
-
     const authHeader = req.headers.authorization || req.headers.Authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
