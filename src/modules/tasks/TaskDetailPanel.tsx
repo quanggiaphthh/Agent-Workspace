@@ -122,18 +122,18 @@ export function TaskDetailPanel({ task, canWrite, canDelete, saving, error = nul
 
   return (
     <aside
-      className="fixed inset-y-0 right-0 z-[45] flex w-full flex-col border-l border-neutral-200 bg-white shadow-2xl sm:w-[380px] xl:w-[420px] 2xl:w-[460px]"
+      className="fixed inset-y-0 right-0 z-[45] flex w-full max-w-full flex-col border-l border-neutral-200 bg-white shadow-2xl sm:w-[390px] xl:w-[420px] 2xl:w-[440px]"
       role="dialog"
       aria-labelledby="task-detail-title"
     >
-      <header className="flex items-center justify-between border-b border-neutral-100 px-4 py-3">
-        <h2 id="task-detail-title" className="text-sm font-semibold text-neutral-900">Chi tiết công việc</h2>
+      <header className="flex shrink-0 items-center justify-between border-b border-neutral-100 bg-white px-4 py-3 sm:px-5">
+        <h2 id="task-detail-title" className="text-sm font-semibold tracking-tight text-slate-950">Chi tiết công việc</h2>
         <button
           ref={closeButtonRef}
           type="button"
           onClick={requestClose}
           disabled={saving}
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900"
+          className="flex h-11 w-11 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700/40"
           aria-label="Đóng chi tiết công việc"
         >
           <X className="h-5 w-5" />
@@ -141,7 +141,7 @@ export function TaskDetailPanel({ task, canWrite, canDelete, saving, error = nul
       </header>
 
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 sm:p-5">
           {error && (
             <div role="alert" className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}
@@ -150,38 +150,44 @@ export function TaskDetailPanel({ task, canWrite, canDelete, saving, error = nul
 
           <TaskFields form={form} onChange={updateForm} disabled={!canWrite} notesRows={5} />
 
-          <dl className="flex flex-wrap gap-x-5 gap-y-3 rounded-xl bg-neutral-50 p-3 text-xs">
-            <div className="min-w-[120px] flex-1">
-              <dt className="font-semibold text-neutral-500">Tạo</dt>
-              <dd className="mt-1 text-neutral-800">{formatTaskTimestamp(task.createdAt)}</dd>
+          <dl className="divide-y divide-neutral-100 rounded-xl border border-neutral-100 bg-neutral-50 px-3 text-xs">
+            <div className="flex min-w-0 items-center justify-between gap-4 py-2.5">
+              <dt className="shrink-0 font-semibold text-neutral-500">Tạo</dt>
+              <dd className="min-w-0 text-right text-neutral-700">{formatTaskTimestamp(task.createdAt)}</dd>
             </div>
-            <div className="min-w-[120px] flex-1">
-              <dt className="font-semibold text-neutral-500">Cập nhật</dt>
-              <dd className="mt-1 text-neutral-800">{formatTaskTimestamp(task.updatedAt)}</dd>
+            <div className="flex min-w-0 items-center justify-between gap-4 py-2.5">
+              <dt className="shrink-0 font-semibold text-neutral-500">Cập nhật</dt>
+              <dd className="min-w-0 text-right text-neutral-700">{formatTaskTimestamp(task.updatedAt)}</dd>
             </div>
-            <div className="min-w-[120px] flex-1">
-              <dt className="font-semibold text-neutral-500">Hoàn thành</dt>
-              <dd className="mt-1 text-neutral-800">{formatTaskTimestamp(task.completedAt)}</dd>
+            <div className="flex min-w-0 items-center justify-between gap-4 py-2.5">
+              <dt className="shrink-0 font-semibold text-neutral-500">Hoàn thành</dt>
+              <dd className="min-w-0 text-right text-neutral-700">{formatTaskTimestamp(task.completedAt)}</dd>
             </div>
           </dl>
         </div>
 
-        <footer className="flex items-center justify-between gap-3 border-t border-neutral-100 bg-white px-4 py-3 sm:px-5">
+        <footer
+          className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-neutral-100 bg-white px-4 pt-3 sm:px-5"
+          style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+        >
           <div className="flex min-w-0 items-center gap-2">
             {canDelete && (
-              <Button type="button" variant="ghost" onClick={() => onDelete(task)} disabled={saving} className="gap-2 text-rose-700 hover:bg-rose-50">
+              <Button type="button" variant="ghost" onClick={() => onDelete(task)} disabled={saving} className="h-11 gap-2 px-3 text-rose-700 hover:bg-rose-50 hover:text-rose-800">
                 <Trash2 className="h-4 w-4" /> Xóa
               </Button>
             )}
-            <span className={`truncate text-xs ${saveFeedback ? 'font-medium text-emerald-700' : 'text-amber-700'}`} aria-live="polite">
+            <span className={`truncate text-xs ${saveFeedback ? 'font-medium text-teal-700' : 'text-amber-700'}`} aria-live="polite">
               {saveFeedback ?? (dirty ? 'Chưa lưu' : '')}
             </span>
           </div>
-          {canWrite && (
-            <Button type="submit" disabled={saving || !dirty || !form.title.trim() || !form.category.trim()}>
-              {saving ? 'Đang lưu…' : 'Lưu thay đổi'}
-            </Button>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            <Button type="button" variant="ghost" onClick={requestClose} disabled={saving} className="h-11 px-3">Đóng</Button>
+            {canWrite && (
+              <Button type="submit" disabled={saving || !dirty || !form.title.trim() || !form.category.trim()} className="h-11 bg-slate-900 px-4 hover:bg-slate-800">
+                {saving ? 'Đang lưu…' : 'Lưu thay đổi'}
+              </Button>
+            )}
+          </div>
         </footer>
       </form>
     </aside>

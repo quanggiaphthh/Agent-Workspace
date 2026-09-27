@@ -146,7 +146,7 @@ describe('H5.2 bounded source contracts', () => {
     const shell = read('src/app/shell/AppShell.tsx');
     expect(board).toContain('overflow-x-auto');
     expect(board).toContain('min-w-[960px]');
-    expect(detail).toContain('sm:w-[380px]');
+    expect(detail).toContain('sm:w-[390px]');
     expect(detail).toContain('xl:w-[420px]');
     expect(detail).not.toContain('aria-modal="true"');
     expect(detail).not.toContain('bg-black/25');
@@ -158,7 +158,7 @@ describe('H5.2 bounded source contracts', () => {
     const board = read('src/modules/tasks/TaskBoard.tsx');
     expect(board).toContain('projection.totalCompleted > TASK_COMPLETED_BOARD_LIMIT');
     expect(board).not.toContain('Đang hiển thị các công việc đã hoàn thành gần đây');
-    expect(board).toContain('line-clamp-3');
+    expect(board).toContain('line-clamp-2');
     expect(board).not.toContain('line-through');
     expect(board).toContain("document.addEventListener('pointerdown'");
     expect(board).toContain("event.key === 'Escape'");

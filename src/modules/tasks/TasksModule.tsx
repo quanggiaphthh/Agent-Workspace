@@ -281,7 +281,8 @@ export function TasksModule() {
     || dueFilter !== 'all'
     || sortMode !== 'due';
 
-  const smartFilterClass = (active: boolean) => `rounded-full border px-2.5 py-1 text-sm transition-colors ${active ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:text-neutral-900'}`;
+  const smartFilterClass = (active: boolean) => `rounded-full border px-2.5 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700/30 ${active ? 'border-sky-950 bg-sky-950 text-white' : 'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:text-slate-900'}`;
+  const compactControlClass = 'min-w-36 flex-1 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-700 outline-none focus:border-sky-700 focus:ring-2 focus:ring-sky-700/15 sm:flex-none';
   const reportPeriodLabel = reportPeriod === 'today'
     ? 'hôm nay'
     : reportPeriod === '7d'
@@ -291,16 +292,16 @@ export function TasksModule() {
         : 'toàn bộ dữ liệu';
 
   return (
-    <div className={`space-y-3 transition-[padding] ${editingTask ? 'sm:pr-[380px] xl:pr-[420px] 2xl:pr-[460px]' : ''}`}>
-      <div className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-2xs sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold text-neutral-900">Công việc</h1>
+    <div className={`space-y-3 transition-[padding] ${editingTask ? 'sm:pr-[390px] xl:pr-[420px] 2xl:pr-[440px]' : ''}`}>
+      <div className="flex flex-col gap-2.5 rounded-xl border border-neutral-200 bg-white p-3 shadow-2xs sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-950">Công việc</h1>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-xl border border-neutral-200 bg-neutral-50 p-1" aria-label="Chế độ hiển thị công việc">
             <button
               type="button"
               aria-pressed={!showReport && viewMode === 'board'}
               onClick={() => { setShowReport(false); setViewMode('board'); }}
-              className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium ${!showReport && viewMode === 'board' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}
+              className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-sky-700/30 ${!showReport && viewMode === 'board' ? 'bg-white text-slate-950 shadow-sm' : 'text-neutral-500 hover:text-slate-900'}`}
             >
               <LayoutGrid className="h-4 w-4" /> Bảng
             </button>
@@ -308,7 +309,7 @@ export function TasksModule() {
               type="button"
               aria-pressed={!showReport && viewMode === 'list'}
               onClick={() => { setShowReport(false); setViewMode('list'); }}
-              className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium ${!showReport && viewMode === 'list' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}
+              className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-sky-700/30 ${!showReport && viewMode === 'list' ? 'bg-white text-slate-950 shadow-sm' : 'text-neutral-500 hover:text-slate-900'}`}
             >
               <List className="h-4 w-4" /> Danh sách
             </button>
@@ -316,7 +317,7 @@ export function TasksModule() {
           <Button type="button" variant={showReport ? 'secondary' : 'outline'} size="sm" aria-pressed={showReport} onClick={() => setShowReport((value) => !value)} className="h-9 gap-2">
             <BarChart3 className="h-4 w-4" /> Báo cáo
           </Button>
-          {canWrite && <Button onClick={openCreateForm} size="sm" className="h-9 gap-2"><Plus className="h-4 w-4" /> Tạo</Button>}
+          {canWrite && <Button onClick={openCreateForm} size="sm" className="h-9 gap-2 bg-slate-900 hover:bg-slate-800"><Plus className="h-4 w-4" /> Tạo</Button>}
         </div>
       </div>
 
@@ -333,11 +334,11 @@ export function TasksModule() {
             <div className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4 text-neutral-500" />
               <div>
-                <h2 id="task-report-title" className="text-sm font-semibold text-neutral-900">Báo cáo công việc</h2>
+                <h2 id="task-report-title" className="text-sm font-semibold text-slate-950">Báo cáo công việc</h2>
                 <p className="mt-1 text-xs text-neutral-500">Tổng hợp từ dữ liệu công việc hiện có.</p>
               </div>
             </div>
-            <select aria-label="Phạm vi báo cáo" value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as ReportPeriod)} className="rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+            <select aria-label="Phạm vi báo cáo" value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as ReportPeriod)} className="rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-sky-700 focus:ring-2 focus:ring-sky-700/15">
               <option value="today">Hôm nay</option>
               <option value="7d">7 ngày</option>
               <option value="30d">30 ngày</option>
@@ -345,9 +346,9 @@ export function TasksModule() {
             </select>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            <div className="rounded-xl bg-neutral-50 p-3"><span className="text-xs text-neutral-500">Tổng công việc</span><strong className="mt-1 block text-xl text-neutral-900">{report.total}</strong></div>
-            <div className="rounded-xl bg-emerald-50 p-3"><span className="text-xs text-emerald-700">Hoàn thành</span><strong className="mt-1 block text-xl text-emerald-800">{report.completed}</strong></div>
-            <div className="rounded-xl bg-blue-50 p-3"><span className="text-xs text-blue-700">Đang thực hiện</span><strong className="mt-1 block text-xl text-blue-800">{report.inProgress}</strong></div>
+            <div className="rounded-xl bg-neutral-50 p-3"><span className="text-xs text-neutral-500">Tổng công việc</span><strong className="mt-1 block text-xl text-slate-950">{report.total}</strong></div>
+            <div className="rounded-xl bg-teal-50 p-3"><span className="text-xs text-teal-700">Hoàn thành</span><strong className="mt-1 block text-xl text-teal-800">{report.completed}</strong></div>
+            <div className="rounded-xl bg-sky-50 p-3"><span className="text-xs text-sky-700">Đang thực hiện</span><strong className="mt-1 block text-xl text-sky-800">{report.inProgress}</strong></div>
             <div className="rounded-xl bg-amber-50 p-3"><span className="text-xs text-amber-700">Cần làm</span><strong className="mt-1 block text-xl text-amber-800">{report.todo}</strong></div>
             <div className="rounded-xl bg-rose-50 p-3"><span className="text-xs text-rose-700">Quá hạn</span><strong className="mt-1 block text-xl text-rose-800">{report.overdue}</strong></div>
           </div>
@@ -357,7 +358,7 @@ export function TasksModule() {
         <>
           <section className="rounded-xl border border-neutral-200 bg-white px-3 py-2 shadow-2xs" aria-labelledby="task-attention-title">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="mr-1 flex items-center gap-2 text-sm font-semibold text-neutral-900">
+              <div className="mr-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <AlertTriangle className={`h-4 w-4 ${attentionCounts.today + attentionCounts.next7 + attentionCounts.overdue + attentionCounts.high > 0 ? 'text-amber-600' : 'text-neutral-400'}`} aria-hidden="true" />
                 <h2 id="task-attention-title">Cần chú ý</h2>
               </div>
@@ -373,10 +374,10 @@ export function TasksModule() {
               <label className="relative min-w-0 basis-full md:basis-64 md:flex-1">
                 <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-neutral-400" />
                 <span className="sr-only">Tìm công việc</span>
-                <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Tìm công việc…" className="w-full rounded-lg border border-neutral-200 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
+                <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Tìm công việc…" className="w-full rounded-lg border border-neutral-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-sky-700 focus:ring-2 focus:ring-sky-700/15" />
               </label>
               {viewMode === 'list' && (
-                <select aria-label="Lọc theo trạng thái" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)} className="min-w-40 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm sm:flex-none">
+                <select aria-label="Lọc theo trạng thái" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)} className={compactControlClass}>
                   <option value="all">Mọi trạng thái</option>
                   <option value="open">Chưa xong</option>
                   <option value="todo">Cần làm</option>
@@ -384,19 +385,19 @@ export function TasksModule() {
                   <option value="completed">Hoàn thành</option>
                 </select>
               )}
-              <select aria-label="Lọc theo ưu tiên" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as typeof priorityFilter)} className="min-w-40 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm sm:flex-none">
+              <select aria-label="Lọc theo ưu tiên" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as typeof priorityFilter)} className={compactControlClass}>
                 <option value="all">Mọi ưu tiên</option>
                 <option value="high">Ưu tiên cao</option>
                 <option value="medium">Ưu tiên trung bình</option>
                 <option value="low">Ưu tiên thấp</option>
               </select>
-              <select aria-label="Lọc theo hạn" value={dueFilter} onChange={(event) => setDueFilter(event.target.value as DueFilter)} className="min-w-40 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm sm:flex-none">
+              <select aria-label="Lọc theo hạn" value={dueFilter} onChange={(event) => setDueFilter(event.target.value as DueFilter)} className={compactControlClass}>
                 <option value="all">Mọi thời hạn</option>
                 <option value="today">Hôm nay</option>
                 <option value="next7">7 ngày tới</option>
                 <option value="overdue">Quá hạn</option>
               </select>
-              <select aria-label="Sắp xếp công việc" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="min-w-40 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm sm:flex-none">
+              <select aria-label="Sắp xếp công việc" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className={compactControlClass}>
                 <option value="due">Hạn gần nhất</option>
                 <option value="priority">Ưu tiên cao trước</option>
                 <option value="newest">Mới tạo trước</option>
@@ -419,22 +420,31 @@ export function TasksModule() {
               <CheckSquare className="mx-auto h-9 w-9 text-neutral-300" />
               <h2 className="mt-3 text-sm font-semibold text-neutral-800">{tasks.length === 0 ? 'Chưa có công việc nào' : 'Không có công việc phù hợp'}</h2>
               <p className="mt-1 text-sm text-neutral-500">{tasks.length === 0 ? 'Tạo công việc đầu tiên để bắt đầu theo dõi.' : 'Hãy đổi từ khóa hoặc bộ lọc.'}</p>
-              {tasks.length === 0 && canWrite && <Button className="mt-4" onClick={openCreateForm}>Tạo công việc</Button>}
+              {tasks.length === 0 && canWrite && <Button className="mt-4 bg-slate-900 hover:bg-slate-800" onClick={openCreateForm}>Tạo công việc</Button>}
             </div>
           ) : viewMode === 'board' ? (
-            <TaskBoard tasks={visibleTasks} canWrite={canWrite} busyId={busyId} onOpenTask={openTaskDetail} onMoveTask={(task, status) => void updateTaskStatus(task, status)} onQuickCreate={createTask} />
+            <TaskBoard
+              tasks={visibleTasks}
+              canWrite={canWrite}
+              canDelete={canDelete}
+              busyId={busyId}
+              onOpenTask={openTaskDetail}
+              onMoveTask={(task, status) => void updateTaskStatus(task, status)}
+              onDeleteTask={(task) => setDeleteTask(task)}
+              onQuickCreate={createTask}
+            />
           ) : (
             <div className="space-y-2">
               {visibleTasks.map((task) => {
                 const overdue = isTaskOverdue(task);
                 return (
-                  <article key={task.id} onClick={() => openTaskDetail(task)} className={`flex cursor-pointer gap-3 rounded-xl border bg-white p-4 transition-shadow hover:shadow-sm ${overdue ? 'border-rose-200' : 'border-neutral-200'}`}>
-                    <button type="button" disabled={!canWrite || busyId === task.id} aria-label={task.status === 'completed' ? `Mở lại ${task.title}` : `Hoàn thành ${task.title}`} onClick={(event) => { event.stopPropagation(); void setCompletion(task); }} className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 ${task.status === 'completed' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-neutral-300 bg-white'}`}>
+                  <article key={task.id} onClick={() => openTaskDetail(task)} className="flex cursor-pointer gap-3 rounded-xl border border-neutral-200 bg-white p-4 transition-shadow hover:shadow-sm">
+                    <button type="button" disabled={!canWrite || busyId === task.id} aria-label={task.status === 'completed' ? `Mở lại ${task.title}` : `Hoàn thành ${task.title}`} onClick={(event) => { event.stopPropagation(); void setCompletion(task); }} className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border outline-none focus-visible:ring-2 focus-visible:ring-sky-700/30 ${task.status === 'completed' ? 'border-teal-700 bg-teal-700 text-white' : 'border-neutral-300 bg-white'}`}>
                       {task.status === 'completed' && <CheckCircle2 className="h-4 w-4" />}
                     </button>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className={`text-sm font-semibold ${task.status === 'completed' ? 'text-neutral-600' : 'text-neutral-900'}`}>{task.title}</h3>
+                        <h3 className={`text-sm font-semibold ${task.status === 'completed' ? 'text-neutral-600' : 'text-slate-950'}`}>{task.title}</h3>
                         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{statusLabel[task.status]}</span>
                         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{priorityLabel[task.priority]}</span>
                       </div>
@@ -451,7 +461,7 @@ export function TasksModule() {
                       {task.status === 'completed' && task.completedAt && <div className="mt-1 text-xs text-neutral-400">Hoàn thành {formatTaskTimestamp(task.completedAt)}</div>}
                     </div>
                     {canDelete && (
-                      <button type="button" disabled={busyId === task.id} aria-label={`Xóa ${task.title}`} onClick={(event) => { event.stopPropagation(); setDeleteTask(task); }} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900">
+                      <button type="button" disabled={busyId === task.id} aria-label={`Xóa ${task.title}`} onClick={(event) => { event.stopPropagation(); setDeleteTask(task); }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
@@ -468,13 +478,13 @@ export function TasksModule() {
 
       {deleteTask && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="delete-task-title">
-          <button type="button" aria-label="Đóng xác nhận xóa" className="fixed inset-0 bg-black/40" onClick={() => setDeleteTask(null)} />
-          <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-            <h2 id="delete-task-title" className="font-semibold text-neutral-900">Xóa công việc?</h2>
+          <button type="button" aria-label="Đóng xác nhận xóa" className="fixed inset-0 bg-slate-950/35" onClick={() => setDeleteTask(null)} />
+          <div className="relative z-10 w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-xl">
+            <h2 id="delete-task-title" className="font-semibold text-slate-950">Xóa công việc?</h2>
             <p className="mt-2 text-sm text-neutral-600">“{deleteTask.title}” sẽ bị xóa và không thể hoàn tác.</p>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setDeleteTask(null)}>Hủy</Button>
-              <Button onClick={() => void confirmDelete()} disabled={busyId === deleteTask.id} className="bg-rose-600 hover:bg-rose-700">{busyId === deleteTask.id ? 'Đang xóa…' : 'Xóa'}</Button>
+              <Button variant="danger" onClick={() => void confirmDelete()} disabled={busyId === deleteTask.id}>{busyId === deleteTask.id ? 'Đang xóa…' : 'Xóa'}</Button>
             </div>
           </div>
         </div>
