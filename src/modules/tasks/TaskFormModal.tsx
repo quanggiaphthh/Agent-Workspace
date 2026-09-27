@@ -234,7 +234,7 @@ export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = f
                 <span>{error}</span>
               </div>
             )}
-            <TaskFields form={form} onChange={setForm} autoFocusTitle notesRows={3} />
+            <TaskFields form={form} onChange={setForm} autoFocusTitle notesRows={3} stackedDate />
           </div>
 
           <footer
