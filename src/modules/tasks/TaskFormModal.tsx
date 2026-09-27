@@ -27,6 +27,7 @@ type TaskFieldsProps = {
   disabled?: boolean;
   autoFocusTitle?: boolean;
   notesRows?: number;
+  stackedDate?: boolean;
 };
 
 export const EMPTY_TASK_FORM: TaskFormValue = {
@@ -39,7 +40,7 @@ export const EMPTY_TASK_FORM: TaskFormValue = {
   dueTime: '',
 };
 
-const fieldLabelClass = 'min-w-0 space-y-1.5 text-xs font-semibold text-neutral-700';
+const fieldLabelClass = 'block w-full min-w-0 max-w-full box-border space-y-1.5 text-xs font-semibold text-neutral-700';
 const fieldControlClass = 'mt-1 block w-full min-w-0 max-w-full box-border rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm font-normal text-neutral-900 outline-none transition-colors focus:border-sky-700 focus:ring-2 focus:ring-sky-700/20 disabled:bg-neutral-50 disabled:text-neutral-400';
 
 export function normalizeTaskFormValue(value: TaskFormValue): TaskFormValue {
@@ -61,7 +62,7 @@ export function isTaskFormDirty(current: TaskFormValue, saved: TaskFormValue): b
     || a.dueTime !== b.dueTime;
 }
 
-export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = false, notesRows = 4 }: TaskFieldsProps) {
+export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = false, notesRows = 4, stackedDate = false }: TaskFieldsProps) {
   const categorySuggestionsId = useId();
   const update = (patch: Partial<TaskFormValue>) => onChange({ ...form, ...patch });
   const updateDueDate = (dueDate: string) => onChange({ ...form, dueDate, dueTime: dueDate ? form.dueTime : '' });
@@ -130,7 +131,7 @@ export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = 
         </datalist>
       </label>
 
-      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,5fr)_minmax(0,3fr)]">
+      <div className={stackedDate ? "grid min-w-0 grid-cols-1 gap-3" : "grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,5fr)_minmax(0,3fr)]"}>
         <label className={fieldLabelClass}>
           Hạn ngày
           <input

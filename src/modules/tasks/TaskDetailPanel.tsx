@@ -148,7 +148,7 @@ export function TaskDetailPanel({ task, canWrite, canDelete, saving, error = nul
             </div>
           )}
 
-          <TaskFields form={form} onChange={updateForm} disabled={!canWrite} notesRows={5} />
+          <TaskFields form={form} onChange={updateForm} disabled={!canWrite} notesRows={5} stackedDate />
 
           <dl className="divide-y divide-neutral-100 rounded-xl border border-neutral-100 bg-neutral-50 px-3 text-xs">
             <div className="flex min-w-0 items-center justify-between gap-4 py-2.5">
