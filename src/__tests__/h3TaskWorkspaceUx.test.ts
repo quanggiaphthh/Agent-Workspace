@@ -39,13 +39,13 @@ describe('H3 Personal Task Workspace UX contract', () => {
     expect(boardSource).toContain("dueDate: ''");
   });
 
-  it('uses a task detail side panel rather than the old centered edit modal', () => {
+  it('uses a responsive Task Detail inspector rather than the old centered edit modal', () => {
     const panelSource = read('src/modules/tasks/TaskDetailPanel.tsx');
     expect(panelSource).toContain('fixed inset-y-0 right-0');
     expect(panelSource).toContain('Chi tiết công việc');
     expect(panelSource).toContain('Lưu thay đổi');
     expect(panelSource).toContain('role="dialog"');
-    expect(panelSource).toContain('aria-modal="true"');
+    expect(panelSource).not.toContain('aria-modal="true"');
   });
 
   it('keeps search/filter/sort and compact smart filters', () => {

@@ -48,7 +48,11 @@ export const useContextStore = create<ContextStoreState>((set, get) => ({
     const current = get().selectedEntity;
     if (
       (!current && !entity) ||
-      (current && entity && current.moduleId === entity.moduleId && current.entityType === entity.entityType && current.entityId === entity.entityId)
+      (current && entity
+        && current.moduleId === entity.moduleId
+        && current.entityType === entity.entityType
+        && current.entityId === entity.entityId
+        && current.label === entity.label)
     ) {
       return;
     }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, AlertTriangle, BarChart3, Calendar, CheckCircle2, CheckSquare, LayoutGrid, List, Plus, Search, Trash2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, BarChart3, Calendar, CheckCircle2, CheckSquare, LayoutGrid, List, Plus, Search, Trash2, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { TaskFormModal, type TaskFormValue } from './TaskFormModal';
 import { TaskBoard, type TaskItem } from './TaskBoard';
@@ -8,13 +8,24 @@ import { useContextStore } from '../../core/context/contextStore';
 import { eventBus } from '../../core/events/eventBus';
 import { authFetch } from '../../lib/authFetch';
 import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
-import { buildTaskReport, formatTaskDeadline, formatTaskTimestamp, isHighPriorityOpenTask, isTaskDueInNextSevenDays, isTaskDueToday, isTaskOverdue, type TaskReportPeriod } from './taskUtils';
+import {
+  buildTaskReport,
+  compareTaskDeadlines,
+  formatTaskDeadline,
+  formatTaskTimestamp,
+  getTaskAttentionCounts,
+  isTaskDueInNextSevenDays,
+  isTaskDueToday,
+  isTaskOverdue,
+  type TaskReportPeriod,
+} from './taskUtils';
 
-type DueFilter = 'all' | 'today' | 'week' | 'overdue';
+type DueFilter = 'all' | 'today' | 'next7' | 'overdue';
 type StatusFilter = 'all' | 'open' | TaskItem['status'];
 type SortMode = 'due' | 'priority' | 'newest';
 type TaskViewMode = 'board' | 'list';
 type ReportPeriod = 'today' | '7d' | '30d' | 'all';
+type AttentionFilter = 'today' | 'next7' | 'overdue' | 'high';
 
 const priorityRank: Record<TaskItem['priority'], number> = { high: 0, medium: 1, low: 2 };
 const statusLabel: Record<TaskItem['status'], string> = { todo: 'Cần làm', 'in-progress': 'Đang thực hiện', completed: 'Hoàn thành' };
@@ -43,6 +54,21 @@ export function TasksModule() {
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [deleteTask, setDeleteTask] = useState<TaskItem | null>(null);
+  const [detailDirty, setDetailDirty] = useState(false);
+
+  const syncSelectedTaskContext = (loadedTasks: TaskItem[]) => {
+    const context = useContextStore.getState();
+    const selected = context.selectedEntity;
+    if (selected?.moduleId !== 'tasks' || selected.entityType !== 'task') return;
+    const selectedTask = loadedTasks.find((task) => task.id === selected.entityId);
+    if (!selectedTask) {
+      context.setSelectedEntity(null);
+      return;
+    }
+    if (selected.label !== selectedTask.title) {
+      context.setSelectedEntity({ ...selected, label: selectedTask.title });
+    }
+  };
 
   const fetchTasks = async () => {
     if (!user) { setTasks([]); setLoading(false); setError(null); return; }
@@ -52,7 +78,9 @@ export function TasksModule() {
       const response = await authFetch('/api/tasks?status=all');
       if (!response.ok) throw new Error('load');
       const data = await response.json();
-      setTasks(Array.isArray(data.tasks) ? data.tasks : []);
+      const loadedTasks = Array.isArray(data.tasks) ? data.tasks as TaskItem[] : [];
+      setTasks(loadedTasks);
+      syncSelectedTaskContext(loadedTasks);
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
       setError('Chưa thể tải danh sách công việc. Vui lòng thử lại.');
@@ -69,11 +97,14 @@ export function TasksModule() {
   const openCreateForm = () => { setFormError(null); setIsFormOpen(true); };
   const closeCreateForm = () => { setIsFormOpen(false); setFormError(null); };
   const openTaskDetail = (task: TaskItem) => {
+    if (editingTask && editingTask.id !== task.id && detailDirty && !window.confirm('Bạn có thay đổi chưa lưu. Chuyển sang công việc khác mà không lưu?')) return;
     setEditingTask(task);
+    setDetailDirty(false);
     setFormError(null);
     setSelectedEntity({ moduleId: 'tasks', entityType: 'task', entityId: task.id, label: task.title });
   };
-  const closeTaskDetail = () => { setEditingTask(null); setFormError(null); };
+  // Inspector visibility and Agent context are deliberately independent.
+  const closeTaskDetail = () => { setEditingTask(null); setDetailDirty(false); setFormError(null); };
 
   const createTask = async (value: TaskFormValue) => {
     if (!canWrite) return;
@@ -99,7 +130,7 @@ export function TasksModule() {
     }
   };
 
-  const saveTask = async (value: TaskFormValue) => {
+  const saveTask = async (value: TaskFormValue): Promise<TaskItem | void> => {
     if (!canWrite || !editingTask) return;
     const id = editingTask.id;
     try {
@@ -113,12 +144,17 @@ export function TasksModule() {
       if (!response.ok) throw new Error('save');
       const data = await response.json();
       if (data.task) {
-        setTasks((current) => current.map((task) => task.id === id ? data.task : task));
-        setSelectedEntity({ moduleId: 'tasks', entityType: 'task', entityId: id, label: data.task.title });
-      } else {
-        await fetchTasks();
+        const savedTask = data.task as TaskItem;
+        setTasks((current) => current.map((task) => task.id === id ? savedTask : task));
+        setEditingTask(savedTask);
+        const currentContext = useContextStore.getState().selectedEntity;
+        if (currentContext?.moduleId === 'tasks' && currentContext.entityType === 'task' && currentContext.entityId === id) {
+          setSelectedEntity({ ...currentContext, label: savedTask.title });
+        }
+        eventBus.emit('notification.show', { message: 'Đã lưu', type: 'success', duration: 2200 });
+        return savedTask;
       }
-      setEditingTask(null);
+      await fetchTasks();
     } catch (err) {
       console.error('Failed to save task:', err);
       setFormError('Chưa thể lưu công việc. Vui lòng kiểm tra thông tin và thử lại.');
@@ -129,6 +165,10 @@ export function TasksModule() {
 
   const updateTaskStatus = async (task: TaskItem, nextStatus: TaskItem['status']) => {
     if (!canWrite || task.status === nextStatus) return;
+    if (editingTask?.id === task.id && detailDirty) {
+      eventBus.emit('notification.show', { message: 'Hãy lưu hoặc bỏ thay đổi trong phần chi tiết trước khi đổi trạng thái.', type: 'warning', duration: 3200 });
+      return;
+    }
     try {
       setBusyId(task.id);
       setError(null);
@@ -140,8 +180,9 @@ export function TasksModule() {
       if (!response.ok) throw new Error('status');
       const data = await response.json();
       if (data.task) {
-        setTasks((current) => current.map((item) => item.id === task.id ? data.task : item));
-        if (editingTask?.id === task.id) setEditingTask(data.task);
+        const updatedTask = data.task as TaskItem;
+        setTasks((current) => current.map((item) => item.id === task.id ? updatedTask : item));
+        if (editingTask?.id === task.id) setEditingTask(updatedTask);
       } else {
         await fetchTasks();
       }
@@ -168,7 +209,7 @@ export function TasksModule() {
       if (!response.ok) throw new Error('delete');
       setTasks((current) => current.filter((task) => task.id !== deletingId));
       if (selectedEntity?.moduleId === 'tasks' && selectedEntity.entityId === deletingId) setSelectedEntity(null);
-      if (editingTask?.id === deletingId) setEditingTask(null);
+      if (editingTask?.id === deletingId) { setEditingTask(null); setDetailDirty(false); }
       setDeleteTask(null);
     } catch (err) {
       console.error('Failed to delete task:', err);
@@ -185,7 +226,7 @@ export function TasksModule() {
     const dueMatches = dueFilter === 'all'
       || (dueFilter === 'today'
         ? isTaskDueToday(task)
-        : dueFilter === 'week'
+        : dueFilter === 'next7'
           ? isTaskDueInNextSevenDays(task)
           : isTaskOverdue(task));
     return (!q || `${task.title} ${task.description} ${task.category}`.toLocaleLowerCase('vi').includes(q))
@@ -197,29 +238,24 @@ export function TasksModule() {
     if (b.status === 'completed' && a.status !== 'completed') return -1;
     if (sortMode === 'priority') return priorityRank[a.priority] - priorityRank[b.priority];
     if (sortMode === 'newest') return (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
-    if (!a.dueDate && b.dueDate) return 1;
-    if (a.dueDate && !b.dueDate) return -1;
-    return a.dueDate.localeCompare(b.dueDate) || priorityRank[a.priority] - priorityRank[b.priority];
+    return compareTaskDeadlines(a, b) || priorityRank[a.priority] - priorityRank[b.priority];
   }), [tasks, searchQuery, statusFilter, priorityFilter, dueFilter, sortMode]);
 
-  const todayCount = tasks.filter((task) => isTaskDueToday(task)).length;
-  const weekCount = tasks.filter((task) => isTaskDueInNextSevenDays(task)).length;
-  const overdueCount = tasks.filter((task) => isTaskOverdue(task)).length;
-  const highPriorityCount = tasks.filter((task) => isHighPriorityOpenTask(task)).length;
+  const attentionCounts = useMemo(() => getTaskAttentionCounts(tasks), [tasks]);
   const report = useMemo(() => buildTaskReport(tasks, reportPeriod as TaskReportPeriod), [tasks, reportPeriod]);
-  const activeAttention: 'today' | 'week' | 'overdue' | 'high' | null = statusFilter !== 'open'
+  const activeAttention: AttentionFilter | null = statusFilter !== 'open'
     ? null
     : priorityFilter === 'high' && dueFilter === 'all'
       ? 'high'
       : dueFilter === 'today'
         ? 'today'
-        : dueFilter === 'week'
-          ? 'week'
+        : dueFilter === 'next7'
+          ? 'next7'
           : dueFilter === 'overdue'
             ? 'overdue'
             : null;
 
-  const applyAttentionFilter = (filter: 'today' | 'week' | 'overdue' | 'high') => {
+  const applyAttentionFilter = (filter: AttentionFilter) => {
     if (activeAttention === filter) {
       setStatusFilter('all');
       setDueFilter('all');
@@ -231,6 +267,20 @@ export function TasksModule() {
     setPriorityFilter(filter === 'high' ? 'high' : 'all');
   };
 
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setPriorityFilter('all');
+    setDueFilter('all');
+    setSortMode('due');
+  };
+
+  const hasActiveFilters = Boolean(searchQuery.trim())
+    || statusFilter !== 'all'
+    || priorityFilter !== 'all'
+    || dueFilter !== 'all'
+    || sortMode !== 'due';
+
   const smartFilterClass = (active: boolean) => `rounded-full border px-2.5 py-1 text-sm transition-colors ${active ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:text-neutral-900'}`;
   const reportPeriodLabel = reportPeriod === 'today'
     ? 'hôm nay'
@@ -241,18 +291,15 @@ export function TasksModule() {
         : 'toàn bộ dữ liệu';
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 shadow-2xs sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-neutral-900">Công việc</h1>
-          <p className="mt-1 text-sm text-neutral-500">Quản lý việc cần làm, tiến độ và thời hạn.</p>
-        </div>
+    <div className={`space-y-3 transition-[padding] ${editingTask ? 'sm:pr-[380px] xl:pr-[420px] 2xl:pr-[460px]' : ''}`}>
+      <div className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-2xs sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold text-neutral-900">Công việc</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-xl border border-neutral-200 bg-neutral-50 p-1" aria-label="Chế độ hiển thị">
+          <div className="flex rounded-xl border border-neutral-200 bg-neutral-50 p-1" aria-label="Chế độ hiển thị công việc">
             <button
               type="button"
               aria-pressed={!showReport && viewMode === 'board'}
-              onClick={() => { setShowReport(false); setViewMode('board'); setStatusFilter('all'); }}
+              onClick={() => { setShowReport(false); setViewMode('board'); }}
               className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium ${!showReport && viewMode === 'board' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}
             >
               <LayoutGrid className="h-4 w-4" /> Bảng
@@ -265,21 +312,16 @@ export function TasksModule() {
             >
               <List className="h-4 w-4" /> Danh sách
             </button>
-            <button
-              type="button"
-              aria-pressed={showReport}
-              onClick={() => setShowReport(true)}
-              className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium ${showReport ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}
-            >
-              <BarChart3 className="h-4 w-4" /> Báo cáo
-            </button>
           </div>
-          {canWrite && <Button onClick={openCreateForm} className="gap-2"><Plus className="h-4 w-4" /> Tạo công việc</Button>}
+          <Button type="button" variant={showReport ? 'secondary' : 'outline'} size="sm" aria-pressed={showReport} onClick={() => setShowReport((value) => !value)} className="h-9 gap-2">
+            <BarChart3 className="h-4 w-4" /> Báo cáo
+          </Button>
+          {canWrite && <Button onClick={openCreateForm} size="sm" className="h-9 gap-2"><Plus className="h-4 w-4" /> Tạo</Button>}
         </div>
       </div>
 
       {error && (
-        <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
           <span className="flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</span>
           <Button variant="ghost" size="sm" onClick={() => void fetchTasks()}>Thử lại</Button>
         </div>
@@ -304,30 +346,30 @@ export function TasksModule() {
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             <div className="rounded-xl bg-neutral-50 p-3"><span className="text-xs text-neutral-500">Tổng công việc</span><strong className="mt-1 block text-xl text-neutral-900">{report.total}</strong></div>
-            <div className="rounded-xl bg-emerald-50 p-3"><span className="text-xs text-emerald-700">Đã hoàn thành</span><strong className="mt-1 block text-xl text-emerald-800">{report.completed}</strong></div>
+            <div className="rounded-xl bg-emerald-50 p-3"><span className="text-xs text-emerald-700">Hoàn thành</span><strong className="mt-1 block text-xl text-emerald-800">{report.completed}</strong></div>
             <div className="rounded-xl bg-blue-50 p-3"><span className="text-xs text-blue-700">Đang thực hiện</span><strong className="mt-1 block text-xl text-blue-800">{report.inProgress}</strong></div>
             <div className="rounded-xl bg-amber-50 p-3"><span className="text-xs text-amber-700">Cần làm</span><strong className="mt-1 block text-xl text-amber-800">{report.todo}</strong></div>
             <div className="rounded-xl bg-rose-50 p-3"><span className="text-xs text-rose-700">Quá hạn</span><strong className="mt-1 block text-xl text-rose-800">{report.overdue}</strong></div>
           </div>
-          <p className="mt-3 text-sm text-neutral-600">Đã hoàn thành <strong>{report.completed}/{report.total}</strong> công việc trong {reportPeriodLabel} — <strong>{report.completionRate}%</strong></p>
+          <p className="mt-3 text-sm text-neutral-600">Hoàn thành <strong>{report.completed}/{report.total}</strong> công việc trong {reportPeriodLabel} — <strong>{report.completionRate}%</strong></p>
         </section>
       ) : (
         <>
           <section className="rounded-xl border border-neutral-200 bg-white px-3 py-2 shadow-2xs" aria-labelledby="task-attention-title">
             <div className="flex flex-wrap items-center gap-2">
               <div className="mr-1 flex items-center gap-2 text-sm font-semibold text-neutral-900">
-                <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                <AlertTriangle className={`h-4 w-4 ${attentionCounts.today + attentionCounts.next7 + attentionCounts.overdue + attentionCounts.high > 0 ? 'text-amber-600' : 'text-neutral-400'}`} aria-hidden="true" />
                 <h2 id="task-attention-title">Cần chú ý</h2>
               </div>
-              <button type="button" aria-pressed={activeAttention === 'today'} onClick={() => applyAttentionFilter('today')} className={smartFilterClass(activeAttention === 'today')}>Hôm nay <strong className="ml-1 tabular-nums">{todayCount}</strong></button>
-              <button type="button" aria-pressed={activeAttention === 'week'} onClick={() => applyAttentionFilter('week')} className={smartFilterClass(activeAttention === 'week')}>Tuần này <strong className="ml-1 tabular-nums">{weekCount}</strong></button>
-              <button type="button" aria-pressed={activeAttention === 'overdue'} onClick={() => applyAttentionFilter('overdue')} className={`${smartFilterClass(activeAttention === 'overdue')} ${overdueCount > 0 && activeAttention !== 'overdue' ? 'text-rose-700' : ''}`}>Quá hạn <strong className="ml-1 tabular-nums">{overdueCount}</strong></button>
-              <button type="button" aria-pressed={activeAttention === 'high'} onClick={() => applyAttentionFilter('high')} className={smartFilterClass(activeAttention === 'high')}>Ưu tiên cao <strong className="ml-1 tabular-nums">{highPriorityCount}</strong></button>
+              <button type="button" aria-pressed={activeAttention === 'today'} onClick={() => applyAttentionFilter('today')} className={smartFilterClass(activeAttention === 'today')}>Hôm nay <strong className="ml-1 tabular-nums">{attentionCounts.today}</strong></button>
+              <button type="button" aria-pressed={activeAttention === 'next7'} onClick={() => applyAttentionFilter('next7')} className={smartFilterClass(activeAttention === 'next7')}>7 ngày tới <strong className="ml-1 tabular-nums">{attentionCounts.next7}</strong></button>
+              <button type="button" aria-pressed={activeAttention === 'overdue'} onClick={() => applyAttentionFilter('overdue')} className={`${smartFilterClass(activeAttention === 'overdue')} ${attentionCounts.overdue > 0 && activeAttention !== 'overdue' ? 'text-rose-700' : ''}`}>Quá hạn <strong className="ml-1 tabular-nums">{attentionCounts.overdue}</strong></button>
+              <button type="button" aria-pressed={activeAttention === 'high'} onClick={() => applyAttentionFilter('high')} className={smartFilterClass(activeAttention === 'high')}>Ưu tiên cao <strong className="ml-1 tabular-nums">{attentionCounts.high}</strong></button>
             </div>
           </section>
 
           <div className="rounded-xl border border-neutral-200 bg-white p-3">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <label className="relative min-w-0 basis-full md:basis-64 md:flex-1">
                 <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-neutral-400" />
                 <span className="sr-only">Tìm công việc</span>
@@ -351,7 +393,7 @@ export function TasksModule() {
               <select aria-label="Lọc theo hạn" value={dueFilter} onChange={(event) => setDueFilter(event.target.value as DueFilter)} className="min-w-40 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm sm:flex-none">
                 <option value="all">Mọi thời hạn</option>
                 <option value="today">Hôm nay</option>
-                <option value="week">Tuần này</option>
+                <option value="next7">7 ngày tới</option>
                 <option value="overdue">Quá hạn</option>
               </select>
               <select aria-label="Sắp xếp công việc" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="min-w-40 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm sm:flex-none">
@@ -359,6 +401,12 @@ export function TasksModule() {
                 <option value="priority">Ưu tiên cao trước</option>
                 <option value="newest">Mới tạo trước</option>
               </select>
+              <span className="ml-auto whitespace-nowrap text-xs text-neutral-500">{visibleTasks.length}/{tasks.length} công việc</span>
+              {hasActiveFilters && (
+                <Button type="button" variant="ghost" size="sm" onClick={clearFilters} className="h-9 gap-1.5 text-neutral-600">
+                  <X className="h-3.5 w-3.5" /> Xóa bộ lọc
+                </Button>
+              )}
             </div>
           </div>
 
@@ -381,12 +429,12 @@ export function TasksModule() {
                 const overdue = isTaskOverdue(task);
                 return (
                   <article key={task.id} onClick={() => openTaskDetail(task)} className={`flex cursor-pointer gap-3 rounded-xl border bg-white p-4 transition-shadow hover:shadow-sm ${overdue ? 'border-rose-200' : 'border-neutral-200'}`}>
-                    <button type="button" disabled={!canWrite || busyId === task.id} aria-label={task.status === 'completed' ? `Mở lại ${task.title}` : `Hoàn thành ${task.title}`} onClick={(event) => { event.stopPropagation(); void setCompletion(task); }} className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 ${task.status === 'completed' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-neutral-300 bg-white'}`}>
+                    <button type="button" disabled={!canWrite || busyId === task.id} aria-label={task.status === 'completed' ? `Mở lại ${task.title}` : `Hoàn thành ${task.title}`} onClick={(event) => { event.stopPropagation(); void setCompletion(task); }} className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 ${task.status === 'completed' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-neutral-300 bg-white'}`}>
                       {task.status === 'completed' && <CheckCircle2 className="h-4 w-4" />}
                     </button>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className={`text-sm font-semibold ${task.status === 'completed' ? 'text-neutral-400 line-through' : 'text-neutral-900'}`}>{task.title}</h3>
+                        <h3 className={`text-sm font-semibold ${task.status === 'completed' ? 'text-neutral-600' : 'text-neutral-900'}`}>{task.title}</h3>
                         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{statusLabel[task.status]}</span>
                         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{priorityLabel[task.priority]}</span>
                       </div>
@@ -416,7 +464,7 @@ export function TasksModule() {
       )}
 
       <TaskFormModal isOpen={isFormOpen} onClose={closeCreateForm} onSave={createTask} saving={busyId === 'new'} error={formError} />
-      <TaskDetailPanel task={editingTask} canWrite={canWrite} canDelete={canDelete} saving={Boolean(editingTask && busyId === editingTask.id)} error={formError} onClose={closeTaskDetail} onSave={saveTask} onDelete={(task) => setDeleteTask(task)} />
+      <TaskDetailPanel task={editingTask} canWrite={canWrite} canDelete={canDelete} saving={Boolean(editingTask && busyId === editingTask.id)} error={formError} onClose={closeTaskDetail} onSave={saveTask} onDelete={(task) => setDeleteTask(task)} onDirtyChange={setDetailDirty} />
 
       {deleteTask && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="delete-task-title">

@@ -98,12 +98,12 @@ export function AppShell({ children }: AppShellProps) {
     <div className="h-screen w-screen flex min-h-0 flex-col bg-neutral-100 text-neutral-900 overflow-hidden font-sans antialiased">
       <NavigationSync />
       <div className="min-h-0 flex-1 flex overflow-hidden">
-        <div className="hidden lg:flex shrink-0">
+        <div className="hidden min-[1400px]:flex shrink-0">
           <ModuleSidebar collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)} />
         </div>
 
         {mobileSidebarOpen && (
-          <div className="fixed inset-0 z-50 flex lg:hidden" role="dialog" aria-modal="true" aria-label="Điều hướng chính">
+          <div className="fixed inset-0 z-50 flex min-[1400px]:hidden" role="dialog" aria-modal="true" aria-label="Điều hướng chính">
             <button type="button" aria-label="Đóng điều hướng" className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setMobileSidebarOpen(false)} />
             <div className="relative z-50 h-full"><ModuleSidebar collapsed={false} onToggleCollapse={() => {}} isMobile onCloseMobile={() => setMobileSidebarOpen(false)} /></div>
           </div>

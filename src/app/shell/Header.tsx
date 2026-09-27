@@ -1,7 +1,6 @@
 import React from 'react';
-import { useLocation, useNavigate } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import { useContextStore } from '../../core/context/contextStore';
-import { moduleRegistry } from '../../core/modules/moduleRegistry';
 import { Button } from '../../components/ui/Button';
 import { Menu, Bot, Search, Sliders, X, Command } from 'lucide-react';
 import { UserAuth } from '../../components/UserAuth';
@@ -13,25 +12,28 @@ interface HeaderProps {
   onOpenCommandPalette: () => void;
 }
 
+function selectedEntityText(entity: ReturnType<typeof useContextStore.getState>['selectedEntity']): string | null {
+  if (!entity) return null;
+  const typeLabel = entity.moduleId === 'tasks' && entity.entityType === 'task' ? 'Công việc' : entity.entityType;
+  return `${typeLabel} · ${entity.label || entity.entityId}`;
+}
+
 export function Header({ onOpenMobileSidebar, onToggleAgent, agentOpen, onOpenCommandPalette }: HeaderProps) {
   const selectedEntity = useContextStore(s => s.selectedEntity);
   const setSelectedEntity = useContextStore(s => s.setSelectedEntity);
-  const location = useLocation();
   const navigate = useNavigate();
-  const activeModuleId = moduleRegistry.resolveModuleByPath(location.pathname);
-  const displayTitle = moduleRegistry.resolve(activeModuleId)?.meta?.name || 'Không gian làm việc';
+  const contextLabel = selectedEntityText(selectedEntity);
 
   return (
     <header className="h-14 border-b border-neutral-200 bg-white px-4 flex items-center justify-between gap-3 shrink-0 z-10">
       <div className="flex items-center gap-3 min-w-0">
-        <Button variant="ghost" size="icon" onClick={onOpenMobileSidebar} aria-label="Mở điều hướng" aria-controls="primary-navigation" className="lg:hidden h-8 w-8 text-neutral-600"><Menu className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" onClick={onOpenMobileSidebar} aria-label="Mở điều hướng" aria-controls="primary-navigation" className="min-[1400px]:hidden h-8 w-8 text-neutral-600"><Menu className="h-4 w-4" /></Button>
         <div className="flex items-center gap-2 min-w-0 text-xs">
-          <span className="font-semibold text-neutral-900 truncate">{displayTitle}</span>
-          {selectedEntity && (
-            <div className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px]">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-              <span className="font-semibold truncate max-w-[140px]">Đang chọn mục</span>
-              <button type="button" onClick={() => setSelectedEntity(null)} aria-label="Bỏ chọn mục" className="hover:text-rose-600 p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 rounded"><X className="h-3 w-3" /></button>
+          {selectedEntity && contextLabel && (
+            <div className="hidden sm:inline-flex max-w-[300px] items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden="true" />
+              <span className="font-semibold truncate">{contextLabel}</span>
+              <button type="button" onClick={() => setSelectedEntity(null)} aria-label={`Bỏ ngữ cảnh ${contextLabel}`} className="shrink-0 hover:text-rose-600 p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 rounded"><X className="h-3 w-3" /></button>
             </div>
           )}
         </div>

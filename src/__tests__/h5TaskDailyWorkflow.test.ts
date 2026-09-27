@@ -20,7 +20,7 @@ describe('H5 Personal Task Daily Workflow contract', () => {
   it('provides the compact attention center and secondary report without a new backend subsystem', () => {
     const moduleSource = read('src/modules/tasks/TasksModule.tsx');
     expect(moduleSource).toContain('Cần chú ý');
-    expect(moduleSource).toContain('Tuần này');
+    expect(moduleSource).toContain('7 ngày tới');
     expect(moduleSource).toContain('Ưu tiên cao');
     expect(moduleSource).toContain('Báo cáo công việc');
     expect(moduleSource).toContain('buildTaskReport');
@@ -32,15 +32,16 @@ describe('H5 Personal Task Daily Workflow contract', () => {
     const board = read('src/modules/tasks/TaskBoard.tsx');
     const moduleSource = read('src/modules/tasks/TasksModule.tsx');
     const detail = read('src/modules/tasks/TaskDetailPanel.tsx');
+    const form = read('src/modules/tasks/TaskFormModal.tsx');
     expect(board).toContain('getBoardTaskProjection');
     expect(board).toContain('Xem thêm');
     expect(moduleSource).toContain('Danh sách');
     expect(moduleSource).toContain('buildTaskReport');
-    expect(detail).toContain('Hạn giờ');
-    expect(detail).toContain('Ngày tạo');
-    expect(detail).toContain('Cập nhật lúc');
-    expect(detail).toContain('Hoàn thành lúc');
-    expect(detail).toContain('type="time"');
+    expect(form).toContain('Giờ hạn');
+    expect(detail).toContain('>Tạo<');
+    expect(detail).toContain('>Cập nhật<');
+    expect(detail).toContain('>Hoàn thành<');
+    expect(form).toContain('type="time"');
   });
 
   it('keeps exactly three canonical statuses and no drag-and-drop dependency', () => {

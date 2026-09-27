@@ -1,5 +1,6 @@
 export type TaskUtilityStatus = 'todo' | 'in-progress' | 'completed';
 export type TaskUtilityPriority = 'low' | 'medium' | 'high';
+export type TaskAttentionFilter = 'today' | 'next7' | 'overdue' | 'high';
 
 export type TaskUtilityItem = {
   id: string;
@@ -28,6 +29,10 @@ function getLocalTimeKey(value: Date): string {
 
 function isDateKey(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isTimeKey(value?: string): value is string {
+  return typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
 function addDays(dateKey: string, days: number): string {
@@ -62,6 +67,57 @@ export function isTaskOverdue(task: Pick<TaskUtilityItem, 'status' | 'dueDate' |
 
 export function isHighPriorityOpenTask(task: Pick<TaskUtilityItem, 'status' | 'priority'>): boolean {
   return task.status !== 'completed' && task.priority === 'high';
+}
+
+export function matchesTaskAttention(
+  task: Pick<TaskUtilityItem, 'status' | 'priority' | 'dueDate' | 'dueTime'>,
+  filter: TaskAttentionFilter,
+  now = new Date(),
+): boolean {
+  if (filter === 'today') return isTaskDueToday(task, now);
+  if (filter === 'next7') return isTaskDueInNextSevenDays(task, now);
+  if (filter === 'overdue') return isTaskOverdue(task, now);
+  return isHighPriorityOpenTask(task);
+}
+
+export function getTaskAttentionCounts<T extends Pick<TaskUtilityItem, 'status' | 'priority' | 'dueDate' | 'dueTime'>>(
+  tasks: T[],
+  now = new Date(),
+) {
+  return {
+    today: tasks.filter((task) => matchesTaskAttention(task, 'today', now)).length,
+    next7: tasks.filter((task) => matchesTaskAttention(task, 'next7', now)).length,
+    overdue: tasks.filter((task) => matchesTaskAttention(task, 'overdue', now)).length,
+    high: tasks.filter((task) => matchesTaskAttention(task, 'high', now)).length,
+  };
+}
+
+/**
+ * Compares canonical local date/time strings without timezone conversion.
+ * A date without an explicit time sorts after timed tasks on the same date.
+ */
+export function compareTaskDeadlines(
+  a: Pick<TaskUtilityItem, 'dueDate' | 'dueTime'>,
+  b: Pick<TaskUtilityItem, 'dueDate' | 'dueTime'>,
+): number {
+  const aHasDate = isDateKey(a.dueDate);
+  const bHasDate = isDateKey(b.dueDate);
+  if (!aHasDate && !bHasDate) return 0;
+  if (!aHasDate) return 1;
+  if (!bHasDate) return -1;
+
+  const dateOrder = a.dueDate.localeCompare(b.dueDate);
+  if (dateOrder !== 0) return dateOrder;
+
+  const aTime = isTimeKey(a.dueTime) ? a.dueTime : '23:59';
+  const bTime = isTimeKey(b.dueTime) ? b.dueTime : '23:59';
+  return aTime.localeCompare(bTime);
+}
+
+export function getPrimaryTaskStatusAction(status: TaskUtilityStatus): { label: string; status: TaskUtilityStatus } {
+  if (status === 'todo') return { label: 'Bắt đầu', status: 'in-progress' };
+  if (status === 'in-progress') return { label: 'Hoàn thành', status: 'completed' };
+  return { label: 'Mở lại', status: 'todo' };
 }
 
 export function getBoardTaskProjection<T extends TaskUtilityItem>(
