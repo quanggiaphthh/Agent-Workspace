@@ -141,7 +141,7 @@ export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = 
             disabled={disabled}
             value={form.dueDate}
             onChange={(event) => updateDueDate(event.target.value)}
-            className={`${fieldControlClass} [min-inline-size:0]`}
+            className={`${fieldControlClass} block h-11 [inline-size:100%] [min-inline-size:0] [max-inline-size:100%] [-webkit-appearance:none] [appearance:none]`}
           />
         </label>
         <label className={fieldLabelClass}>
@@ -152,7 +152,7 @@ export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = 
             aria-describedby={!form.dueDate ? dueTimeHelpId : undefined}
             value={form.dueDate ? form.dueTime : ''}
             onChange={(event) => update({ dueTime: event.target.value })}
-            className={`${fieldControlClass} [min-inline-size:0]`}
+            className={`${fieldControlClass} block h-11 [inline-size:100%] [min-inline-size:0] [max-inline-size:100%] [-webkit-appearance:none] [appearance:none]`}
           />
           {!form.dueDate && <span id={dueTimeHelpId} className="sr-only">Chọn hạn ngày trước để đặt giờ</span>}
         </label>
