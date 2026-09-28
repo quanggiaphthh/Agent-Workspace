@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/Button';
 import type { TaskFormValue } from './TaskFormModal';
 import {
   formatTaskDeadline,
-  formatTaskTimestamp,
+  formatCompactTaskTimestamp,
   getBoardTaskProjection,
   getPrimaryTaskStatusAction,
   isTaskOverdue,
@@ -239,7 +239,7 @@ export function TaskBoard({ tasks, canWrite, canDelete, busyId, onOpenTask, onMo
                         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs">
                           {task.priority === 'high' && <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-800 ring-1 ring-amber-100">Ưu tiên {priorityLabel[task.priority].toLowerCase()}</span>}
                           {task.category && <span className="text-neutral-400">{task.category}</span>}
-                          {task.status === 'completed' && task.completedAt && <span className="text-neutral-400">Hoàn thành {formatTaskTimestamp(task.completedAt)}</span>}
+                          {task.status === 'completed' && task.completedAt && <span className="text-neutral-400">Xong {formatCompactTaskTimestamp(task.completedAt)}</span>}
                         </div>
                       </button>
 

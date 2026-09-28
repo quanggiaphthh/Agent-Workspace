@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTaskReport,
+  formatCompactTaskTimestamp,
   getBoardTaskProjection,
   isHighPriorityOpenTask,
   isTaskDueInNextSevenDays,
@@ -20,6 +21,10 @@ const task = (overrides: Partial<TaskUtilityItem> = {}): TaskUtilityItem => ({
 });
 
 describe('H5 personal Task daily workflow utilities', () => {
+  it('formats completed card metadata as a compact Vietnamese timestamp', () => {
+    expect(formatCompactTaskTimestamp('2026-09-27T20:04:00')).toBe('20:04 · 27/09/2026');
+  });
+
   it('classifies today, seven-day horizon, overdue and high-priority Tasks', () => {
     expect(isTaskDueToday(task({ dueDate: '2026-09-26' }), now)).toBe(true);
     expect(isTaskDueToday(task({ status: 'completed', dueDate: '2026-09-26' }), now)).toBe(false);

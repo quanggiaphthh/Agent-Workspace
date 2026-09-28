@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 
@@ -19,6 +19,7 @@ interface TaskFormModalProps {
   initialTask?: TaskFormValue | null;
   saving?: boolean;
   error?: string | null;
+  restoreFocusTo?: HTMLElement | null;
 }
 
 type TaskFieldsProps = {
@@ -64,6 +65,7 @@ export function isTaskFormDirty(current: TaskFormValue, saved: TaskFormValue): b
 
 export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = false, notesRows = 4, stackedDate = false }: TaskFieldsProps) {
   const categorySuggestionsId = useId();
+  const dueTimeHelpId = useId();
   const update = (patch: Partial<TaskFormValue>) => onChange({ ...form, ...patch });
   const updateDueDate = (dueDate: string) => onChange({ ...form, dueDate, dueTime: dueDate ? form.dueTime : '' });
 
@@ -147,10 +149,12 @@ export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = 
           <input
             type="time"
             disabled={disabled || !form.dueDate}
+            aria-describedby={!form.dueDate ? dueTimeHelpId : undefined}
             value={form.dueDate ? form.dueTime : ''}
             onChange={(event) => update({ dueTime: event.target.value })}
             className={`${fieldControlClass} [min-inline-size:0]`}
           />
+          {!form.dueDate && <span id={dueTimeHelpId} className="sr-only">Chọn hạn ngày trước để đặt giờ</span>}
         </label>
       </div>
 
@@ -170,19 +174,47 @@ export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = 
   );
 }
 
-export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = false, error = null }: TaskFormModalProps) {
+export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = false, error = null, restoreFocusTo = null }: TaskFormModalProps) {
   const [form, setForm] = useState<TaskFormValue>({ ...EMPTY_TASK_FORM });
+  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (isOpen) setForm({ ...(initialTask ?? EMPTY_TASK_FORM) });
   }, [isOpen, initialTask]);
 
+  // The opener is captured by TasksModule before setIsFormOpen(true), so React autoFocus
+  // cannot overwrite the element that must receive focus when this modal closes.
+  useEffect(() => {
+    if (!isOpen) return;
+    return () => {
+      if (restoreFocusTo?.isConnected) requestAnimationFrame(() => restoreFocusTo.focus());
+    };
+  }, [isOpen, restoreFocusTo]);
+
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || saving) return;
-      event.preventDefault();
-      onClose();
+      if (event.key === 'Escape') {
+        if (saving) return;
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? []).filter((element) => !element.hasAttribute('hidden'));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialogRef.current?.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialogRef.current?.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -209,7 +241,7 @@ export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = f
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="task-form-title">
       <button type="button" aria-label="Đóng biểu mẫu công việc" className="fixed inset-0 bg-slate-950/35 backdrop-blur-[1px]" onClick={saving ? undefined : onClose} />
-      <div className="relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
+      <div ref={dialogRef} className="relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-100 px-4 py-3 sm:px-5 sm:py-4">
           <div className="min-w-0">
             <h2 id="task-form-title" className="text-base font-semibold text-slate-950">{initialTask ? 'Chỉnh sửa công việc' : 'Tạo công việc'}</h2>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, AlertTriangle, BarChart3, Calendar, CheckCircle2, CheckSquare, LayoutGrid, List, Plus, Search, Trash2, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { TaskFormModal, type TaskFormValue } from './TaskFormModal';
@@ -55,6 +55,7 @@ export function TasksModule() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [deleteTask, setDeleteTask] = useState<TaskItem | null>(null);
   const [detailDirty, setDetailDirty] = useState(false);
+  const createFormReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const syncSelectedTaskContext = (loadedTasks: TaskItem[]) => {
     const context = useContextStore.getState();
@@ -94,7 +95,11 @@ export function TasksModule() {
     if (payload?.target === 'tasks' || payload?.target === 'current') void fetchTasks();
   }), [user]);
 
-  const openCreateForm = () => { setFormError(null); setIsFormOpen(true); };
+  const openCreateForm = () => {
+    createFormReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setFormError(null);
+    setIsFormOpen(true);
+  };
   const closeCreateForm = () => { setIsFormOpen(false); setFormError(null); };
   const openTaskDetail = (task: TaskItem) => {
     if (editingTask && editingTask.id !== task.id && detailDirty && !window.confirm('Bạn có thay đổi chưa lưu. Chuyển sang công việc khác mà không lưu?')) return;
@@ -292,7 +297,7 @@ export function TasksModule() {
         : 'toàn bộ dữ liệu';
 
   return (
-    <div className={`space-y-3 transition-[padding] ${editingTask ? 'sm:pr-[390px] xl:pr-[420px] 2xl:pr-[440px]' : ''}`}>
+    <div className={`space-y-3 transition-[padding] ${editingTask ? '2xl:pr-[440px]' : ''}`}>
       <div className="flex flex-col gap-2.5 rounded-xl border border-neutral-200 bg-white p-3 shadow-2xs sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold tracking-tight text-slate-950">Công việc</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -473,7 +478,14 @@ export function TasksModule() {
         </>
       )}
 
-      <TaskFormModal isOpen={isFormOpen} onClose={closeCreateForm} onSave={createTask} saving={busyId === 'new'} error={formError} />
+      <TaskFormModal
+        isOpen={isFormOpen}
+        onClose={closeCreateForm}
+        onSave={createTask}
+        saving={busyId === 'new'}
+        error={formError}
+        restoreFocusTo={createFormReturnFocusRef.current}
+      />
       <TaskDetailPanel task={editingTask} canWrite={canWrite} canDelete={canDelete} saving={Boolean(editingTask && busyId === editingTask.id)} error={formError} onClose={closeTaskDetail} onSave={saveTask} onDelete={(task) => setDeleteTask(task)} onDirtyChange={setDetailDirty} />
 
       {deleteTask && (

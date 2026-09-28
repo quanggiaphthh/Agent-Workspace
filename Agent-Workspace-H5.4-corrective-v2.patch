@@ -1,0 +1,155 @@
+diff --git a/src/modules/tasks/TasksModule.tsx b/src/modules/tasks/TasksModule.tsx
+--- a/src/modules/tasks/TasksModule.tsx
++++ b/src/modules/tasks/TasksModule.tsx
+@@
+-import React, { useEffect, useMemo, useState } from 'react';
++import React, { useEffect, useMemo, useRef, useState } from 'react';
+@@
+   const [deleteTask, setDeleteTask] = useState<TaskItem | null>(null);
+   const [detailDirty, setDetailDirty] = useState(false);
++  const createFormReturnFocusRef = useRef<HTMLElement | null>(null);
+@@
+-  const openCreateForm = () => { setFormError(null); setIsFormOpen(true); };
++  const openCreateForm = () => {
++    createFormReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
++    setFormError(null);
++    setIsFormOpen(true);
++  };
+@@
+-    <div className={`space-y-3 transition-[padding] ${editingTask ? 'sm:pr-[390px] xl:pr-[420px] 2xl:pr-[440px]' : ''}`}>
++    <div className={`space-y-3 transition-[padding] ${editingTask ? '2xl:pr-[440px]' : ''}`}>
+@@
+-      <TaskFormModal isOpen={isFormOpen} onClose={closeCreateForm} onSave={createTask} saving={busyId === 'new'} error={formError} />
++      <TaskFormModal
++        isOpen={isFormOpen}
++        onClose={closeCreateForm}
++        onSave={createTask}
++        saving={busyId === 'new'}
++        error={formError}
++        restoreFocusTo={createFormReturnFocusRef.current}
++      />
+diff --git a/src/modules/tasks/taskUtils.ts b/src/modules/tasks/taskUtils.ts
+--- a/src/modules/tasks/taskUtils.ts
++++ b/src/modules/tasks/taskUtils.ts
+@@
+ export function formatTaskTimestamp(value?: string | null): string {
+   if (!value) return '—';
+   const parsed = new Date(value);
+   if (Number.isNaN(parsed.getTime())) return '—';
+   return new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed);
+ }
++
++export function formatCompactTaskTimestamp(value?: string | null): string {
++  if (!value) return '—';
++  const parsed = new Date(value);
++  if (Number.isNaN(parsed.getTime())) return '—';
++  const time = new Intl.DateTimeFormat('vi-VN', {
++    hour: '2-digit',
++    minute: '2-digit',
++    hour12: false,
++  }).format(parsed);
++  const date = new Intl.DateTimeFormat('vi-VN', {
++    day: '2-digit',
++    month: '2-digit',
++    year: 'numeric',
++  }).format(parsed);
++  return `${time} · ${date}`;
++}
+diff --git a/src/modules/tasks/TaskBoard.tsx b/src/modules/tasks/TaskBoard.tsx
+--- a/src/modules/tasks/TaskBoard.tsx
++++ b/src/modules/tasks/TaskBoard.tsx
+@@
+ import {
+   formatTaskDeadline,
+-  formatTaskTimestamp,
++  formatCompactTaskTimestamp,
+   getBoardTaskProjection,
+@@
+-                          {task.status === 'completed' && task.completedAt && <span className="text-neutral-400">Hoàn thành {formatTaskTimestamp(task.completedAt)}</span>}
++                          {task.status === 'completed' && task.completedAt && <span className="text-neutral-400">Xong {formatCompactTaskTimestamp(task.completedAt)}</span>}
+                         </div>
+diff --git a/src/modules/tasks/TaskFormModal.tsx b/src/modules/tasks/TaskFormModal.tsx
+--- a/src/modules/tasks/TaskFormModal.tsx
++++ b/src/modules/tasks/TaskFormModal.tsx
+@@
+-import React, { useEffect, useId, useState } from 'react';
++import React, { useEffect, useId, useRef, useState } from 'react';
+@@
+ export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = false, notesRows = 4, stackedDate = false }: TaskFieldsProps) {
+   const categorySuggestionsId = useId();
++  const dueTimeHelpId = useId();
+@@
+           <input
+             type="time"
+             disabled={disabled || !form.dueDate}
++            aria-describedby={!form.dueDate ? dueTimeHelpId : undefined}
+             value={form.dueDate ? form.dueTime : ''}
+@@
+             className={`${fieldControlClass} [min-inline-size:0]`}
+           />
++          {!form.dueDate && <span id={dueTimeHelpId} className="sr-only">Chọn hạn ngày trước để đặt giờ</span>}
+         </label>
+@@
+ export function TaskFormModal({ isOpen, onClose, onSave, initialTask, saving = false, error = null, restoreFocusTo = null }: TaskFormModalProps) {
+   const [form, setForm] = useState<TaskFormValue>({ ...EMPTY_TASK_FORM });
++  const dialogRef = useRef<HTMLDivElement | null>(null);
+@@
+   useEffect(() => {
+     if (isOpen) setForm({ ...(initialTask ?? EMPTY_TASK_FORM) });
+   }, [isOpen, initialTask]);
++
++  // The opener is captured by TasksModule before setIsFormOpen(true), so React autoFocus
++  // cannot overwrite the element that must receive focus when this modal closes.
++  useEffect(() => {
++    if (!isOpen) return;
++    return () => {
++      if (restoreFocusTo?.isConnected) requestAnimationFrame(() => restoreFocusTo.focus());
++    };
++  }, [isOpen, restoreFocusTo]);
+ 
+   useEffect(() => {
+     if (!isOpen) return;
+     const handleKeyDown = (event: KeyboardEvent) => {
+-      if (event.key !== 'Escape' || saving) return;
+-      event.preventDefault();
+-      onClose();
++      if (event.key === 'Escape') {
++        if (saving) return;
++        event.preventDefault();
++        onClose();
++        return;
++      }
++      if (event.key !== 'Tab') return;
++      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
++        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
++      ) ?? []).filter((element) => !element.hasAttribute('hidden'));
++      if (focusable.length === 0) return;
++      const first = focusable[0];
++      const last = focusable[focusable.length - 1];
++      const active = document.activeElement;
++      if (event.shiftKey && (active === first || !dialogRef.current?.contains(active))) {
++        event.preventDefault();
++        last.focus();
++      } else if (!event.shiftKey && (active === last || !dialogRef.current?.contains(active))) {
++        event.preventDefault();
++        first.focus();
++      }
+     };
+@@
+-      <div className="relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
++      <div ref={dialogRef} className="relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
+diff --git a/src/modules/tasks/taskUtils.test.ts b/src/modules/tasks/taskUtils.test.ts
+--- a/src/modules/tasks/taskUtils.test.ts
++++ b/src/modules/tasks/taskUtils.test.ts
+@@
+ import {
+   buildTaskReport,
++  formatCompactTaskTimestamp,
+   getBoardTaskProjection,
+@@
+ describe('H5 personal Task daily workflow utilities', () => {
++  it('formats completed card metadata as a compact Vietnamese timestamp', () => {
++    expect(formatCompactTaskTimestamp('2026-09-27T20:04:00')).toBe('20:04 · 27/09/2026');
++  });
++
+   it('classifies today, seven-day horizon, overdue and high-priority Tasks', () => {
