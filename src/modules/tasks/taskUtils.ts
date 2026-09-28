@@ -28,7 +28,10 @@ function getLocalTimeKey(value: Date): string {
 }
 
 function isDateKey(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
 }
 
 function isTimeKey(value?: string): value is string {
@@ -140,32 +143,33 @@ export function getBoardTaskProjection<T extends TaskUtilityItem>(
   };
 }
 
-function isTaskInPeriod(task: TaskUtilityItem, period: TaskReportPeriod, now: Date): boolean {
-  if (period === 'all') return true;
-  const start = getLocalDateKey(now);
-  const end = addDays(start, period === 'today' ? 0 : period === '7d' ? 6 : 29);
-  const candidateDates = [
-    task.dueDate,
-    timestampDateKey(task.createdAt),
-    timestampDateKey(task.updatedAt),
-    timestampDateKey(task.completedAt),
-  ].filter((value): value is string => Boolean(value));
-  return candidateDates.some((date) => isDateKey(date) && date >= start && date <= end);
+export function buildTaskSnapshot(tasks: TaskUtilityItem[], now = new Date()) {
+  const todo = tasks.filter((task) => task.status === 'todo').length;
+  const inProgress = tasks.filter((task) => task.status === 'in-progress').length;
+  const completed = tasks.filter((task) => task.status === 'completed').length;
+  return {
+    total: tasks.length,
+    todo,
+    inProgress,
+    completed,
+    overdue: tasks.filter((task) => isTaskOverdue(task, now)).length,
+    highPriorityOpen: tasks.filter((task) => isHighPriorityOpenTask(task)).length,
+  };
 }
 
-export function buildTaskReport(tasks: TaskUtilityItem[], period: TaskReportPeriod, now = new Date()) {
-  const scopedTasks = tasks.filter((task) => isTaskInPeriod(task, period, now));
-  const completed = scopedTasks.filter((task) => task.status === 'completed').length;
-  const inProgress = scopedTasks.filter((task) => task.status === 'in-progress').length;
-  const todo = scopedTasks.filter((task) => task.status === 'todo').length;
-  const total = scopedTasks.length;
+function isDateInReportPeriod(dateKey: string | null, period: TaskReportPeriod, now: Date): boolean {
+  if (!dateKey || !isDateKey(dateKey)) return false;
+  if (period === 'all') return true;
+  const end = getLocalDateKey(now);
+  const start = period === 'today' ? end : addDays(end, period === '7d' ? -6 : -29);
+  return dateKey >= start && dateKey <= end;
+}
+
+export function buildTaskPeriodActivity(tasks: TaskUtilityItem[], period: TaskReportPeriod, now = new Date()) {
   return {
-    total,
-    completed,
-    inProgress,
-    todo,
-    overdue: scopedTasks.filter((task) => isTaskOverdue(task, now)).length,
-    completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+    created: tasks.filter((task) => isDateInReportPeriod(timestampDateKey(task.createdAt), period, now)).length,
+    completed: tasks.filter((task) => isDateInReportPeriod(timestampDateKey(task.completedAt), period, now)).length,
+    due: tasks.filter((task) => isDateInReportPeriod(task.dueDate, period, now)).length,
   };
 }
 
