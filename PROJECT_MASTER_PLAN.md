@@ -11,7 +11,8 @@
 > **H3 documentation closeout:** `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3`; closeout CI `36204398675` --- run #183 --- SUCCESS.
 > **H4 implementation/verification checkpoint:** `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d`; canonical CI `36214906016` --- run #190 --- SUCCESS.
 > **H4 closeout-evidence commit:** `a1d7c2778275ae11ccf47db4751b23920b82d2ff`; canonical CI `36215176584` --- run #191 --- SUCCESS.
-> **H5 implementation/verification checkpoint:** `59a49451652a287c91eee7d792410a2faf3d7f98`; targeted H5/H3 **124/124 PASS**; full Vitest **423/423 PASS**; lint, build, canonical QA and security QA **PASS**; W11 **15/15 PASS**; critical security findings **0**.
+> **H5 / Task Workspace final production checkpoint:** `66e212b9879d9cec4957af0deb1397974f648913` (`fix(tasks): allow clearing task deadline`).
+> **Final verification:** Task **37/37 PASS**; full Vitest **487/487 PASS** across **51/51 files**; lint/build **PASS**; QA Stage 1–5 **PASS** with **145 canonical checks**; W11 Security QA **15/15 PASS**; canonical security audit **PASS**; manifest **5/5 PASS**; real-iPad Safari acceptance **PASS**.
 > **Current milestone:** **MVP FINAL PASS / LOCKED; POST-MVP R1 FINAL PASS / LOCKED; POST-MVP R2 FINAL PASS / LOCKED; H1 FINAL PASS / LOCKED; H2 FINAL PASS / LOCKED; H3 FINAL PASS / LOCKED; H4 FINAL PASS / LOCKED; H5 FINAL PASS / LOCKED**.
 > **R3: NOT OPENED.**  
 > Documentation-only closeout commits do not replace implementation checkpoints.
@@ -95,7 +96,7 @@ A gate failure or unsupported seam requires STOP, not an architectural workaroun
 | H2 | **FINAL PASS / LOCKED** | bounded Agent Workspace UX at client/UI projection boundary; implementation `ef123bc2...`; Actions #179 SUCCESS; closeout #180 SUCCESS |
 | H3 | **FINAL PASS / LOCKED** | bounded post-MVP Personal Task Workspace UX improvement: Board/List dual view, 3 canonical statuses, smart filters, Quick Add, Task Detail side panel, canonical status workflow and responsive bounded UX; implementation `4761c128...`; Actions #182 SUCCESS; closeout #183 SUCCESS |
 | H4 | **FINAL PASS / LOCKED** | bounded security/data hardening: diagnostic identity exception removed; bounded Memory reads; chunked retry-safe owned-data cleanup; implementation `dbf17228...`; Actions #190 SUCCESS; closeout evidence #191 SUCCESS |
-| H5 | **FINAL PASS / LOCKED** | bounded Personal Task Daily Workflow enhancement: backward-compatible Task time metadata, attention center, bounded completed Board projection, report aggregation, Task Detail metadata and preserved List history; implementation `59a4945...`; targeted/full verification PASS |
+| H5 / Task Workspace | **FINAL PASS / LOCKED** | Board/List; three canonical statuses; Quick Add; Task Inspector; search/filter/sort; canonical Task CRUD; deadline/date/time workflow; Task Report snapshot and period activity; responsive desktop/iPad; runtime correctness hardening and real-iPad acceptance; production checkpoint `66e212b...` |
 
 Current deployed business capability inventory remains **12** --- Memory 2, Task 5, Web Search 1, UI 4.
 
@@ -240,21 +241,35 @@ H4 preserves the private single-owner architecture while removing the legacy Fir
 
 H4-B locks Memory results to default 50 / maximum 100 with a newest 500-document keyword candidate window and deterministic `createdAt desc` + document-ID ordering. H4-C deletes owned Task/Memory documents in repeated chunks of 400, propagates later failures and permits safe retry from remaining documents. No schema, dependency, search subsystem, product module or multi-user authority was added.
 
-### 7.8 H5 Personal Task Daily Workflow verification
+### 7.8 H5 / Task Workspace final verification
 
-**H5 --- FINAL PASS / LOCKED.**
+**H5 / TASK WORKSPACE --- FINAL PASS / LOCKED.**
 
-H5 is a bounded post-MVP enhancement within the existing private single-user Task/client projection boundary. It extends the canonical Task contract backward-compatibly with optional due time and server-authoritative completion metadata, while preserving legacy Task reads and ownership semantics. The workspace adds the compact **Cần chú ý** center, deterministic today/week/overdue/high-priority projections, a bounded recent-completed Board projection with List/history access, client-side work reporting, Task Detail metadata and due-time editing, and keeps the canonical three statuses, List search/filter/sort, canonical REST/Agent Task capabilities, and responsive Board/List UX.
+The existing single-user Task Workspace delivers Board/List dual view; exactly three canonical statuses (**Cần làm / Đang thực hiện / Hoàn thành**); Quick Add; Task Inspector; search/filter/sort; canonical Task CRUD; deadline/date/time workflow; Task Report current snapshot and period activity; and responsive desktop/iPad behavior. Runtime correctness hardening and real-iPad Safari acceptance are complete. No feature beyond the verified implementation is claimed here.
 
-H5 does not add a Task collection, status, Board entity, archive system, reporting backend, dependency, migration, persistence authority or runtime authority. Existing `UserDataService`, canonical REST routes, `ServerCapabilityRegistry`, permissions, HITL/idempotency and module authority remain canonical.
+Closed corrective themes are summarized as report semantic reconciliation; Inspector responsive correction; iPad native date/time geometry; focus lifecycle; stale-fetch/request authority; per-task pending operations; deadline persistence/normalization; temporal refresh; formatter safety; and the explicit **Xóa hạn** workflow.
 
 Final production checkpoint:
 
-`59a49451652a287c91eee7d792410a2faf3d7f98`
+`66e212b9879d9cec4957af0deb1397974f648913` — `fix(tasks): allow clearing task deadline`.
 
-Independent verification evidence: targeted H5/H3 **124/124 PASS**; full Vitest **423/423 PASS**; lint, build, canonical QA and security QA **PASS**; W11 Security QA **15/15 PASS**; critical security findings **0**. The timezone fixture corrective passed in the default checker timezone, UTC and `Asia/Ho_Chi_Minh`.
+Historical H5 implementation/verification checkpoint: `59a49451652a287c91eee7d792410a2faf3d7f98`. It remains milestone history and is superseded as the final Task Workspace production checkpoint by `66e212b9879d9cec4957af0deb1397974f648913`.
 
-Documentation-only reconciliation does not replace the H5 production checkpoint.
+Final verification evidence:
+
+- Targeted Task verification: **37/37 PASS**.
+- Full Vitest: **487/487 PASS**, across **51/51 files**.
+- `npm run lint`: **PASS**; `npm run build`: **PASS**.
+- QA Stage 1–5: **PASS**; canonical QA: **145 checks PASS**.
+- W11 Security QA: **15/15 PASS**; canonical security audit: **PASS**.
+- Manifest verification: **5/5 PASS**.
+- Real-iPad Safari acceptance: **PASS**, including deadline set, clear, disabled time control after clear, save, reopen, and deadline remaining empty.
+
+Task Workspace is locked. Reopen it only for a new runtime defect, an evidence-backed regression, or a clearly approved new milestone; cosmetic preference alone does not reopen it. This reconciliation does not open H4, R3, or another milestone.
+
+Security follow-up, independent of Task Workspace: the ADK/`adm-zip` corrective is **REMEDIATED**. Firebase/Firestore/gRPC advisory **GHSA-m9gg-hp2v-232j** remains in the dependency graph and is **TEMPORARILY ACCEPTED UNTIL 2026-10-31** under the bounded temporary policy exception. The canonical security gate is **PASS** under that exception; the advisory severity is unchanged and the advisory is not remediated.
+
+Documentation-only reconciliation does not replace the production checkpoint above.
 
 ### 7.9 Port / ingress deployment note
 
@@ -276,11 +291,11 @@ R2 live promotion and the live-evidence corrective verified provider-management 
 - H3 implementation/verification checkpoint: `4761c12888daf07dca0d8e12526bc812ca6dd467`.
 - H3 documentation closeout `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3` and closeout CI #183 are documentation evidence and do not redefine exact deployed-source SHA semantics. H3 Preview runtime/visual evidence is bounded evidence only, not production deployment/UAT.
 - H4 implementation checkpoint `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d` and closeout evidence `a1d7c2778275ae11ccf47db4751b23920b82d2ff` do not assert an exact current deployed-source SHA.
-- H5 implementation/verification checkpoint: `59a49451652a287c91eee7d792410a2faf3d7f98`. Any later documentation-only reconciliation commit does not replace this production checkpoint.
+- H5 / Task Workspace final production checkpoint: `66e212b9879d9cec4957af0deb1397974f648913`. Any later documentation-only reconciliation commit does not replace this production checkpoint.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and all production secrets across redeploy/rollback.
 - Source rollback does not automatically delete or revert Firestore/Storage data.
 - Security rules must be rolled back only with a source version known to be compatible with the target application checkpoint.
-- Keep the narrow ADK→adm-zip dependency exception under its documented expiry/review policy; do not use `npm audit fix --force` as a release shortcut.
+- ADK/`adm-zip` corrective: **REMEDIATED**. Track Firebase/Firestore/gRPC advisory **GHSA-m9gg-hp2v-232j** separately: it remains in the dependency graph and is **TEMPORARILY ACCEPTED UNTIL 2026-10-31** under the bounded temporary policy exception; canonical security gate **PASS**, severity unchanged. Do not use `npm audit fix --force` as a release shortcut.
 
 ## 10. Post-MVP boundary
 

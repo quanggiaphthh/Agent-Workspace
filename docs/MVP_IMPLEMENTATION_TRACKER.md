@@ -40,8 +40,8 @@
 - H4 implementation CI: `36214906016` --- run #190 --- **SUCCESS**.
 - H4 closeout-evidence commit: `a1d7c2778275ae11ccf47db4751b23920b82d2ff`.
 - H4 closeout-evidence CI: `36215176584` --- run #191 --- **SUCCESS**.
-- H5 implementation/verification checkpoint: `59a49451652a287c91eee7d792410a2faf3d7f98`.
-- H5 verification evidence: targeted H5/H3 **124/124 PASS**; full Vitest **423/423 PASS**; lint, build, canonical QA and security QA **PASS**; W11 Security QA **15/15 PASS**; critical security findings **0**.
+- H5 / Task Workspace final production checkpoint: `66e212b9879d9cec4957af0deb1397974f648913` (`fix(tasks): allow clearing task deadline`).
+- Final verification: targeted Task **37/37 PASS**; full Vitest **487/487 PASS** across **51/51 files**; lint/build **PASS**; QA Stage 1–5 **PASS**; canonical QA **145 checks PASS**; W11 Security QA **15/15 PASS**; canonical security audit **PASS**; manifest **5/5 PASS**; real-iPad Safari acceptance **PASS**.
 - GĐ1--GĐ4 / M1, W4--W12, R1, R2, H1, H2, H3, H4 and H5: **FINAL PASS / LOCKED**.
 - Current next gate: **None. No successor workstream is approved by this tracker.**
 - **R3: NOT OPENED.**
@@ -106,7 +106,7 @@ Do not reopen without a reproducible regression:
 - valid `YYYY-MM-DD` Task due-date validation at server/Agent boundaries;
 - production diagnostic Firebase test route unavailable;
 - HTTP security headers, payload limits, rate limiting and runtime health controls;
-- dependency high/critical CI policy with a narrow, expiring reviewed ADK/adm-zip exception;
+- dependency high/critical CI policy with the ADK/`adm-zip` corrective remediated and a separate bounded temporary policy exception for Firebase/Firestore/gRPC advisory GHSA-m9gg-hp2v-232j through 2026-10-31;
 - Task create/edit modal respects `isOpen` and does not auto-open when entering the Task module;
 - bounded Task cursor pagination while preserving complete current UI listing;
 - exact-title Task resolution with explicit `none | unique | ambiguous` outcome;
@@ -248,29 +248,35 @@ Closeout-evidence GitHub Actions run `36215176584` (#191): **SUCCESS**.
 
 See `docs/H4_SECURITY_DATA_BOUNDEDNESS_DESIGN.md`.
 
-## 11. H5 implementation and closeout evidence
+## 11. H5 / Task Workspace final implementation and closeout evidence
 
-**H5 --- FINAL PASS / LOCKED.**
+**H5 / TASK WORKSPACE --- FINAL PASS / LOCKED.**
 
-H5 is a bounded Personal Task Daily Workflow enhancement within the existing canonical Task module. It adds backward-compatible due-date/time and server-authoritative completion metadata, the compact **Cần chú ý** center, deterministic daily attention filters, bounded recent completed-task Board projection with accessible List history, client-side reporting, Task Detail metadata/due-time editing, and preserves the three canonical statuses, REST/Agent Task capabilities, List search/filter/sort, permissions and responsive Board/List UX.
+The existing single-user Task Workspace delivers Board/List dual view; exactly three canonical statuses (**Cần làm / Đang thực hiện / Hoàn thành**); Quick Add; Task Inspector; search/filter/sort; canonical Task CRUD; deadline/date/time workflow; Task Report current snapshot and period activity; responsive desktop/iPad behavior; runtime correctness hardening; and real-iPad Safari acceptance. No feature beyond the verified implementation is claimed here.
 
-The implementation reuses the existing `UserDataService`, canonical Task REST API, `ServerCapabilityRegistry`, `authFetch`, event bus, module authority, permissions, HITL and idempotency. It adds no dependency, migration, Firestore collection, status, reporting backend, parallel Task authority or runtime authority.
+Closed corrective themes are summarized as report semantic reconciliation; Inspector responsive correction; iPad native date/time geometry; focus lifecycle; stale-fetch/request authority; per-task pending operations; deadline persistence/normalization; temporal refresh; formatter safety; and the explicit **Xóa hạn** workflow.
 
-Production implementation/verification checkpoint:
+Final production checkpoint:
 
-`59a49451652a287c91eee7d792410a2faf3d7f98`
+`66e212b9879d9cec4957af0deb1397974f648913` — `fix(tasks): allow clearing task deadline`.
 
-Verification:
+Historical H5 implementation/verification checkpoint: `59a49451652a287c91eee7d792410a2faf3d7f98`. It remains milestone history and is superseded as the final Task Workspace production checkpoint by `66e212b9879d9cec4957af0deb1397974f648913`.
 
-- Targeted H5/H3: **124/124 PASS**.
-- Full Vitest: **423/423 PASS**.
-- Lint: **PASS**.
-- Build: **PASS**.
-- Canonical QA: **PASS**.
-- Security QA: **PASS**; W11 **15/15 PASS**; critical findings **0**.
-- Timezone corrective: **PASS** in default checker timezone, UTC and `Asia/Ho_Chi_Minh`.
+Final verification:
 
-Documentation-only reconciliation does not replace the production checkpoint. R3 remains unopened and no H6 workstream is opened.
+- Targeted Task verification: **37/37 PASS**.
+- Full Vitest: **487/487 PASS**, **51/51 files**.
+- `npm run lint`: **PASS**; `npm run build`: **PASS**.
+- QA Stage 1–5: **PASS**; canonical QA: **145 checks PASS**.
+- W11 Security QA: **15/15 PASS**; canonical security audit: **PASS**.
+- Manifest verification: **5/5 PASS**.
+- Real-iPad Safari acceptance: **PASS**, including deadline set, clear, disabled time control after clear, save, reopen, and deadline remaining empty.
+
+Task Workspace is locked. Reopen only for a new runtime defect, an evidence-backed regression, or a clearly approved new milestone; cosmetic preference alone does not reopen it. This documentation reconciliation does not open H4, R3, or another milestone.
+
+### Security follow-up (independent of Task Workspace)
+
+The ADK/`adm-zip` corrective is **REMEDIATED**. Firebase/Firestore/gRPC advisory **GHSA-m9gg-hp2v-232j** remains in the dependency graph and is **TEMPORARILY ACCEPTED UNTIL 2026-10-31** under the bounded temporary policy exception. The canonical security gate is **PASS** under that exception. The advisory severity is unchanged; this advisory is not remediated. This follow-up does not reopen Task Workspace.
 
 ## 12. Deployment / rollback anchor
 
@@ -280,7 +286,7 @@ Documentation-only reconciliation does not replace the production checkpoint. R3
 - H2 implementation/verification checkpoint is `ef123bc2fa7b20f5ffac11f4506a09c798d1dfa8`; H2 documentation closeout commit `2b979e0305a663c5d17a045d9c699230a4ca0cfb` is documentation evidence and does not redefine deployment SHA semantics.
 - H3 implementation/verification checkpoint is `4761c12888daf07dca0d8e12526bc812ca6dd467`; H3 documentation closeout commit `66a7bc195fd4f95bd2ab295dc3830464c76ce2a3` and closeout CI #183 are documentation evidence and do not redefine exact deployed-source SHA semantics.
 - H4 implementation checkpoint is `dbf17228ba7fe6182a20f962ba0ed3ed2f2b4d3d`; H4 documentation evidence does not assert that checkpoint is the exact currently deployed source.
-- H5 implementation/verification checkpoint is `59a49451652a287c91eee7d792410a2faf3d7f98`; later documentation-only reconciliation does not replace this production checkpoint.
+- H5 / Task Workspace final production checkpoint is `66e212b9879d9cec4957af0deb1397974f648913`; later documentation-only reconciliation does not replace this production checkpoint.
 - R2 live deployment was verified to contain R2 implementation behavior and passed Live Promotion; the available evidence does not independently establish an exact current deployed commit SHA.
 - Preserve `OWNER_UID`, `CREDENTIAL_ENCRYPTION_KEY`, key ID and other production secrets across redeploy/rollback.
 - Source rollback does not automatically revert or delete Firestore/Storage data.
