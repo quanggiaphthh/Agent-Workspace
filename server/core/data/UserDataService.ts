@@ -112,7 +112,8 @@ function toIso(value: unknown): string | null {
 }
 
 export function normalizeTaskData(id: string, data: DocumentData = {}): TaskRecord {
-  const dueTime = typeof data.dueTime === 'string' && isValidTaskDueTime(data.dueTime) && data.dueTime
+  const dueDate = typeof data.dueDate === 'string' && isValidTaskDueDate(data.dueDate) ? data.dueDate : '';
+  const dueTime = dueDate && typeof data.dueTime === 'string' && isValidTaskDueTime(data.dueTime) && data.dueTime
     ? data.dueTime
     : undefined;
   return {
@@ -120,15 +121,20 @@ export function normalizeTaskData(id: string, data: DocumentData = {}): TaskReco
     userId: String(data.userId || ''),
     title: String(data.title || ''),
     description: String(data.description || ''),
-    status: (data.status || 'todo') as TaskStatus,
-    priority: (data.priority || 'medium') as TaskPriority,
+    status: data.status === 'in-progress' || data.status === 'completed' ? data.status : 'todo',
+    priority: data.priority === 'low' || data.priority === 'high' ? data.priority : 'medium',
     category: String(data.category || 'Công việc'),
-    dueDate: String(data.dueDate || ''),
+    dueDate,
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
     ...(dueTime ? { dueTime } : {}),
     completedAt: toIso(data.completedAt),
   };
+}
+
+export function canonicalTaskDeadlinePatch<T extends { dueDate?: string; dueTime?: string }>(patch: T, currentDueDate: string): T {
+  const dueDate = patch.dueDate ?? currentDueDate;
+  return dueDate && isValidTaskDueDate(dueDate) ? patch : { ...patch, dueTime: '' };
 }
 
 function normalizeTask(doc: QueryDocumentSnapshot<DocumentData> | DocumentSnapshot<DocumentData>): TaskRecord {
@@ -294,7 +300,7 @@ export class UserDataService {
       priority: input.priority || 'medium',
       category: input.category || 'Công việc',
       dueDate: input.dueDate || '',
-      dueTime: input.dueTime || '',
+      dueTime: canonicalTaskDeadlinePatch(input, '').dueTime || '',
       createdAt: now,
       updatedAt: now,
       ...(status === 'completed' ? { completedAt: now } : {}),
@@ -309,7 +315,7 @@ export class UserDataService {
     const { ref, snap } = await getOwnedDoc('agent_tasks', id, userId);
     const now = Timestamp.now();
     const cleanPatch = Object.fromEntries(
-      Object.entries(buildTaskStatusPatch(patch, now, snap.get('status') as TaskStatus | undefined)).filter(([, value]) => value !== undefined)
+      Object.entries(buildTaskStatusPatch(canonicalTaskDeadlinePatch(patch, snap.get('dueDate') as string || ''), now, snap.get('status') as TaskStatus | undefined)).filter(([, value]) => value !== undefined)
     );
     await ref.update({ ...cleanPatch, updatedAt: now });
     return normalizeTask(await ref.get());

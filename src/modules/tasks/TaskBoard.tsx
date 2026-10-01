@@ -20,7 +20,7 @@ type TaskBoardProps = {
   tasks: TaskItem[];
   canWrite: boolean;
   canDelete: boolean;
-  busyId: string | null;
+  isBusy: (id: string) => boolean;
   onOpenTask: (task: TaskItem) => void;
   onMoveTask: (task: TaskItem, status: TaskStatus) => void;
   onDeleteTask: (task: TaskItem) => void;
@@ -70,7 +70,7 @@ function statusActionClass(status: TaskStatus): string {
   return 'border-sky-200 bg-sky-50 text-sky-900 hover:bg-sky-100 hover:text-sky-950';
 }
 
-export function TaskBoard({ tasks, canWrite, canDelete, busyId, onOpenTask, onMoveTask, onDeleteTask, onQuickCreate }: TaskBoardProps) {
+export function TaskBoard({ tasks, canWrite, canDelete, isBusy, onOpenTask, onMoveTask, onDeleteTask, onQuickCreate }: TaskBoardProps) {
   const [quickColumn, setQuickColumn] = useState<TaskStatus | null>(null);
   const [quickTitle, setQuickTitle] = useState('');
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
@@ -199,7 +199,7 @@ export function TaskBoard({ tasks, canWrite, canDelete, busyId, onOpenTask, onMo
                   />
                   <div className="mt-2 flex justify-end gap-2">
                     <Button type="button" variant="ghost" onClick={() => setQuickColumn(null)} className="h-11 px-3">Hủy</Button>
-                    <Button type="submit" disabled={!quickTitle.trim() || busyId === 'new'} className="h-11 bg-slate-900 px-4 hover:bg-slate-800">{busyId === 'new' ? 'Đang thêm…' : 'Thêm'}</Button>
+                    <Button type="submit" disabled={!quickTitle.trim() || isBusy('new')} className="h-11 bg-slate-900 px-4 hover:bg-slate-800">{isBusy('new') ? 'Đang thêm…' : 'Thêm'}</Button>
                   </div>
                 </form>
               )}
@@ -248,7 +248,7 @@ export function TaskBoard({ tasks, canWrite, canDelete, busyId, onOpenTask, onMo
                           <Button
                             type="button"
                             variant="outline"
-                            disabled={busyId === task.id}
+                            disabled={isBusy(task.id)}
                             onClick={() => onMoveTask(task, primaryStatusAction.status)}
                             className={`h-11 px-3 ${statusActionClass(task.status)}`}
                           >
@@ -284,7 +284,7 @@ export function TaskBoard({ tasks, canWrite, canDelete, busyId, onOpenTask, onMo
                                   key={item.status}
                                   type="button"
                                   role="menuitem"
-                                  disabled={busyId === task.id}
+                                  disabled={isBusy(task.id)}
                                   onClick={() => { closeMenu(false); onMoveTask(task, item.status); }}
                                   className="min-h-11 w-full rounded-lg px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700/30 disabled:opacity-50"
                                 >
@@ -297,7 +297,7 @@ export function TaskBoard({ tasks, canWrite, canDelete, busyId, onOpenTask, onMo
                                   <button
                                     type="button"
                                     role="menuitem"
-                                    disabled={busyId === task.id}
+                                    disabled={isBusy(task.id)}
                                     onClick={() => { closeMenu(false); onDeleteTask(task); }}
                                     className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30 disabled:opacity-50"
                                   >

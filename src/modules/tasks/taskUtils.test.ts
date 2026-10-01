@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildTaskPeriodActivity,
   buildTaskSnapshot,
+  createTaskRequestAuthority,
+  createTaskPendingOperations,
+  scheduleTaskClock,
+  formatTaskDeadline,
+  getTaskAttentionCounts,
   formatCompactTaskTimestamp,
   getBoardTaskProjection,
   isHighPriorityOpenTask,
@@ -22,6 +27,81 @@ const task = (overrides: Partial<TaskUtilityItem> = {}): TaskUtilityItem => ({
 });
 
 describe('H5 personal Task daily workflow utilities', () => {
+  it('commits B when A starts first but resolves last, then rejects GET after PATCH', async () => {
+    const authority = createTaskRequestAuthority();
+    let resolveA!: (value: string) => void;
+    let resolveB!: (value: string) => void;
+    const responseA = new Promise<string>((resolve) => { resolveA = resolve; });
+    const responseB = new Promise<string>((resolve) => { resolveB = resolve; });
+    let visible = 'initial';
+    const request = async (response: Promise<string>) => {
+      const token = authority.begin();
+      const value = await response;
+      if (authority.isCurrent(token)) visible = value;
+    };
+    const a = request(responseA);
+    const b = request(responseB);
+    resolveB('B');
+    await b;
+    resolveA('A');
+    await a;
+    expect(visible).toBe('B');
+    const oldGet = request(Promise.resolve('old GET'));
+    authority.invalidate();
+    visible = 'PATCH';
+    await oldGet;
+    expect(visible).toBe('PATCH');
+  });
+
+  it('guards same-task and create double dispatch without clearing independent pending operations', () => {
+    const pending = createTaskPendingOperations();
+    expect(pending.begin('A')).toBe(true);
+    expect(pending.begin('A')).toBe(false);
+    expect(pending.begin('B')).toBe(true);
+    expect(pending.begin('new')).toBe(true);
+    expect(pending.begin('new')).toBe(false);
+    pending.end('A');
+    expect(pending.has('B')).toBe(true);
+    expect(pending.has('new')).toBe(true);
+  });
+
+  it('invalidates local projections after due time and midnight through one timer', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 8, 28, 9, 59));
+      const timed = task({ dueDate: '2026-09-28', dueTime: '10:00' });
+      expect(isTaskOverdue(timed)).toBe(false);
+      const refresh = vi.fn();
+      const cancel = scheduleTaskClock([timed], refresh);
+      vi.advanceTimersByTime(60_001);
+      expect(isTaskOverdue(timed)).toBe(true);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      cancel();
+
+      vi.setSystemTime(new Date(2026, 8, 28, 23, 59));
+      const midnightTask = task({ dueDate: '2026-09-28' });
+      expect(getTaskAttentionCounts([midnightTask]).today).toBe(1);
+      const activityTask = task({ createdAt: '2026-09-28T09:00:00', completedAt: '2026-08-30T09:00:00' });
+      expect(buildTaskPeriodActivity([activityTask], 'today').created).toBe(1);
+      expect(buildTaskPeriodActivity([activityTask], '30d').completed).toBe(1);
+      const midnightRefresh = vi.fn();
+      const stop = scheduleTaskClock([midnightTask], midnightRefresh);
+      vi.advanceTimersByTime(60_001);
+      expect(midnightRefresh).toHaveBeenCalledTimes(1);
+      expect(getTaskAttentionCounts([midnightTask])).toMatchObject({ today: 0, overdue: 1, next7: 0 });
+      expect(buildTaskPeriodActivity([activityTask], 'today').created).toBe(0);
+      expect(buildTaskPeriodActivity([activityTask], '7d').created).toBe(1);
+      expect(buildTaskPeriodActivity([activityTask], '30d').completed).toBe(0);
+      stop();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('formats malformed deadlines safely', () => {
+    expect(formatTaskDeadline({ dueDate: '2026-02-30', dueTime: '10:30' })).toBe('Chưa đặt hạn');
+    expect(formatTaskDeadline({ dueDate: 'garbage' })).toBe('Chưa đặt hạn');
+    expect(formatTaskDeadline({ dueDate: '2026-10-01', dueTime: 'bad' })).not.toContain('bad');
+  });
   it('formats completed card metadata as a compact Vietnamese timestamp', () => {
     expect(formatCompactTaskTimestamp('2026-09-27T20:04:00')).toBe('20:04 · 27/09/2026');
   });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { buildTaskPeriodActivity, buildTaskSnapshot, getTaskAttentionCounts } from '../modules/tasks/taskUtils';
 
 const read = (relativePath: string) => fs.readFileSync(path.join(process.cwd(), relativePath), 'utf8');
 
@@ -23,8 +24,11 @@ describe('H5 Personal Task Daily Workflow contract', () => {
     expect(moduleSource).toContain('7 ngày tới');
     expect(moduleSource).toContain('Ưu tiên cao');
     expect(moduleSource).toContain('Báo cáo công việc');
-    expect(moduleSource).toContain('buildTaskReport');
-    expect(moduleSource).toContain("'today' | '7d' | '30d' | 'all'");
+    const item = { id: '1', status: 'todo' as const, priority: 'high' as const, dueDate: '2026-09-28', createdAt: '2026-09-28T08:00:00' };
+    const now = new Date(2026, 8, 28, 10);
+    expect(getTaskAttentionCounts([item], now)).toMatchObject({ today: 1, high: 1 });
+    expect(buildTaskSnapshot([item], now)).toMatchObject({ total: 1, todo: 1 });
+    expect(['today', '7d', '30d', 'all'].map((period) => buildTaskPeriodActivity([item], period as 'today' | '7d' | '30d' | 'all', now).created)).toEqual([1, 1, 1, 1]);
     expect(moduleSource).not.toContain('fetch(');
   });
 
@@ -36,7 +40,6 @@ describe('H5 Personal Task Daily Workflow contract', () => {
     expect(board).toContain('getBoardTaskProjection');
     expect(board).toContain('Xem thêm');
     expect(moduleSource).toContain('Danh sách');
-    expect(moduleSource).toContain('buildTaskReport');
     expect(form).toContain('Giờ hạn');
     expect(detail).toContain('>Tạo<');
     expect(detail).toContain('>Cập nhật<');

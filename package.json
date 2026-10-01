@@ -16,7 +16,7 @@
   "dependencies": {
     "@assistant-ui/react": "0.15.20",
     "@assistant-ui/react-google-adk": "0.0.30",
-    "@google/adk": "^2.0.0",
+    "@google/adk": "2.2.0",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@tanstack/react-router": "^1.170.33",

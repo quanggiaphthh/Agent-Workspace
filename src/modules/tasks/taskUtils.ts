@@ -38,6 +38,38 @@ function isTimeKey(value?: string): value is string {
   return typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
+export function createTaskRequestAuthority() {
+  let generation = 0;
+  return {
+    begin: () => ++generation,
+    invalidate: () => { generation += 1; },
+    isCurrent: (token: number) => token === generation,
+  };
+}
+
+export function createTaskPendingOperations() {
+  const pending = new Set<string>();
+  return {
+    begin: (id: string) => { if (pending.has(id)) return false; pending.add(id); return true; },
+    end: (id: string) => { pending.delete(id); },
+    has: (id: string) => pending.has(id),
+  };
+}
+
+export function scheduleTaskClock(tasks: Pick<TaskUtilityItem, 'status' | 'dueDate' | 'dueTime'>[], refresh: () => void): () => void {
+  const now = new Date();
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  const today = getLocalDateKey(now);
+  const nextDue = tasks.filter((task) => task.status !== 'completed' && task.dueDate === today && isTimeKey(task.dueTime))
+    .map((task) => {
+      const [hour, minute] = task.dueTime!.split(':').map(Number);
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute).getTime() + 1;
+    }).filter((at) => at > now.getTime());
+  const next = Math.min(midnight, ...nextDue);
+  const timer = setTimeout(refresh, Math.max(1, next - now.getTime()));
+  return () => clearTimeout(timer);
+}
+
 function addDays(dateKey: string, days: number): string {
   const [year, month, day] = dateKey.split('-').map(Number);
   const value = new Date(Date.UTC(year, month - 1, day + days));
@@ -65,7 +97,7 @@ export function isTaskOverdue(task: Pick<TaskUtilityItem, 'status' | 'dueDate' |
   const today = getLocalDateKey(now);
   if (task.dueDate < today) return true;
   if (task.dueDate > today || !task.dueTime) return false;
-  return task.dueTime < getLocalTimeKey(now);
+  return isTimeKey(task.dueTime) && (task.dueTime < getLocalTimeKey(now) || (task.dueTime === getLocalTimeKey(now) && (now.getSeconds() > 0 || now.getMilliseconds() > 0)));
 }
 
 export function isHighPriorityOpenTask(task: Pick<TaskUtilityItem, 'status' | 'priority'>): boolean {
@@ -174,9 +206,9 @@ export function buildTaskPeriodActivity(tasks: TaskUtilityItem[], period: TaskRe
 }
 
 export function formatTaskDeadline(task: Pick<TaskUtilityItem, 'dueDate' | 'dueTime'>): string {
-  if (!task.dueDate) return 'Chưa đặt hạn';
+  if (!isDateKey(task.dueDate)) return 'Chưa đặt hạn';
   const date = new Intl.DateTimeFormat('vi-VN').format(new Date(`${task.dueDate}T00:00:00`));
-  return task.dueTime ? `${date} · ${task.dueTime}` : date;
+  return isTimeKey(task.dueTime) ? `${date} · ${task.dueTime}` : date;
 }
 
 export function formatTaskTimestamp(value?: string | null): string {

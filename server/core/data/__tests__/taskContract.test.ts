@@ -4,9 +4,23 @@ import {
   buildTaskStatusPatch,
   isValidTaskDueTime,
   normalizeTaskData,
+  canonicalTaskDeadlinePatch,
 } from '../UserDataService';
 
 describe('H5 Task data contract', () => {
+  it('clears orphan time on create and PATCH without a date', () => {
+    expect(canonicalTaskDeadlinePatch({ dueDate: '', dueTime: '10:30' }, '')).toEqual({ dueDate: '', dueTime: '' });
+    expect(canonicalTaskDeadlinePatch({ dueDate: '' }, '2026-10-01')).toEqual({ dueDate: '', dueTime: '' });
+    expect(canonicalTaskDeadlinePatch({ dueTime: '11:00' }, '')).toEqual({ dueTime: '' });
+    expect(canonicalTaskDeadlinePatch({ dueTime: '11:00' }, '2026-10-01')).toEqual({ dueTime: '11:00' });
+    expect(canonicalTaskDeadlinePatch({ dueTime: '11:00' }, 'legacy-invalid')).toEqual({ dueTime: '' });
+  });
+
+  it('normalizes malformed canonical values and orphan deadlines while retaining valid values', () => {
+    expect(normalizeTaskData('bad', { status: 'paused', priority: 'urgent', dueDate: '2026-02-30', dueTime: '10:30' })).toMatchObject({ status: 'todo', priority: 'medium', dueDate: '' });
+    expect(normalizeTaskData('bad', { dueDate: '', dueTime: '10:30' }).dueTime).toBeUndefined();
+    expect(normalizeTaskData('good', { status: 'in-progress', priority: 'high', dueDate: '2026-10-01', dueTime: '10:30' })).toMatchObject({ status: 'in-progress', priority: 'high', dueDate: '2026-10-01', dueTime: '10:30' });
+  });
   it('normalizes legacy Tasks without dueTime or completedAt', () => {
     const task = normalizeTaskData('legacy-task', {
       userId: 'owner',

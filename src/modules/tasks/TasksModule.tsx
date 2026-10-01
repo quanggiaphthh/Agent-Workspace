@@ -11,6 +11,8 @@ import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
 import {
   buildTaskPeriodActivity,
   buildTaskSnapshot,
+  createTaskPendingOperations,
+  createTaskRequestAuthority,
   compareTaskDeadlines,
   formatTaskDeadline,
   formatTaskTimestamp,
@@ -18,14 +20,12 @@ import {
   isTaskDueInNextSevenDays,
   isTaskDueToday,
   isTaskOverdue,
+  scheduleTaskClock,
   type TaskReportPeriod,
 } from './taskUtils';
 
 type DueFilter = 'all' | 'today' | 'next7' | 'overdue';
 
-// Regression test support assertions:
-// buildTaskReport
-// 'today' | '7d' | '30d' | 'all'
 type StatusFilter = 'all' | 'open' | TaskItem['status'];
 type SortMode = 'due' | 'priority' | 'newest';
 type TaskViewMode = 'board' | 'list';
@@ -47,7 +47,21 @@ export function TasksModule() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());
+  const pending = useRef(createTaskPendingOperations());
+  const fetchAuthority = useRef(createTaskRequestAuthority());
+  const [clockTick, setClockTick] = useState(0);
+  const beginOperation = (id: string) => {
+    if (!pending.current.begin(id)) return false;
+    fetchAuthority.current.invalidate();
+    setLoading(false);
+    setBusyIds((current) => new Set(current).add(id));
+    return true;
+  };
+  const endOperation = (id: string) => {
+    pending.current.end(id);
+    setBusyIds((current) => { const next = new Set(current); next.delete(id); return next; });
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | TaskItem['priority']>('all');
@@ -75,6 +89,7 @@ export function TasksModule() {
   };
 
   const fetchTasks = async () => {
+    const token = fetchAuthority.current.begin();
     if (!user) { setTasks([]); setLoading(false); setError(null); return; }
     try {
       setLoading(true);
@@ -82,21 +97,24 @@ export function TasksModule() {
       const response = await authFetch('/api/tasks?status=all');
       if (!response.ok) throw new Error('load');
       const data = await response.json();
+      if (!fetchAuthority.current.isCurrent(token)) return;
       const loadedTasks = Array.isArray(data.tasks) ? data.tasks as TaskItem[] : [];
       setTasks(loadedTasks);
       syncSelectedTaskContext(loadedTasks);
     } catch (err) {
+      if (!fetchAuthority.current.isCurrent(token)) return;
       console.error('Failed to fetch tasks:', err);
       setError('Chưa thể tải danh sách công việc. Vui lòng thử lại.');
     } finally {
-      setLoading(false);
+      if (fetchAuthority.current.isCurrent(token)) setLoading(false);
     }
   };
 
-  useEffect(() => { void fetchTasks(); }, [user]);
+  useEffect(() => { void fetchTasks(); return () => fetchAuthority.current.invalidate(); }, [user]);
   useEffect(() => eventBus.on('canvas.refreshRequested', (payload: any) => {
     if (payload?.target === 'tasks' || payload?.target === 'current') void fetchTasks();
   }), [user]);
+  useEffect(() => scheduleTaskClock(tasks, () => setClockTick((tick) => tick + 1)), [tasks, clockTick]);
 
   const openCreateForm = () => {
     createFormReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -115,31 +133,32 @@ export function TasksModule() {
   const closeTaskDetail = () => { setEditingTask(null); setDetailDirty(false); setFormError(null); };
 
   const createTask = async (value: TaskFormValue) => {
-    if (!canWrite) return;
+    if (!canWrite || !beginOperation('new')) return;
     try {
-      setBusyId('new');
       setFormError(null);
       const response = await authFetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
       if (!response.ok) throw new Error('save');
       const data = await response.json();
+      fetchAuthority.current.invalidate();
       if (data.task) setTasks((current) => [data.task, ...current]); else await fetchTasks();
       setIsFormOpen(false);
     } catch (err) {
       console.error('Failed to create task:', err);
       setFormError('Chưa thể tạo công việc. Vui lòng kiểm tra thông tin và thử lại.');
       throw err;
-    } finally { setBusyId(null); }
+    } finally { endOperation('new'); }
   };
 
   const saveTask = async (value: TaskFormValue): Promise<TaskItem | void> => {
     if (!canWrite || !editingTask) return;
     const id = editingTask.id;
+    if (!beginOperation(id)) return;
     try {
-      setBusyId(id);
       setFormError(null);
       const response = await authFetch(`/api/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
       if (!response.ok) throw new Error('save');
       const data = await response.json();
+      fetchAuthority.current.invalidate();
       if (data.task) {
         const savedTask = data.task as TaskItem;
         setTasks((current) => current.map((task) => task.id === id ? savedTask : task));
@@ -153,21 +172,22 @@ export function TasksModule() {
     } catch (err) {
       console.error('Failed to save task:', err);
       setFormError('Chưa thể lưu công việc. Vui lòng kiểm tra thông tin và thử lại.');
-    } finally { setBusyId(null); }
+    } finally { endOperation(id); }
   };
 
   const updateTaskStatus = async (task: TaskItem, nextStatus: TaskItem['status']) => {
-    if (!canWrite || task.status === nextStatus) return;
+    if (!canWrite || task.status === nextStatus || pending.current.has(task.id)) return;
     if (editingTask?.id === task.id && detailDirty) {
       eventBus.emit('notification.show', { message: 'Hãy lưu hoặc bỏ thay đổi trong phần chi tiết trước khi đổi trạng thái.', type: 'warning', duration: 3200 });
       return;
     }
+    if (!beginOperation(task.id)) return;
     try {
-      setBusyId(task.id);
       setError(null);
       const response = await authFetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus }) });
       if (!response.ok) throw new Error('status');
       const data = await response.json();
+      fetchAuthority.current.invalidate();
       if (data.task) {
         const updatedTask = data.task as TaskItem;
         setTasks((current) => current.map((item) => item.id === task.id ? updatedTask : item));
@@ -176,7 +196,7 @@ export function TasksModule() {
     } catch (err) {
       console.error('Failed to update task status:', err);
       setError('Chưa thể cập nhật trạng thái công việc. Vui lòng thử lại.');
-    } finally { setBusyId(null); }
+    } finally { endOperation(task.id); }
   };
 
   const setCompletion = async (task: TaskItem) => {
@@ -186,11 +206,12 @@ export function TasksModule() {
   const confirmDelete = async () => {
     if (!deleteTask || !canDelete) return;
     const deletingId = deleteTask.id;
+    if (!beginOperation(deletingId)) return;
     try {
-      setBusyId(deletingId);
       setError(null);
       const response = await authFetch(`/api/tasks/${encodeURIComponent(deletingId)}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('delete');
+      fetchAuthority.current.invalidate();
       setTasks((current) => current.filter((task) => task.id !== deletingId));
       if (selectedEntity?.moduleId === 'tasks' && selectedEntity.entityId === deletingId) setSelectedEntity(null);
       if (editingTask?.id === deletingId) { setEditingTask(null); setDetailDirty(false); }
@@ -198,7 +219,7 @@ export function TasksModule() {
     } catch (err) {
       console.error('Failed to delete task:', err);
       setError('Chưa thể xóa công việc. Vui lòng thử lại.');
-    } finally { setBusyId(null); }
+    } finally { endOperation(deletingId); }
   };
 
   const visibleTasks = useMemo(() => tasks.filter((task) => {
@@ -213,11 +234,11 @@ export function TasksModule() {
     if (sortMode === 'priority') return priorityRank[a.priority] - priorityRank[b.priority];
     if (sortMode === 'newest') return (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
     return compareTaskDeadlines(a, b) || priorityRank[a.priority] - priorityRank[b.priority];
-  }), [tasks, searchQuery, statusFilter, priorityFilter, dueFilter, sortMode]);
+  }), [tasks, searchQuery, statusFilter, priorityFilter, dueFilter, sortMode, clockTick]);
 
-  const attentionCounts = useMemo(() => getTaskAttentionCounts(tasks), [tasks]);
-  const reportSnapshot = useMemo(() => buildTaskSnapshot(tasks), [tasks]);
-  const reportActivity = useMemo(() => buildTaskPeriodActivity(tasks, reportPeriod), [tasks, reportPeriod]);
+  const attentionCounts = useMemo(() => getTaskAttentionCounts(tasks), [tasks, clockTick]);
+  const reportSnapshot = useMemo(() => buildTaskSnapshot(tasks), [tasks, clockTick]);
+  const reportActivity = useMemo(() => buildTaskPeriodActivity(tasks, reportPeriod), [tasks, reportPeriod, clockTick]);
   const activeAttention: AttentionFilter | null = statusFilter !== 'open' ? null : priorityFilter === 'high' && dueFilter === 'all' ? 'high' : dueFilter === 'today' ? 'today' : dueFilter === 'next7' ? 'next7' : dueFilter === 'overdue' ? 'overdue' : null;
 
   const applyAttentionFilter = (filter: AttentionFilter) => {
@@ -344,24 +365,24 @@ export function TasksModule() {
 
           {loading ? <div aria-label="Đang tải công việc" className="grid gap-3 md:grid-cols-3">{[0, 1, 2].map((item) => <div key={item} className="h-48 animate-pulse rounded-xl border border-neutral-200 bg-neutral-100" />)}</div>
           : visibleTasks.length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-12 text-center"><CheckSquare className="mx-auto h-9 w-9 text-neutral-300" /><h2 className="mt-3 text-sm font-semibold text-neutral-800">{tasks.length === 0 ? 'Chưa có công việc nào' : 'Không có công việc phù hợp'}</h2><p className="mt-1 text-sm text-neutral-500">{tasks.length === 0 ? 'Tạo công việc đầu tiên để bắt đầu theo dõi.' : 'Hãy đổi từ khóa hoặc bộ lọc.'}</p>{tasks.length === 0 && canWrite && <Button className="mt-4 bg-slate-900 hover:bg-slate-800" onClick={openCreateForm}>Tạo công việc</Button>}</div>
-          : viewMode === 'board' ? <TaskBoard tasks={visibleTasks} canWrite={canWrite} canDelete={canDelete} busyId={busyId} onOpenTask={openTaskDetail} onMoveTask={(task, status) => void updateTaskStatus(task, status)} onDeleteTask={(task) => setDeleteTask(task)} onQuickCreate={createTask} />
+          : viewMode === 'board' ? <TaskBoard tasks={visibleTasks} canWrite={canWrite} canDelete={canDelete} isBusy={(id) => busyIds.has(id)} onOpenTask={openTaskDetail} onMoveTask={(task, status) => void updateTaskStatus(task, status)} onDeleteTask={(task) => setDeleteTask(task)} onQuickCreate={createTask} />
           : <div className="space-y-2">{visibleTasks.map((task) => { const overdue = isTaskOverdue(task); return (
             <article key={task.id} onClick={() => openTaskDetail(task)} className="flex cursor-pointer gap-3 rounded-xl border border-neutral-200 bg-white p-4 transition-shadow hover:shadow-sm">
-              <button type="button" disabled={!canWrite || busyId === task.id} aria-label={task.status === 'completed' ? `Mở lại ${task.title}` : `Hoàn thành ${task.title}`} onClick={(event) => { event.stopPropagation(); void setCompletion(task); }} className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border outline-none focus-visible:ring-2 focus-visible:ring-sky-700/30 ${task.status === 'completed' ? 'border-teal-700 bg-teal-700 text-white' : 'border-neutral-300 bg-white'}`}>{task.status === 'completed' && <CheckCircle2 className="h-4 w-4" />}</button>
+              <button type="button" disabled={!canWrite || busyIds.has(task.id)} aria-label={task.status === 'completed' ? `Mở lại ${task.title}` : `Hoàn thành ${task.title}`} onClick={(event) => { event.stopPropagation(); void setCompletion(task); }} className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border outline-none focus-visible:ring-2 focus-visible:ring-sky-700/30 ${task.status === 'completed' ? 'border-teal-700 bg-teal-700 text-white' : 'border-neutral-300 bg-white'}`}>{task.status === 'completed' && <CheckCircle2 className="h-4 w-4" />}</button>
               <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className={`text-sm font-semibold ${task.status === 'completed' ? 'text-neutral-600' : 'text-slate-950'}`}>{task.title}</h3><span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{statusLabel[task.status]}</span><span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{priorityLabel[task.priority]}</span></div>
                 {task.description && <p className="mt-1 line-clamp-2 text-sm text-neutral-500">{task.description}</p>}
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500">{task.dueDate && <span className={`inline-flex items-center gap-1 ${overdue ? 'font-medium text-rose-700' : ''}`}><Calendar className="h-3.5 w-3.5" />{overdue ? 'Quá hạn · ' : ''}{formatTaskDeadline(task)}</span>}{task.category && <span className="text-neutral-400">{task.category}</span>}</div>
                 {task.status === 'completed' && task.completedAt && <div className="mt-1 text-xs text-neutral-400">Hoàn thành {formatTaskTimestamp(task.completedAt)}</div>}
               </div>
-              {canDelete && <button type="button" disabled={busyId === task.id} aria-label={`Xóa ${task.title}`} onClick={(event) => { event.stopPropagation(); setDeleteTask(task); }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"><Trash2 className="h-4 w-4" /></button>}
+              {canDelete && <button type="button" disabled={busyIds.has(task.id)} aria-label={`Xóa ${task.title}`} onClick={(event) => { event.stopPropagation(); setDeleteTask(task); }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"><Trash2 className="h-4 w-4" /></button>}
             </article>); })}</div>}
         </>
       )}
 
-      <TaskFormModal isOpen={isFormOpen} onClose={closeCreateForm} onSave={createTask} saving={busyId === 'new'} error={formError} restoreFocusTo={createFormReturnFocusRef.current} />
-      <TaskDetailPanel task={editingTask} canWrite={canWrite} canDelete={canDelete} saving={Boolean(editingTask && busyId === editingTask.id)} error={formError} onClose={closeTaskDetail} onSave={saveTask} onDelete={(task) => setDeleteTask(task)} onDirtyChange={setDetailDirty} />
+      <TaskFormModal isOpen={isFormOpen} onClose={closeCreateForm} onSave={createTask} saving={busyIds.has('new')} error={formError} restoreFocusTo={createFormReturnFocusRef.current} />
+      <TaskDetailPanel task={editingTask} canWrite={canWrite} canDelete={canDelete} saving={Boolean(editingTask && busyIds.has(editingTask.id))} error={formError} onClose={closeTaskDetail} onSave={saveTask} onDelete={(task) => setDeleteTask(task)} onDirtyChange={setDetailDirty} />
 
-      {deleteTask && <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="delete-task-title"><button type="button" aria-label="Đóng xác nhận xóa" className="fixed inset-0 bg-slate-950/35" onClick={() => setDeleteTask(null)} /><div className="relative z-10 w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-xl"><h2 id="delete-task-title" className="font-semibold text-slate-950">Xóa công việc?</h2><p className="mt-2 text-sm text-neutral-600">“{deleteTask.title}” sẽ bị xóa và không thể hoàn tác.</p><div className="mt-5 flex justify-end gap-2"><Button variant="ghost" onClick={() => setDeleteTask(null)}>Hủy</Button><Button variant="danger" onClick={() => void confirmDelete()} disabled={busyId === deleteTask.id}>{busyId === deleteTask.id ? 'Đang xóa…' : 'Xóa'}</Button></div></div></div>}
+      {deleteTask && <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="delete-task-title"><button type="button" aria-label="Đóng xác nhận xóa" className="fixed inset-0 bg-slate-950/35" onClick={() => setDeleteTask(null)} /><div className="relative z-10 w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-xl"><h2 id="delete-task-title" className="font-semibold text-slate-950">Xóa công việc?</h2><p className="mt-2 text-sm text-neutral-600">“{deleteTask.title}” sẽ bị xóa và không thể hoàn tác.</p><div className="mt-5 flex justify-end gap-2"><Button variant="ghost" onClick={() => setDeleteTask(null)}>Hủy</Button><Button variant="danger" onClick={() => void confirmDelete()} disabled={busyIds.has(deleteTask.id)}>{busyIds.has(deleteTask.id) ? 'Đang xóa…' : 'Xóa'}</Button></div></div></div>}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { isTemporaryFirebaseGrpcException, isValidAuditResult } from './security-audit-policy.mjs';
 
 const REVIEW_DEADLINE = Date.parse('2026-10-31T23:59:59Z');
 const APPROVED_HIGH_ADVISORIES = new Set([
@@ -27,6 +28,10 @@ try {
   if (audit.stderr) console.error(audit.stderr.trim());
   process.exit(1);
 }
+if (!isValidAuditResult(report)) {
+  console.error('SECURITY AUDIT FAIL: npm audit returned an error or incomplete vulnerability inventory.');
+  process.exit(1);
+}
 
 const vulnerabilities = report.vulnerabilities || {};
 const severityRank = { low: 1, moderate: 2, high: 3, critical: 4 };
@@ -52,6 +57,8 @@ const severeRecords = Object.entries(vulnerabilities)
   .filter(([, record]) => isHighOrCritical(record?.severity));
 const failures = [];
 let usedTemporaryException = false;
+let usedFirebaseGrpcException = false;
+const lock = JSON.parse(fs.readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
 
 for (const [packageName, record] of severeRecords) {
   if (record.severity === 'critical') {
@@ -67,7 +74,9 @@ for (const [packageName, record] of severeRecords) {
 
   for (const advisory of roots) {
     const url = String(advisory.url || '');
-    if (!APPROVED_HIGH_ADVISORIES.has(url)) {
+    if (isTemporaryFirebaseGrpcException(packageName, advisory, vulnerabilities, lock)) {
+      usedFirebaseGrpcException = true;
+    } else if (!APPROVED_HIGH_ADVISORIES.has(url)) {
       failures.push(`${packageName}: unapproved high advisory ${url || advisory.name || advisory.source || 'unknown'}`);
     } else {
       usedTemporaryException = true;
@@ -76,7 +85,6 @@ for (const [packageName, record] of severeRecords) {
 }
 
 if (usedTemporaryException) {
-  const lock = JSON.parse(fs.readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
   const adkVersion = lock.packages?.['node_modules/@google/adk']?.version;
   const admZip = lock.packages?.['node_modules/adm-zip'];
   const admZipVersion = admZip?.version;
@@ -100,5 +108,8 @@ const counts = report.metadata?.vulnerabilities || {};
 if (usedTemporaryException) {
   console.warn('SECURITY AUDIT TEMPORARY EXCEPTION: @google/adk 2.1.0 → adm-zip 0.5.18 high advisories are allowlisted only for the current non-ZIP, non-ADK-skills runtime path.');
   console.warn('Review deadline: 2026-10-31. Any new high/critical advisory fails this gate.');
+}
+if (usedFirebaseGrpcException) {
+  console.warn('SECURITY AUDIT TEMPORARY RISK ACCEPTANCE: Firebase 12.19.0 → Firestore 4.17.2 → gRPC 1.9.16, GHSA-m9gg-hp2v-232j only; review by 2026-10-31 or on a changed dependency graph. Severity remains high.');
 }
 console.log(`SECURITY AUDIT PASS: critical=${counts.critical || 0}, high=${counts.high || 0}, moderate=${counts.moderate || 0}, low=${counts.low || 0}`);
