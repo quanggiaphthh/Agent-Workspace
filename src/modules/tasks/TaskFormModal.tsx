@@ -134,16 +134,29 @@ export function TaskFields({ form, onChange, disabled = false, autoFocusTitle = 
       </label>
 
       <div className={stackedDate ? "grid min-w-0 grid-cols-1 gap-3" : "grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,5fr)_minmax(0,3fr)]"}>
-        <label className={fieldLabelClass}>
-          Hạn ngày
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <label htmlFor={`${dueTimeHelpId}-date`} className="text-xs font-semibold text-neutral-700">Hạn ngày</label>
+            {form.dueDate && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => updateDueDate('')}
+                className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50 hover:text-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700/40 disabled:cursor-not-allowed disabled:text-neutral-400"
+              >
+                Xóa hạn
+              </button>
+            )}
+          </div>
           <input
+            id={`${dueTimeHelpId}-date`}
             type="date"
             disabled={disabled}
             value={form.dueDate}
             onChange={(event) => updateDueDate(event.target.value)}
             className={`${fieldControlClass} block h-11 [inline-size:100%] [min-inline-size:0] [max-inline-size:100%] [-webkit-appearance:none] [appearance:none]`}
           />
-        </label>
+        </div>
         <label className={fieldLabelClass}>
           Giờ hạn
           <input
