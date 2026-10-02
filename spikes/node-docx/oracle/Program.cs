@@ -13,7 +13,9 @@ var resultsPath = Path.Combine(artifacts, "node-results.json");
 var cases = JsonSerializer.Deserialize<List<NodeCase>>(await File.ReadAllTextAsync(resultsPath), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
     ?? throw new InvalidDataException("Node oracle result manifest is empty.");
 var processor = new DocumentProcessorService();
-var validator = new OpenXmlValidator();
+// Validate against the earliest version that supports table-look attributes
+// present in the generated corpus (OpenXmlValidator() defaults to Office 2007).
+var validator = new OpenXmlValidator(DocumentFormat.OpenXml.FileFormatVersions.Office2010);
 var checks = 0;
 var crossOracleDisagreements = new List<string>();
 
