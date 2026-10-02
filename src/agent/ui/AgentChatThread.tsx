@@ -10,7 +10,7 @@ import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
 import { uploadUserFile, type UploadProblem } from '../../modules/home/fileUploadClient';
 import type { AttachmentReference } from '../../../server/agent/chat/chatRequestContract';
 import { MAX_ATTACHMENTS_PER_TURN } from '../../../server/agent/chat/attachmentPolicy';
-import { SUPPORTED_FILE_ACCEPT } from '../../../shared/contracts/fileUploadPolicy';
+import { SUPPORTED_CHAT_ATTACHMENT_ACCEPT } from '../../../shared/contracts/fileUploadPolicy';
 import {
   Bot, Brain, Check, CheckCircle2, ChevronDown, ChevronRight, Copy, Edit2, FileText,
   Loader2, Paperclip, Quote, RefreshCw, Save, Send, ShieldAlert, Sparkles, Star,
@@ -190,7 +190,7 @@ export function AgentChatThread() {
       <div className="p-3 bg-white border-t border-neutral-200 shrink-0">
         <div className="mb-2 flex items-center justify-between gap-2 text-[10px] text-neutral-500"><span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1"><Sparkles className="h-3 w-3" />{activeModuleName}</span><span>{temporaryMode ? 'Tạm thời' : 'Được lưu'}</span></div>
         <div className="flex items-end gap-2 bg-neutral-50 rounded-xl border border-neutral-200 p-2 focus-within:ring-2 focus-within:ring-neutral-900">
-          <input ref={fileInputRef} type="file" multiple accept={SUPPORTED_FILE_ACCEPT} className="hidden" onChange={event => handleFilesSelected(event.target.files)} />
+          <input ref={fileInputRef} type="file" multiple accept={SUPPORTED_CHAT_ATTACHMENT_ACCEPT} className="hidden" onChange={event => handleFilesSelected(event.target.files)} />
           <Button type="button" variant="ghost" size="icon" disabled={isRunning || attachments.length >= MAX_ATTACHMENTS_PER_TURN} onClick={() => fileInputRef.current?.click()} className="h-10 w-10 shrink-0 text-neutral-600 rounded-lg" aria-label="Đính kèm tệp"><Paperclip className="h-4 w-4" /></Button>
           <textarea ref={textareaRef} rows={1} value={inputText} onChange={handleInput} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }} placeholder="Nhập tin nhắn cho Trợ lý AI…" className="flex-1 bg-transparent text-xs text-neutral-900 placeholder-neutral-400 focus:outline-none resize-none max-h-32 py-2.5" aria-label="Tin nhắn cho Trợ lý AI" />
           {isRunning ? <Button type="button" variant="danger" size="icon" onClick={cancelRun} className="h-10 w-10 shrink-0 bg-rose-600 hover:bg-rose-700 text-white rounded-lg" aria-label="Dừng phản hồi"><StopCircle className="h-4 w-4" /></Button> : <Button type="button" size="icon" disabled={!inputText.trim() || !isReady} onClick={() => void handleSend()} className="h-10 w-10 shrink-0 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-40 text-white rounded-lg" aria-label="Gửi tin nhắn"><Send className="h-4 w-4" /></Button>}

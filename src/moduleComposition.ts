@@ -3,6 +3,7 @@ import { moduleRegistry } from './core/modules/moduleRegistry';
 import { homeManifest } from './modules/home/manifest';
 import { settingsManifest } from './modules/settings/manifest';
 import { tasksManifest } from './modules/tasks/manifest';
+import { documentFormattingManifest } from './modules/document-formatting/manifest';
 
 /**
  * Build-time composition of the packaged client modules.
@@ -15,6 +16,7 @@ export const packagedClientModules: readonly ModuleManifest[] = [
   homeManifest,
   settingsManifest,
   tasksManifest,
+  documentFormattingManifest,
 ];
 
 export function registerPackagedClientModules(): void {

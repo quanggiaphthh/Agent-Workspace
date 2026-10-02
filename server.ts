@@ -35,7 +35,7 @@ import { serializeAgentTransportComplete, serializeAgentTransportError } from '.
 import { sessionTranscript } from './server/agent/chat/sessionHistory';
 import { FileDomainError } from './server/core/files/UserFileService';
 import { fileIngestionService, userFileService } from './server/core/files/firebaseFileStores';
-import { MAX_FILE_BYTES, buildSafeFileAuditMetadata } from './server/core/files/filePolicy';
+import { MAX_FILE_BYTES, buildSafeContentDisposition, buildSafeFileAuditMetadata } from './server/core/files/filePolicy';
 import { createRunScopedArtifactService } from './server/agent/adk/RunScopedArtifactService';
 import { createCanonicalAgentRunner } from './server/agent/adk/nativeArtifactIntegration';
 
@@ -551,6 +551,28 @@ app.get('/api/files/:fileId', requirePermission('files.read'), async (req, res) 
   const user=requireAuthenticatedUser(req);
   try { return res.json({ file: await userFileService.resolve(user.id, req.params.fileId) }); }
   catch(error:any){ const status=error instanceof FileDomainError?error.status:500; return res.status(status).json({error:error instanceof FileDomainError?error.message:'File resolve failed.',code:error instanceof FileDomainError?error.code:'FILE_RESOLVE_FAILED'}); }
+});
+
+app.get('/api/files/:fileId/content', requirePermission('files.read'), async (req, res) => {
+  const user = requireAuthenticatedUser(req);
+  const cancellation = bindRequestCancellation(req, res);
+  try {
+    const { file, bytes } = await userFileService.readBytes(user.id, req.params.fileId, MAX_FILE_BYTES, cancellation.signal);
+    res.set({
+      'Content-Type': file.mimeType,
+      'Content-Length': String(bytes.length),
+      'Content-Disposition': buildSafeContentDisposition(file.originalName),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return res.status(200).end(bytes);
+  } catch (error: any) {
+    const status = error instanceof FileDomainError ? error.status : 500;
+    const code = error instanceof FileDomainError ? error.code : 'FILE_DOWNLOAD_FAILED';
+    return res.status(status).json({ error: error instanceof FileDomainError ? error.message : 'File download failed.', code });
+  } finally {
+    cancellation.cleanup();
+  }
 });
 
 app.use('/api/files', (error: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {

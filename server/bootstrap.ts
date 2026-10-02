@@ -3,6 +3,7 @@ import { registerSystemCapabilities } from './core/capabilities/systemCapabiliti
 import { serverModuleCatalog, type ModuleMetadata } from './core/modules/moduleCatalog';
 import { storage } from './infrastructure/storage';
 import { tasksServerModule } from './modules/tasks/registration';
+import { documentFormattingServerModule } from './modules/document-formatting/registration';
 
 type PackagedServerModule = {
   metadata: ModuleMetadata;
@@ -33,6 +34,7 @@ export const packagedServerModules: readonly PackagedServerModule[] = [
     },
   },
   tasksServerModule,
+  documentFormattingServerModule,
 ];
 
 export function registerPackagedServerModules(): void {

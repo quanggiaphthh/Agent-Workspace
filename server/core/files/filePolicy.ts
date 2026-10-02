@@ -1,4 +1,4 @@
-import { MAX_FILE_BYTES, SUPPORTED_FILE_MIME_TYPES, type SupportedFileMimeType } from '../../../shared/contracts/fileUploadPolicy';
+import { DOCX_MIME_TYPE, MAX_FILE_BYTES, SUPPORTED_FILE_MIME_TYPES, type SupportedFileMimeType } from '../../../shared/contracts/fileUploadPolicy';
 
 export { MAX_FILE_BYTES, SUPPORTED_FILE_MIME_TYPES };
 export type { SupportedFileMimeType } from '../../../shared/contracts/fileUploadPolicy';
@@ -6,6 +6,7 @@ export const SUPPORTED_FILE_MIME_SET = new Set<string>(SUPPORTED_FILE_MIME_TYPES
 
 const FILE_EXTENSIONS_BY_MIME: Record<SupportedFileMimeType, readonly string[]> = {
   'application/pdf': ['.pdf'],
+  [DOCX_MIME_TYPE]: ['.docx'],
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],
   'image/webp': ['.webp'],
@@ -45,8 +46,20 @@ export function validateFileBytes(mimeType: string, bytes: Buffer): void {
   else if (mimeType === 'image/jpeg') valid = starts(0xff,0xd8,0xff);
   else if (mimeType === 'image/png') valid = starts(0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a);
   else if (mimeType === 'image/webp') valid = bytes.length >= 12 && bytes.subarray(0,4).toString('ascii') === 'RIFF' && bytes.subarray(8,12).toString('ascii') === 'WEBP';
+  // Lightweight container screening only. The .NET engine validates DOCX parts under bounded ZIP/XML preflight.
+  else if (mimeType === DOCX_MIME_TYPE) valid = bytes.length >= 4 && starts(0x50,0x4b,0x03,0x04);
   else valid = !bytes.includes(0) && Buffer.from(bytes.toString('utf8'),'utf8').equals(bytes);
   if (!valid) throw Object.assign(new Error('File content does not match the declared type.'), { code: 'FILE_TYPE_MISMATCH', status: 415 });
+}
+
+export function buildSafeContentDisposition(filename: string): string {
+  const safeName = sanitizeDisplayFilename(filename);
+  const asciiFallback = safeName
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7e]/g, '_')
+    .replace(/["\\;]/g, '_') || 'download';
+  const utf8Name = encodeURIComponent(safeName).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${utf8Name}`;
 }
 export function buildSafeFileAuditMetadata(input: { fileId?:string; mimeType:string; sizeBytes:number }) {
   return { ...(input.fileId ? { fileId: input.fileId } : {}), mimeType: input.mimeType, sizeBytes: input.sizeBytes };

@@ -8,24 +8,33 @@ export interface MetadataStore { create(meta:StoredMeta):Promise<void>; get(file
 
 export class FileDomainError extends Error { constructor(public code:string, public status:number, message:string){ super(message); } }
 const err=(code:string,status:number,msg:string)=>new FileDomainError(code,status,msg);
+const SAFE_FILE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const publicRecord=(m:StoredMeta):UserFileRecord=>({fileId:m.fileId,ownerId:m.ownerId,originalName:m.originalName,mimeType:m.mimeType,sizeBytes:m.sizeBytes,status:m.status,createdAt:m.createdAt});
 
 export class UserFileService {
- constructor(private binaries:BinaryStore, private metadata:MetadataStore) {}
- async store(ownerId:string,input:{originalName:string;mimeType:string;bytes:Buffer;signal?:AbortSignal}):Promise<UserFileRecord>{
+ constructor(private binaries:BinaryStore, private metadata:MetadataStore, private generateFileId:()=>string=randomUUID) {}
+ async store(ownerId:string,input:{originalName:string;mimeType:string;bytes:Buffer;signal?:AbortSignal;avoidFileId?:string}):Promise<UserFileRecord>{
   if (!ownerId) throw err('UNAUTHORIZED',401,'Verified owner is required.');
   if (input.signal?.aborted) throw err('UPLOAD_CANCELLED',499,'Upload cancelled.');
   try { validateFileBytes(input.mimeType,input.bytes); } catch(e:any){ throw e instanceof FileDomainError?e:err(e.code||'INVALID_FILE',e.status||400,e.message); }
-  const fileId=randomUUID(); const storageObject=`users/${encodeURIComponent(ownerId)}/files/${fileId}/blob`;
+  // The caller can exclude the source ID, but cannot choose the output ID.
+  let fileId='';
+  for(let attempt=0;attempt<8;attempt++){
+   const candidate=this.generateFileId();
+   if(candidate!==input.avoidFileId && SAFE_FILE_ID.test(candidate)){fileId=candidate;break;}
+  }
+  if(!fileId) throw err('FILE_ID_GENERATION_FAILED',503,'A new file ID could not be generated.');
+  const storageObject=`users/${encodeURIComponent(ownerId)}/files/${fileId}/blob`;
   const meta:StoredMeta={fileId,ownerId,originalName:sanitizeDisplayFilename(input.originalName),mimeType:input.mimeType as SupportedFileMimeType,sizeBytes:input.bytes.length,storageObject,status:'ready',createdAt:new Date().toISOString()};
   try { await this.binaries.put(storageObject,input.bytes,input.mimeType,input.signal); }
-  catch(e:any){ if(input.signal?.aborted) throw err('UPLOAD_CANCELLED',499,'Upload cancelled.'); throw err('BLOB_WRITE_FAILED',503,'File binary could not be stored.'); }
+  catch { try { await this.binaries.delete(storageObject); } catch { throw err('ORPHAN_CLEANUP_FAILED',503,'File binary cleanup requires reconciliation.'); } if(input.signal?.aborted) throw err('UPLOAD_CANCELLED',499,'Upload cancelled.'); throw err('BLOB_WRITE_FAILED',503,'File binary could not be stored.'); }
   try { await this.metadata.create(meta); }
   catch { try { await this.binaries.delete(storageObject); } catch { throw err('ORPHAN_CLEANUP_FAILED',503,'File metadata failed and orphan cleanup requires reconciliation.'); } throw err('METADATA_WRITE_FAILED',503,'File metadata could not be stored.'); }
   return publicRecord(meta);
  }
  async readBytes(ownerId:string,fileId:string,maxBytes:number,signal?:AbortSignal):Promise<{file:UserFileRecord;bytes:Buffer}>{
   if(!ownerId) throw err('UNAUTHORIZED',401,'Verified owner is required.');
+  if(typeof fileId!=='string'||!SAFE_FILE_ID.test(fileId)) throw err('INVALID_FILE_ID',400,'File ID is invalid.');
   if(!Number.isSafeInteger(maxBytes)||maxBytes<0) throw err('INVALID_READ_BOUND',400,'Invalid file read bound.');
   if(signal?.aborted) throw err('FILE_READ_CANCELLED',499,'File read cancelled.');
   const meta=await this.metadata.get(fileId);
@@ -36,6 +45,7 @@ export class UserFileService {
     const bytes=await this.binaries.readBounded(meta.storageObject,maxBytes,signal);
     if(signal?.aborted) throw err('FILE_READ_CANCELLED',499,'File read cancelled.');
     if(bytes.length>maxBytes) throw err('FILE_TOO_LARGE_FOR_MODEL',413,'File exceeds the model input size limit.');
+    if(bytes.length!==meta.sizeBytes) throw err('FILE_INTEGRITY_FAILED',503,'File binary could not be verified.');
     return {file:publicRecord(meta),bytes};
   } catch(e:any) {
     if(e instanceof FileDomainError) throw e;
@@ -45,6 +55,7 @@ export class UserFileService {
   }
  }
  async resolve(ownerId:string,fileId:string):Promise<UserFileRecord>{
+  if(typeof fileId!=='string'||!SAFE_FILE_ID.test(fileId)) throw err('INVALID_FILE_ID',400,'File ID is invalid.');
   const meta=await this.metadata.get(fileId);
   if(!meta) throw err('FILE_NOT_FOUND',404,'File not found.');
   // Fail closed without disclosing whether a foreign file exists.
@@ -54,4 +65,3 @@ export class UserFileService {
   return publicRecord(meta);
  }
 }
-

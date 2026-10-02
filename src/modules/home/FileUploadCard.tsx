@@ -59,7 +59,7 @@ export function FileUploadCard() {
           <div className="h-8 w-8 rounded-md bg-neutral-100 flex items-center justify-center text-neutral-800"><Upload className="h-4 w-4" /></div>
           <div>
             <CardTitle>Tải tài liệu</CardTitle>
-            <CardDescription>PDF, JPEG, PNG, WebP, TXT, Markdown · tối đa {MAX_FILE_BYTES / (1024 * 1024)} MiB</CardDescription>
+            <CardDescription>PDF, DOCX, JPEG, PNG, WebP, TXT, Markdown · tối đa {MAX_FILE_BYTES / (1024 * 1024)} MiB</CardDescription>
           </div>
         </div>
       </CardHeader>

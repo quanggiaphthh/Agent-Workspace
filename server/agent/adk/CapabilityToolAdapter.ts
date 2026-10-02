@@ -139,6 +139,10 @@ function confirmationHint(cap: CapabilityDescriptor<any, any>, args: any, truste
       : 'Cập nhật công việc này?';
   }
 
+  if (cap.id === 'document.applyAlignment') {
+    return `Đổi căn lề trực tiếp của đoạn ${args?.paragraphId} trong DOCX ${args?.fileId} từ ${args?.expectedBefore} sang ${args?.desiredAfter}. Tệp nguồn được giữ nguyên và sẽ tạo một tệp mới.`;
+  }
+
   const effect = cap.effects?.[0];
   return effect ? `Xác nhận: ${effect}` : 'Xác nhận thực hiện thao tác này?';
 }
