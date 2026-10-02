@@ -118,14 +118,32 @@ export function failTransactionOnce() { failNextTransaction = true; }
   const listed = await CredentialService.listCredentials('u1');
   check('list returns metadata only', listed.length === 1 && !('key' in listed[0]) && !('secret' in listed[0]) && !('ciphertext' in listed[0]));
 
-  firebase.seed('users/u1/credentials/legacy-list', {
-    id: 'legacy-list', userId: 'u1', providerId: 'google', name: 'Legacy List', priority: 5,
+  firebase.seed('users/u2/credentials/legacy-list', {
+    id: 'legacy-list', userId: 'u2', providerId: 'google', name: 'Legacy List', priority: 5,
     createdAt: '2026-01-01T00:00:00.000Z', key: 'synthetic-legacy-list-secret',
   });
-  const listedAfterLegacySeed = await CredentialService.listCredentials('u1');
-  const legacyListStored = firebase.read('users/u1/credentials/legacy-list');
+  const legacyListIv = crypto.randomBytes(12);
+  const legacyListCipher = crypto.createCipheriv('aes-256-gcm', crypto.createHash('sha256').update(syntheticMasterKey, 'utf8').digest(), legacyListIv);
+  const legacyListEncryptedSecret = Buffer.concat([legacyListCipher.update('synthetic-legacy-list-aes-secret', 'utf8'), legacyListCipher.final()]);
+  firebase.seed('users/u2/credentials/legacy-list-aes', {
+    id: 'legacy-list-aes', userId: 'u2', providerId: 'google', name: 'Legacy List AES', priority: 6,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    secretCiphertext: legacyListEncryptedSecret.toString('base64'),
+    secretIv: legacyListIv.toString('base64'),
+    secretTag: legacyListCipher.getAuthTag().toString('base64'),
+  });
+  const credentialEncryptionKey = process.env.CREDENTIAL_ENCRYPTION_KEY;
+  delete process.env.CREDENTIAL_ENCRYPTION_KEY;
+  const listedAfterLegacySeed = await CredentialService.listCredentials('u2');
+  const agentOptionsAfterLegacySeed = await CredentialService.listAgentCredentialOptions('u2');
+  if (credentialEncryptionKey !== undefined) process.env.CREDENTIAL_ENCRYPTION_KEY = credentialEncryptionKey;
+  const legacyListStored = firebase.read('users/u2/credentials/legacy-list');
+  const legacyListAesStored = firebase.read('users/u2/credentials/legacy-list-aes');
   const legacyListMetadata = listedAfterLegacySeed.find((item) => item.id === 'legacy-list');
-  check('metadata list migrates legacy plaintext before returning', Boolean(legacyListStored?.secret) && !('key' in legacyListStored) && legacyListMetadata?.encryptionVersion === 1 && !('secret' in legacyListMetadata));
+  const legacyListAesMetadata = listedAfterLegacySeed.find((item) => item.id === 'legacy-list-aes');
+  const legacyAgentOption = agentOptionsAfterLegacySeed.credentials.find((item) => item.id === 'legacy-list');
+  check('metadata list leaves legacy plaintext unchanged without encryption config', legacyListStored?.key === 'synthetic-legacy-list-secret' && !('secret' in legacyListStored) && legacyListMetadata?.encryptionVersion === null && !('secret' in legacyListMetadata));
+  check('metadata list and agent options leave legacy AES fields unchanged', Boolean(legacyListAesStored?.secretCiphertext) && Boolean(legacyListAesStored?.secretIv) && Boolean(legacyListAesStored?.secretTag) && !('secret' in legacyListAesStored) && legacyListAesMetadata?.encryptionVersion === null && legacyAgentOption?.encryptionVersion === null);
 
   firebase.seed('users/u1/credentials/legacy', {
     id: 'legacy', userId: 'u1', providerId: 'google', name: 'Legacy', priority: 1,
@@ -188,7 +206,7 @@ export function failTransactionOnce() { failNextTransaction = true; }
   check('cross-user credential lookup is rejected', crossUserRejected);
 
   const second = await CredentialService.saveCredential('u1', 'google', 'synthetic-second-secret', 'Second');
-  await CredentialService.reorderCredentials('u1', 'google', [second, id, 'legacy', 'legacy-fail', 'legacy-concurrent', 'legacy-encrypted', 'legacy-list']);
+  await CredentialService.reorderCredentials('u1', 'google', [second, id, 'legacy', 'legacy-fail', 'legacy-concurrent', 'legacy-encrypted']);
   const reordered = await CredentialService.listCredentials('u1');
   const googleOrder = reordered.filter((item) => item.providerId === 'google').map((item) => item.id);
   check('reorder persists deterministic provider-scoped priority', googleOrder[0] === second && googleOrder[1] === id);
