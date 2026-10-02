@@ -26,6 +26,7 @@ import { AIConfigSchema, type AIProviderId } from './shared/contracts/ai';
 import { z } from 'zod';
 import { UserDataService, isValidTaskDueDate, isValidTaskDueTime } from './server/core/data/UserDataService';
 import { computeRuntimeHealth } from './server/core/runtime/runtimeHealthPolicy';
+import { resolveListenHost } from './server/core/runtime/listenHost';
 import { bindRequestCancellation, isCancellationError } from './server/core/runtime/requestCancellation';
 import { createExecutionDeadline } from './server/core/runtime/executionDeadline';
 import { redactAuditString, sanitizeAuditValue } from './server/core/audit/auditRedaction';
@@ -1129,8 +1130,9 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  const listenHost = resolveListenHost();
+  app.listen(PORT, listenHost, () => {
+    console.log(`Server running on http://${listenHost}:${PORT}`);
   });
 }
 
