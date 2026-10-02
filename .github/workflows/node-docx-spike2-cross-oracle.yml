@@ -1,0 +1,51 @@
+name: Node DOCX Spike 2 Cross Oracle
+
+on:
+  push:
+    branches: [spike/node-docx-feasibility-2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: quanggiaphthh/chuan-hoa-van-ban-nghi-dinh-30
+          ref: 078dae21f9e23975676179fa189f5c01b605f49a
+          path: document-engine-reference
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Record toolchain
+        run: |
+          node --version
+          npm --version
+          dotnet --info
+      - name: Install locked Agent-Workspace dependencies
+        run: npm ci
+      - name: Run Node OPC/security/corpus/preservation tests
+        run: node node_modules/vitest/vitest.mjs run spikes/node-docx/spike.test.mjs
+      - name: Produce Node outputs for independent .NET validation
+        run: node spikes/node-docx/produce-oracle-inputs.mjs
+      - name: Restore canonical .NET engine and cross-oracle checker
+        run: |
+          dotnet restore document-engine-reference/v22-runtime/DocumentEngine.slnx
+          dotnet restore spikes/node-docx/oracle/Oracle.csproj
+      - name: Build canonical .NET engine and checker
+        run: |
+          dotnet build document-engine-reference/v22-runtime/DocumentEngine.slnx --configuration Release --no-restore
+          dotnet build spikes/node-docx/oracle/Oracle.csproj --configuration Release --no-restore
+      - name: Run complete canonical .NET regression suite
+        run: dotnet test document-engine-reference/v22-runtime/DocumentEngine.slnx --configuration Release --no-build --logger 'console;verbosity=normal'
+      - name: Run independent .NET/Open XML cross-oracle matrix
+        run: dotnet run --project spikes/node-docx/oracle/Oracle.csproj --configuration Release --no-build -- spikes/node-docx/oracle-artifacts
