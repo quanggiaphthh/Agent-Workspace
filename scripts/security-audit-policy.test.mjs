@@ -29,6 +29,17 @@ describe('time-boxed Firebase gRPC risk exception', () => {
     expect(check('@google/adk')).toBe(false);
   });
 
+  it('accepts the same locked chain when npm omits the compat effects edge', () => {
+    const withoutCompatEffect = chain();
+    withoutCompatEffect['@firebase/firestore-compat'].effects = [];
+    for (const name of ['@grpc/grpc-js', '@firebase/firestore', '@firebase/firestore-compat', 'firebase']) {
+      expect(check(name, withoutCompatEffect)).toBe(true);
+    }
+    const unrelatedEffect = structuredClone(withoutCompatEffect);
+    unrelatedEffect['@firebase/firestore-compat'].effects = ['@google/adk'];
+    expect(check('firebase', unrelatedEffect)).toBe(false);
+  });
+
   it('rejects a different advisory or a forged root package', () => {
     expect(check('firebase', chain(), lock, { ...advisory, url: 'https://github.com/advisories/GHSA-other' })).toBe(false);
     expect(check('firebase', chain(), lock, { ...advisory, name: 'adm-zip' })).toBe(false);
@@ -62,7 +73,9 @@ describe('time-boxed Firebase gRPC risk exception', () => {
   });
 
   it('expires immediately after the approved review date', () => {
+    expect(check('firebase', chain(), lock, advisory, new Date('2026-10-31T00:00:00Z'))).toBe(true);
     expect(check('firebase', chain(), lock, advisory, new Date('2026-10-31T23:59:59Z'))).toBe(true);
     expect(check('firebase', chain(), lock, advisory, new Date('2026-11-01T00:00:00Z'))).toBe(false);
+    expect(check('firebase', chain(), lock, advisory, new Date('invalid'))).toBe(false);
   });
 });

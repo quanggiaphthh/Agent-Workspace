@@ -29,7 +29,7 @@ function sameMembers(actual, expected) {
  * release changing this graph, or by 2026-10-31, whichever comes first.
  */
 export function isTemporaryFirebaseGrpcException(packageName, advisory, vulnerabilities, lock, now = new Date()) {
-  if (now.getTime() > FIREBASE_GRPC_REVIEW_DEADLINE || advisory?.url !== FIREBASE_GRPC_ADVISORY
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime()) || now.getTime() > FIREBASE_GRPC_REVIEW_DEADLINE || advisory?.url !== FIREBASE_GRPC_ADVISORY
     || advisory.name !== '@grpc/grpc-js' || advisory.severity !== 'high' || !Object.hasOwn(EXPECTED, packageName)) return false;
 
   const packages = lock?.packages;
@@ -50,7 +50,9 @@ export function isTemporaryFirebaseGrpcException(packageName, advisory, vulnerab
   return Object.entries(EXPECTED).every(([name, expected]) => {
     const record = vulnerabilities?.[name];
     return record?.severity === 'high' && sameMembers(record.nodes, expected.nodes)
-      && sameMembers(record.effects, expected.effects)
+      // npm audit has returned both shapes for this same pinned compat path.
+      && (sameMembers(record.effects, expected.effects)
+        || (name === '@firebase/firestore-compat' && sameMembers(record.effects, [])))
       && (expected.via ? sameMembers(record.via, expected.via)
         : record.via?.some((via) => typeof via === 'object' && via.url === FIREBASE_GRPC_ADVISORY
           && via.name === '@grpc/grpc-js' && via.severity === 'high'));
