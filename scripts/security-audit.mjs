@@ -1,6 +1,6 @@
 import fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { isTemporaryFirebaseGrpcException, isValidAuditResult } from './security-audit-policy.mjs';
+import { runNpmAudit } from './security-audit-runner.mjs';
 
 const REVIEW_DEADLINE = Date.parse('2026-10-31T23:59:59Z');
 const APPROVED_HIGH_ADVISORIES = new Set([
@@ -9,11 +9,7 @@ const APPROVED_HIGH_ADVISORIES = new Set([
   'https://github.com/advisories/GHSA-7q85-xj36-vmfc',
 ]);
 
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const audit = spawnSync(npmCommand, ['audit', '--omit=dev', '--json'], {
-  encoding: 'utf8',
-  maxBuffer: 20 * 1024 * 1024,
-});
+const audit = runNpmAudit();
 
 if (audit.error) {
   console.error(`SECURITY AUDIT FAIL: unable to run npm audit: ${audit.error.message}`);

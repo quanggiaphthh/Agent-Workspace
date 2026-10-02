@@ -34,7 +34,7 @@ jobs:
         run: node scripts/security-audit.mjs
 
       - name: Verify production manifest
-        run: sha256sum -c PRODUCTION_SOURCE_MANIFEST.sha256
+        run: node scripts/verify-production-source-manifest.mjs
 
       - name: TypeScript
         run: npm run lint
@@ -81,4 +81,4 @@ jobs:
         run: npm run build
 
       - name: Final manifest verification
-        run: sha256sum -c PRODUCTION_SOURCE_MANIFEST.sha256
+        run: node scripts/verify-production-source-manifest.mjs

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { hasFailClosedTaskAndMemoryRules } from './qa-stage2-rules.mjs';
 
 const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const checks = [];
@@ -32,7 +33,7 @@ check('Memory UI uses server API', memoryPanel.includes("authFetch('/api/memory"
 check('Memory UI has no Firestore client CRUD', !/firebase\/firestore/.test(memoryPanel));
 check('Chat memory action uses server API', chat.includes("authFetch('/api/memory'"));
 check('Chat has no direct agent_memories Firestore writes', !chat.includes("collection(db, 'agent_memories')"));
-check('Firestore rules deny direct Tasks/Memory client access', rules.includes('match /agent_memories/{id} {\n      allow read, write: if false;') && rules.includes('match /agent_tasks/{id} {\n      allow read, write: if false;'));
+check('Firestore rules deny direct Tasks/Memory client access', hasFailClosedTaskAndMemoryRules(rules));
 check('capability listing is context-filtered', server.includes('ServerCapabilityRegistry.listForContext({'));
 check('module-aware capability registry exists', registry.includes('storage.getData()'));
 check('credential save route has one declaration', (server.match(/const id = await CredentialService\.saveCredential/g) || []).length === 1);

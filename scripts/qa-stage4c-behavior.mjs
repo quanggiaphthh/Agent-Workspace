@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { pathToFileURL } from 'node:url';
 
 const checks = [];
 const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
 
 async function loadTs(path) {
-  if (!fs.existsSync(path)) return null;
-  return import(pathToFileURL(new URL(`../${path}`, import.meta.url).pathname).href);
+  const moduleUrl = new URL(`../${path}`, import.meta.url);
+  if (!fs.existsSync(moduleUrl)) return null;
+  return import(moduleUrl.href);
 }
 
 const healthModule = await loadTs('server/core/runtime/runtimeHealthPolicy.ts');
