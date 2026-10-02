@@ -318,17 +318,19 @@ export class CredentialService {
       return system;
     }
 
-    const credential = await this.getCredential(userId, credentialId);
-    if (!credential) {
+    const doc = await this.getCollection(userId).doc(credentialId).get();
+    if (!doc.exists) {
       throw credentialError('CREDENTIAL_NOT_FOUND', 'Credential not found.', 404);
     }
-    if (credential.providerId !== providerId) {
+    const stored = doc.data() as StoredCredential;
+    this.assertOwned(stored, userId);
+    if (stored.providerId !== providerId) {
       throw credentialError('CREDENTIAL_PROVIDER_MISMATCH', 'Credential provider mismatch.', 400);
     }
-    if (credential.status !== 'active') {
+    if (normalizeStatus(stored.status) !== 'active') {
       throw credentialError('CREDENTIAL_INACTIVE', 'Credential is not active.', 409);
     }
-    return credential;
+    return this.normalizeStoredCredential(userId, stored);
   }
 
   public static async listAgentCredentialOptions(userId: string): Promise<{
@@ -349,25 +351,7 @@ export class CredentialService {
       .map((doc: any) => doc.data() as StoredCredential)
       .filter((stored: StoredCredential) => stored.userId === userId);
 
-    const migrated = await Promise.all(owned.map(async (stored) => {
-      const hasLegacySecret = !stored.secret && (
-        (typeof stored.key === 'string' && stored.key.length > 0) ||
-        Boolean(stored.secretCiphertext && stored.secretIv && stored.secretTag)
-      );
-      if (!hasLegacySecret) return stored;
-      const protectedSecret = await this.migrateLegacyCredential(userId, stored.id);
-      return {
-        ...stored,
-        secret: protectedSecret,
-        encryptionVersion: protectedSecret.version,
-        key: undefined,
-        secretCiphertext: undefined,
-        secretIv: undefined,
-        secretTag: undefined,
-      };
-    }));
-
-    return migrated
+    return owned
       .map(toMetadata)
       .sort((a, b) => a.providerId.localeCompare(b.providerId) || a.priority - b.priority || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   }

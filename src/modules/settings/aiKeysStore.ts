@@ -62,7 +62,7 @@ export interface AIKeysState {
   setAISettingsHydrated: (value: boolean) => void;
   setProviderDefaultModel: (providerId: string, model: string) => void;
   setProviderLoadedModels: (providerId: string, models: { id: string; name: string }[]) => void;
-  syncKeys: () => Promise<void>;
+  syncKeys: () => Promise<boolean>;
 
   // Gets active personal credentialId, or 'system' only for Google.
   getActiveCredentialId: (providerId: string) => string | null;
@@ -246,6 +246,7 @@ export const useAIKeysStore = create<AIKeysState>()(
       })),
 
       syncKeys: async () => {
+        set({ aiSettingsHydrated: false });
         try {
           const [res, agentOptionsRes] = await Promise.all([
             authFetch('/api/ai/credentials'),
@@ -255,8 +256,9 @@ export const useAIKeysStore = create<AIKeysState>()(
             set({
               systemCredentialAvailable: null,
               credentialSyncError: 'Không thể đồng bộ metadata Gemini credential từ server.',
+              aiSettingsHydrated: false,
             });
-            return;
+            return false;
           }
           const keysPayload = await res.json();
           const agentOptions = await agentOptionsRes.json();
@@ -271,13 +273,17 @@ export const useAIKeysStore = create<AIKeysState>()(
               systemCredentialAvailable,
               keys,
             ),
+            aiSettingsHydrated: true,
           }));
-        } catch (err) {
+          return true;
+        } catch {
           console.error('Failed to sync credential metadata.');
           set({
             systemCredentialAvailable: null,
             credentialSyncError: 'Không thể đồng bộ metadata Gemini credential. Vui lòng thử lại.',
+            aiSettingsHydrated: false,
           });
+          return false;
         }
       },
 

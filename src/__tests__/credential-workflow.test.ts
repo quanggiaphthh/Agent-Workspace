@@ -1,6 +1,11 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_AGENT_MODEL } from '../../shared/contracts/ai';
 import { isAgentCredentialUsable, selectValidAgentCredentialId, useAIKeysStore, partializeAIKeysState } from '../modules/settings/aiKeysStore';
+
+const authFetchMock = vi.hoisted(() => ({ fetch: vi.fn() }));
+
+vi.mock('../lib/authFetch', () => ({ authFetch: authFetchMock.fetch }));
 
 const credentialMocks = vi.hoisted(() => ({
   resolveCredential: vi.fn(),
@@ -28,7 +33,10 @@ const context = (credentialId = 'system', autoRotate = false) => ({
   },
 }) as any;
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  useAIKeysStore.setState({ credentialId: 'system', keys: [], systemCredentialAvailable: null, credentialSyncError: null, aiSettingsHydrated: false });
+});
 
 describe('single-user Gemini credential workflow', () => {
   const keys = [
@@ -53,6 +61,49 @@ describe('single-user Gemini credential workflow', () => {
     expect(isAgentCredentialUsable('google-1', false, keys)).toBe(true);
     expect(isAgentCredentialUsable('openai-1', false, keys)).toBe(false);
     expect(isAgentCredentialUsable('google-disabled', false, keys)).toBe(false);
+  });
+
+  it('reconciles a stale persisted credentialId from server-owned metadata', async () => {
+    authFetchMock.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { id: 'google-later', providerId: 'google', status: 'active', priority: 2 },
+          { id: 'google-first', providerId: 'google', status: 'active', priority: 0 },
+        ],
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ systemAvailable: false, credentials: [] }) });
+    useAIKeysStore.setState({
+      credentialId: 'deleted-credential',
+      keys: [],
+      systemCredentialAvailable: null,
+      credentialSyncError: null,
+    });
+
+    const synced = await useAIKeysStore.getState().syncKeys();
+
+    expect(synced).toBe(true);
+    expect(authFetchMock.fetch).toHaveBeenNthCalledWith(1, '/api/ai/credentials');
+    expect(authFetchMock.fetch).toHaveBeenNthCalledWith(2, '/api/ai/credentials/agent-options');
+    expect(useAIKeysStore.getState().credentialId).toBe('google-first');
+    expect(useAIKeysStore.getState().aiSettingsHydrated).toBe(true);
+  });
+
+  it('fails closed and keeps Agent settings unhydrated when metadata reconciliation fails', async () => {
+    authFetchMock.fetch.mockResolvedValue({ ok: false });
+    useAIKeysStore.setState({
+      credentialId: 'deleted-credential',
+      keys: [],
+      systemCredentialAvailable: true,
+      credentialSyncError: null,
+      aiSettingsHydrated: true,
+    });
+
+    const synced = await useAIKeysStore.getState().syncKeys();
+
+    expect(synced).toBe(false);
+    expect(useAIKeysStore.getState().aiSettingsHydrated).toBe(false);
+    expect(useAIKeysStore.getState().credentialSyncError).toContain('Không thể đồng bộ');
   });
 
   it('never persists raw credential metadata/secrets in Zustand snapshot', () => {
