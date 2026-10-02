@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'crypto';
+import { GoogleAuth } from 'google-auth-library';
 import { z } from 'zod';
 import { DOCX_MIME_TYPE, MAX_FILE_BYTES } from '../../../shared/contracts/fileUploadPolicy';
 import { validateFileBytes } from '../files/filePolicy';
@@ -28,6 +29,7 @@ export type ProcessorClientConfig = {
   fetchImpl?: typeof fetch;
   nodeEnv?: string;
   timeoutMs?: number;
+  idTokenProvider?: (audience: string) => Promise<string>;
 };
 
 const DEFAULT_TIMEOUT_MS = 45_000;
@@ -78,6 +80,8 @@ export class DocumentProcessorClient {
   private readonly baseUrl: URL;
   private readonly sharedToken: string;
   private readonly timeoutMs: number;
+  private readonly requiresIam: boolean;
+  private readonly idTokenProvider: (audience: string) => Promise<string>;
 
   constructor(config: ProcessorClientConfig = {}) {
     this.fetchImpl = config.fetchImpl ?? fetch;
@@ -100,6 +104,13 @@ export class DocumentProcessorClient {
     }
     this.baseUrl = parsed;
     this.sharedToken = sharedToken;
+    this.requiresIam = !localHttp;
+    this.idTokenProvider = config.idTokenProvider ?? (async audience => {
+      const client = await new GoogleAuth().getIdTokenClient(audience);
+      const authorization = (await client.getRequestHeaders()).get('authorization');
+      if (!authorization?.startsWith('Bearer ')) throw new Error('Missing ID token');
+      return authorization.slice('Bearer '.length);
+    });
   }
 
   async inspect(bytes: Buffer, signal?: AbortSignal, correlationId: string = randomUUID()): Promise<DocumentInspectionResult> {
@@ -175,12 +186,25 @@ export class DocumentProcessorClient {
     const url = absoluteEndpoint ? endpoint : new URL(endpoint, this.baseUrl).toString();
     try {
       if (controller.signal.aborted) throw new DocumentProcessorError('PROCESSING_CANCELLED', 'DOCX processing was cancelled.');
+      let iamToken: string | undefined;
+      if (this.requiresIam) {
+        try {
+          iamToken = await this.obtainIdToken(controller.signal);
+          if (!iamToken || iamToken.length > 8192 || /\s/.test(iamToken)) throw new Error('Invalid ID token');
+        } catch {
+          if (timedOut) throw new DocumentProcessorError('PROCESSING_TIMEOUT', 'DOCX processing exceeded its time limit.');
+          if (parentSignal?.aborted) throw new DocumentProcessorError('PROCESSING_CANCELLED', 'DOCX processing was cancelled.');
+          throw new DocumentProcessorError('PROCESSOR_AUTH_FAILED', 'The private document processor could not be authenticated.');
+        }
+      }
+      if (controller.signal.aborted) throw new DocumentProcessorError('PROCESSING_CANCELLED', 'DOCX processing was cancelled.');
       let response: Response;
       try {
         response = await this.fetchImpl(url, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${this.sharedToken}`,
+            ...(iamToken ? { 'X-Serverless-Authorization': `Bearer ${iamToken}` } : {}),
             'Content-Type': DOCX_MIME_TYPE,
             'X-Correlation-ID': correlationId,
           },
@@ -204,6 +228,16 @@ export class DocumentProcessorClient {
       clearTimeout(timer);
       parentSignal?.removeEventListener('abort', abortFromParent);
     }
+  }
+
+  private async obtainIdToken(signal: AbortSignal): Promise<string> {
+    return await new Promise<string>((resolve, reject) => {
+      const abort = () => reject(new Error('Token acquisition cancelled'));
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) { abort(); signal.removeEventListener('abort', abort); return; }
+      void Promise.resolve().then(() => this.idTokenProvider(this.baseUrl.origin))
+        .then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+    });
   }
 
   private async readBounded(response: Response, maximumBytes: number, signal: AbortSignal): Promise<Buffer> {
