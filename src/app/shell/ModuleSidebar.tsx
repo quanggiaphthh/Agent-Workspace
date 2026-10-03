@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   ListTodo,
   Sliders,
+  FileText,
   ChevronLeft,
   ChevronRight,
   Layers,
@@ -57,6 +58,8 @@ export function ModuleSidebar({
       case 'Sliders':
       case 'Settings':
         return <Sliders className="h-4 w-4 shrink-0" />;
+      case 'FileText':
+        return <FileText className="h-4 w-4 shrink-0" />;
       default:
         return <Layers className="h-4 w-4 shrink-0" />;
     }

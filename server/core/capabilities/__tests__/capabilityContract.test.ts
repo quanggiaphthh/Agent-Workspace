@@ -54,8 +54,8 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
       'system.memory.add','system.memory.query','system.tasks.create','system.tasks.list','system.web.search',
       'ui.openEntity','ui.openModule','ui.refresh','ui.showNotification',
     ];
-    expect(caps.map(c => c.id).sort()).toEqual([...lockedM1Ids, 'system.tasks.delete', 'system.tasks.search', 'system.tasks.update', 'document.inspect', 'document.applyAlignment'].sort());
-    expect(caps).toHaveLength(14);
+    expect(caps.map(c => c.id).sort()).toEqual([...lockedM1Ids, 'system.tasks.delete', 'system.tasks.search', 'system.tasks.update', 'document.inspect', 'document.applyAlignment', 'document.reconcileFormatting'].sort());
+    expect(caps).toHaveLength(15);
     expect(caps.every(c => !!c.sideEffect && ['none','mutation','ui-local'].includes(c.sideEffect))).toBe(true);
     expect(caps.every(c => !!c.confirmationPolicy && ['none','required'].includes(c.confirmationPolicy))).toBe(true);
   });
@@ -63,9 +63,9 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
   it('keeps document formatting module-bound, disabled with its module, and confirmed before mutation', async () => {
     bootstrapServer();
     const capabilities = ServerCapabilityRegistry.listAll().filter(capability => capability.moduleId === 'document-formatting');
-    expect(capabilities.map(capability => capability.id).sort()).toEqual(['document.applyAlignment', 'document.inspect']);
+    expect(capabilities.map(capability => capability.id).sort()).toEqual(['document.applyAlignment', 'document.inspect', 'document.reconcileFormatting']);
     expect(storage.getData().moduleSettings['document-formatting'].enabled).toBe(false);
-    const input = { fileId: 'source-id', sourceSha256: 'a'.repeat(64), paragraphId: 'p1', expectedBefore: 'LEFT', desiredAfter: 'CENTER' };
+    const input = { fileId: 'source-id', sourceSha256: 'a'.repeat(64), property: 'section.margin_right_mm', targetId: 's1', documentTypeKey: 'quyet_dinh', expectedBefore: '15', desiredAfter: '17', profileId: 'HOATIEU-MIENBAC-ADMIN-V1', profileDigest: 'b'.repeat(64), ruleId: 'ND30.PL1.I.GENERAL.MARGIN_RIGHT' };
     const documentContext = {
       ...context,
       user: { ...user, permissions: ['files.read', 'files.write'] },
@@ -78,7 +78,7 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
     expect((await ServerCapabilityRegistry.listForContext(context as any)).some(capability => capability.id === 'system.tasks.list')).toBe(true);
 
     await storage.setModuleEnabled('document-formatting', true);
-    expect((await ServerCapabilityRegistry.listForContext(documentContext as any)).map(capability => capability.id)).toEqual(expect.arrayContaining(['document.inspect', 'document.applyAlignment']));
+    expect((await ServerCapabilityRegistry.listForContext(documentContext as any)).map(capability => capability.id)).toEqual(expect.arrayContaining(['document.inspect', 'document.applyAlignment', 'document.reconcileFormatting']));
     for (const permissions of [['files.write'], ['files.read']]) {
       const limited = { ...documentContext, user: { ...documentContext.user, permissions } };
       expect(await ServerCapabilityRegistry.execute('document.applyAlignment', input, limited as any))

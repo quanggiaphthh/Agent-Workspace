@@ -2,14 +2,33 @@ import { describe, expect, it, vi } from 'vitest';
 import { DocumentProcessorClient, DocumentProcessorError } from '../documentProcessorClient';
 
 const docx = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00]);
+/**
+ * Minimal payload that satisfies the current inspection schema. This suite is about the
+ * IAM/id-token boundary, so the fixture carries no findings or targets; the point is only
+ * that a schema-valid response is required before the client will return a result.
+ */
 const inspection = {
   sourceSha256: 'a'.repeat(64),
-  profile: 'generic-direct-alignment-spike',
+  profile: 'HOATIEU-MIENBAC-ADMIN-V1',
   safeToMutate: true,
   packagePolicy: 'NORMAL',
   paragraphs: [],
   paragraphsTruncated: false,
   diagnostics: [],
+  binding: null,
+  findings: [],
+  mutableTargets: [],
+  ruleSubsetSize: 0,
+  applicableRules: 0,
+  evaluatedRules: 0,
+  failCount: 0,
+  needsReviewCount: 0,
+  notEvaluatedCount: 0,
+  evaluatedCoveragePercent: 0,
+  fullComplianceClaimAllowed: false,
+  scopeStatement: null,
+  supportedProperties: null,
+  supportedDocumentTypes: null,
 };
 
 describe('private document processor IAM boundary', () => {

@@ -7,7 +7,7 @@ import { useContextStore } from '../../core/context/contextStore';
 import { moduleRegistry } from '../../core/modules/moduleRegistry';
 import { authFetch } from '../../lib/authFetch';
 import { useFirebaseAuth } from '../../lib/FirebaseAuthProvider';
-import { uploadUserFile, type UploadProblem } from '../../modules/home/fileUploadClient';
+import { uploadUserFile, type UploadProblem } from '../../core/files/fileUploadClient';
 import type { AttachmentReference } from '../../../server/agent/chat/chatRequestContract';
 import { MAX_ATTACHMENTS_PER_TURN } from '../../../server/agent/chat/attachmentPolicy';
 import { SUPPORTED_CHAT_ATTACHMENT_ACCEPT } from '../../../shared/contracts/fileUploadPolicy';

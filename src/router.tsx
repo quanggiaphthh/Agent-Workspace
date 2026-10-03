@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   createRootRoute, 
   createRoute, 
@@ -9,6 +9,7 @@ import {
   Navigate
 } from '@tanstack/react-router';
 import { moduleRegistry } from './core/modules/moduleRegistry';
+import { eventBus } from './core/events/eventBus';
 import { AppShell } from './app/shell/AppShell';
 import { Card } from './components/ui/Card';
 import { Button } from './components/ui/Button';
@@ -26,9 +27,26 @@ const rootRoute = createRootRoute({
 
 // 2. Module Guard Component
 const ModuleGuard = ({ moduleId, component: Component }: { moduleId: string, component: React.ComponentType }) => {
-  const isEnabled = moduleRegistry.isEnabled(moduleId);
   const user = useContextStore(state => state.user);
+  const [moduleRevision, setModuleRevision] = useState(0);
+
+  // Module enable state lives outside React. Subscribe to the existing module
+  // events so disabling a module while its route is open unmounts it instead of
+  // leaving a stale screen behind. The server stays the authority either way.
+  useEffect(() => {
+    const bump = () => setModuleRevision(current => current + 1);
+    const offStatus = eventBus.on('module.statusChanged', bump);
+    const offSynced = eventBus.on('modules.synced', bump);
+    return () => {
+      offStatus();
+      offSynced();
+    };
+  }, []);
+
+  const isEnabled = moduleRegistry.isEnabled(moduleId);
   const hasAccess = moduleRegistry.hasAccess(moduleId, user);
+  const moduleName = moduleRegistry.resolve(moduleId)?.meta.name || 'Phân hệ này';
+  void moduleRevision;
 
   if (!isEnabled) {
     return (
@@ -39,7 +57,7 @@ const ModuleGuard = ({ moduleId, component: Component }: { moduleId: string, com
           </div>
           <div>
             <h2 className="text-base font-bold text-amber-900">
-              Phân hệ "{moduleId}" đang bị tắt
+              {moduleName} đang bị tắt
             </h2>
             <p className="text-xs text-amber-800 mt-1 leading-relaxed">
               Phân hệ này đã bị vô hiệu hóa trong trình quản lý. Các tính năng và đường dẫn hiện không khả dụng.

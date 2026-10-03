@@ -36,7 +36,18 @@ export interface MutationExecutionRecord {
   result?: ServerCapabilityExecutionResult; failureKind?: MutationFailureKind; errorCode?: string;
 }
 type ClaimResult = { kind: 'claimed' | 'succeeded' | 'running' | 'failed'; record: MutationExecutionRecord } | { kind: 'mismatch'; reason: 'USER' | 'CAPABILITY' | 'INPUT' | 'SOURCE'; record: MutationExecutionRecord };
-interface ExecutionRepository { claim(record: MutationExecutionRecord): Promise<ClaimResult>; succeed(id: string, result: ServerCapabilityExecutionResult): Promise<void>; fail(id: string, kind: MutationFailureKind, code: string): Promise<void>; }
+type InspectResult = { kind: 'found'; record: MutationExecutionRecord } | { kind: 'mismatch'; reason: 'USER' | 'CAPABILITY' | 'INPUT' | 'SOURCE' } | { kind: 'absent' };
+interface ExecutionRepository {
+  claim(record: MutationExecutionRecord): Promise<ClaimResult>;
+  succeed(id: string, result: ServerCapabilityExecutionResult): Promise<void>;
+  fail(id: string, kind: MutationFailureKind, code: string): Promise<void>;
+  /**
+   * Read-only evidence lookup used to reconcile an already-dispatched mutation.
+   * Optional so existing test doubles stay valid; a repository without it simply
+   * reports that no durable evidence is available, which fails closed.
+   */
+  inspect?(record: Pick<MutationExecutionRecord, 'executionId' | 'userId' | 'capabilityId' | 'inputHash' | 'source'>): Promise<InspectResult>;
+}
 const EXECUTION_COLLECTION = 'capability_executions';
 class FirestoreExecutionRepository implements ExecutionRepository {
   async claim(record: MutationExecutionRecord): Promise<ClaimResult> {
@@ -60,6 +71,16 @@ class FirestoreExecutionRepository implements ExecutionRepository {
   }
   async succeed(id: string, result: ServerCapabilityExecutionResult) { await adminFirestore.collection(EXECUTION_COLLECTION).doc(id).update({ state: 'SUCCEEDED', result, completedAt: new Date().toISOString(), failureKind: null, errorCode: null }); }
   async fail(id: string, kind: MutationFailureKind, code: string) { await adminFirestore.collection(EXECUTION_COLLECTION).doc(id).update({ state: 'FAILED', failureKind: kind, errorCode: code, completedAt: new Date().toISOString() }); }
+  async inspect(record: Pick<MutationExecutionRecord, 'executionId' | 'userId' | 'capabilityId' | 'inputHash' | 'source'>): Promise<InspectResult> {
+    const snapshot = await adminFirestore.collection(EXECUTION_COLLECTION).doc(record.executionId).get();
+    if (!snapshot.exists) return { kind: 'absent' };
+    const existing = snapshot.data() as MutationExecutionRecord;
+    if (existing.userId !== record.userId) return { kind: 'mismatch', reason: 'USER' };
+    if (existing.capabilityId !== record.capabilityId) return { kind: 'mismatch', reason: 'CAPABILITY' };
+    if (existing.inputHash !== record.inputHash) return { kind: 'mismatch', reason: 'INPUT' };
+    if (existing.source !== record.source) return { kind: 'mismatch', reason: 'SOURCE' };
+    return { kind: 'found', record: existing };
+  }
 }
 
 export class CapabilityExecutionIdempotencyService {
@@ -75,14 +96,80 @@ export class CapabilityExecutionIdempotencyService {
   }
   static succeed(id: string, result: ServerCapabilityExecutionResult) { return this.repository.succeed(id, result); }
   static fail(id: string, kind: MutationFailureKind, code: string) { return this.repository.fail(id, kind, code); }
+
+  /**
+   * Read-only reconciliation of a mutation that was already dispatched under
+   * `meta.idempotencyKey`. It never claims, retries or mutates anything: it only
+   * reports what the durable record already proves, so a caller holding an
+   * ambiguous marker can learn the recorded outcome without re-issuing the
+   * operation or guessing one. Returns `undefined` when the backing repository
+   * cannot answer, which callers must treat as "no evidence available".
+   */
+  static async inspect(meta: CapabilityExecutionMetadata, context: { user?: { id: string } }, capabilityId: string, rawInput: unknown): Promise<InspectResult | undefined> {
+    if (!this.repository.inspect || !context.user?.id) return undefined;
+    const identity = this.deriveIdentity(meta);
+    if (!identity) return undefined;
+    const executionId = createHash('sha256').update(identity.logicalId).digest('hex');
+    return this.repository.inspect({
+      executionId,
+      userId: context.user.id,
+      capabilityId,
+      inputHash: hashCapabilityInput(rawInput),
+      source: identity.source,
+    });
+  }
   static setRepositoryForTests(repository: ExecutionRepository) { this.repository = repository; }
   static resetRepositoryForTests() { this.repository = new FirestoreExecutionRepository(); }
 }
 
+/** Gateway-owned codes plus preserved domain codes all describe an execution fault, not an authorization denial. */
+const EXECUTION_FAULT_ERROR_CODES = new Set([
+  'EXECUTION_ERROR',
+  'INVALID_OUTPUT',
+  'RESULT_TOO_LARGE',
+  'PROCESSING_FAILED',
+  'PROCESSOR_UNAVAILABLE',
+  'PROCESSOR_NOT_CONFIGURED',
+  'PROCESSOR_AUTH_FAILED',
+  'PROCESSOR_BUSY',
+  'PROCESSOR_INVALID_RESPONSE',
+  'PROCESSOR_RESPONSE_TOO_LARGE',
+  'PROCESSING_TIMEOUT',
+  'INPUT_TOO_LARGE',
+  'OUTPUT_TOO_LARGE',
+  'MALFORMED_DOCX',
+  'UNSUPPORTED_FILE_TYPE',
+  'UNSAFE_ARCHIVE',
+  'UNSAFE_ARCHIVE_PATH',
+  'UNSAFE_XML',
+  'ARCHIVE_ENTRY_LIMIT',
+  'ARCHIVE_ENTRY_TOO_LARGE',
+  'ARCHIVE_EXPANSION_LIMIT',
+  'UNSUPPORTED_FEATURE',
+  'PACKAGE_NOT_MUTABLE',
+  'TARGET_NOT_FOUND',
+  'TARGET_AMBIGUOUS',
+  'PROVENANCE_NOT_DIRECT',
+  'PRECONDITION_FAILED',
+  'POSTCONDITION_FAILED',
+  'TEMP_CREATE_FAILED',
+  'TEMP_CLEANUP_FAILED',
+  'OUTPUT_INTEGRITY_FAILED',
+  'OUTPUT_NOT_VERIFIED',
+  'SOURCE_IMMUTABILITY_VIOLATION',
+  'OUTPUT_PATH_INVALID',
+  'OUTPUT_ALREADY_EXISTS',
+  'STALE_DOCUMENT',
+  'FILE_TYPE_MISMATCH',
+  'FILE_INTEGRITY_FAILED',
+  'FILE_TOO_LARGE_FOR_MODEL',
+  'DOCUMENT_PROCESSING_FAILED',
+]);
+
 function outcomeForResult(result: ServerCapabilityExecutionResult): AuditOutcome {
   if (result.success) return 'success';
-  if (result.errorCode === 'EXECUTION_CANCELLED') return 'cancelled';
-  if (['EXECUTION_ERROR', 'INVALID_OUTPUT', 'RESULT_TOO_LARGE'].includes(result.errorCode || '')) return 'execution_error';
+  if (result.errorCode === 'EXECUTION_CANCELLED' || result.errorCode === 'PROCESSING_CANCELLED') return 'cancelled';
+  if (EXECUTION_FAULT_ERROR_CODES.has(result.errorCode || '')) return 'execution_error';
   return 'denied';
 }
 

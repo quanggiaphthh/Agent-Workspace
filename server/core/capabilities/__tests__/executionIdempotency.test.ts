@@ -110,6 +110,98 @@ describe('GĐ3 Lượt 2 mutation idempotency', () => {
     expect(good.success).toBe(true); expect(handler).toHaveBeenCalledOnce();
   });
 
+  // Regression guard: the four registry branches below `descriptor.execute`
+  // (output-schema violation, non-serializable result, oversized result) all
+  // run after the handler may already have committed a side effect. If any of
+  // them omits executionStarted, CapabilityExecutionService records PRE_HANDLER
+  // and the next attempt with the same identity replays the mutation.
+  describe('post-execution failures are never replayed', () => {
+    const postExecutionCases: Array<{
+      name: string;
+      capabilityId: string;
+      expectedCode: string;
+      descriptor: (handler: any) => any;
+      result: any;
+    }> = [
+      {
+        name: 'output schema violation after the handler ran',
+        capabilityId: 'test.post.output',
+        expectedCode: 'INVALID_OUTPUT',
+        result: { ok: false },
+        descriptor: (handler: any) => ({
+          id: 'test.post.output', moduleId: 'system', description: 'post-execution output violation', inputSchema: z.object({ value: z.string() }).strict(),
+          outputSchema: z.object({ ok: z.literal(true) }).strict(), risk: 'low', sideEffect: 'mutation', confirmationPolicy: 'none', permissions: [],
+          execute: handler,
+        } as any),
+      },
+      {
+        name: 'non-serializable handler result',
+        capabilityId: 'test.post.circular',
+        expectedCode: 'INVALID_OUTPUT',
+        result: (() => { const circular: any = { value: 'A' }; circular.self = circular; return circular; })(),
+        descriptor: (handler: any) => ({
+          id: 'test.post.circular', moduleId: 'system', description: 'post-execution serialization failure', inputSchema: z.object({ value: z.string() }).strict(),
+          risk: 'low', sideEffect: 'mutation', confirmationPolicy: 'none', permissions: [],
+          execute: handler,
+        } as any),
+      },
+      {
+        name: 'oversized handler result',
+        capabilityId: 'test.post.oversized',
+        expectedCode: 'RESULT_TOO_LARGE',
+        result: { payload: 'x'.repeat(ServerCapabilityRegistry.MAX_RESULT_BYTES + 1024) },
+        descriptor: (handler: any) => ({
+          id: 'test.post.oversized', moduleId: 'system', description: 'post-execution size failure', inputSchema: z.object({ value: z.string() }).strict(),
+          risk: 'low', sideEffect: 'mutation', confirmationPolicy: 'none', permissions: [],
+          execute: handler,
+        } as any),
+      },
+    ];
+
+    it.each(postExecutionCases)('does not re-run the handler after $name', async ({ capabilityId, expectedCode, descriptor, result }) => {
+      const handler = vi.fn(async () => result);
+      ServerCapabilityRegistry.register(descriptor(handler));
+
+      const first = await CapabilityExecutionService.execute(capabilityId, { value: 'A' }, context, meta());
+      expect(first.errorCode).toBe(expectedCode);
+      expect(first).not.toHaveProperty('executionStarted');
+      expect(handler).toHaveBeenCalledTimes(1);
+
+      const retry = await CapabilityExecutionService.execute(capabilityId, { value: 'A' }, context, meta());
+      expect(retry.errorCode).toBe('EXECUTION_RECONCILIATION_REQUIRED');
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('records the post-execution failure as ambiguous rather than retryable', async () => {
+      const handler = vi.fn(async (): Promise<any> => ({ ok: false }));
+      ServerCapabilityRegistry.register({
+        id: 'test.post.kind', moduleId: 'system', description: 'post-execution output violation', inputSchema: z.object({ value: z.string() }).strict(),
+        outputSchema: z.object({ ok: z.literal(true) }).strict(), risk: 'low', sideEffect: 'mutation', confirmationPolicy: 'none', permissions: [],
+        execute: handler,
+      });
+      await CapabilityExecutionService.execute('test.post.kind', { value: 'A' }, context, meta());
+      const record = [...repo.records.values()][0];
+      expect(record.state).toBe('FAILED');
+      expect(record.failureKind).toBe('AMBIGUOUS_POST_START');
+      expect(record.errorCode).toBe('INVALID_OUTPUT');
+    });
+  });
+
+  it('preserves allowlisted domain error codes and collapses unknown exceptions', async () => {
+    const domain = vi.fn(async () => { const e: any = new Error('provider detail that must not leak'); e.code = 'STALE_DOCUMENT'; throw e; });
+    registerMutation(domain, 'test.domain.stale');
+    const stale = await CapabilityExecutionService.execute('test.domain.stale', { value: 'A' }, context, meta());
+    expect(stale.errorCode).toBe('STALE_DOCUMENT');
+    expect(JSON.stringify(stale)).not.toContain('provider detail');
+
+    const unknown = vi.fn(async () => { throw new Error('raw-secret=abc123'); });
+    registerMutation(unknown, 'test.domain.unknown');
+    const raw = await CapabilityExecutionService.execute('test.domain.unknown', { value: 'A' }, context, meta('call-unknown-1234'));
+    expect(raw.errorCode).toBe('EXECUTION_ERROR');
+    expect(raw.error).toBe('Capability execution failed.');
+    expect(JSON.stringify(raw)).not.toContain('abc123');
+  });
+
   it('cancellation after handler start is treated as ambiguous and blocks automatic retry', async () => {
     const controller = new AbortController();
     const handler = vi.fn(async () => { controller.abort(); throw new Error('cancelled after start'); }); registerMutation(handler);

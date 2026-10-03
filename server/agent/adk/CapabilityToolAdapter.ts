@@ -140,7 +140,9 @@ function confirmationHint(cap: CapabilityDescriptor<any, any>, args: any, truste
   }
 
   if (cap.id === 'document.applyAlignment') {
-    return `Đổi căn lề trực tiếp của đoạn ${args?.paragraphId} trong DOCX ${args?.fileId} từ ${args?.expectedBefore} sang ${args?.desiredAfter}. Tệp nguồn được giữ nguyên và sẽ tạo một tệp mới.`;
+    const property = typeof args?.property === 'string' ? args.property : 'thuộc tính định dạng';
+    const target = typeof args?.targetId === 'string' ? args.targetId : 'mục tiêu';
+    return `Đổi ${property} của ${target} trong DOCX ${args?.fileId} từ ${args?.expectedBefore} sang ${args?.desiredAfter} theo hồ sơ định dạng đã xác nhận. Tệp nguồn được giữ nguyên và sẽ tạo một tệp mới.`;
   }
 
   const effect = cap.effects?.[0];

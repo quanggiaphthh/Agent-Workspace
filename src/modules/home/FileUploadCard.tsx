@@ -3,7 +3,7 @@ import { Upload, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { MAX_FILE_BYTES, SUPPORTED_FILE_ACCEPT } from '../../../shared/contracts/fileUploadPolicy';
-import { createInitialUploadState, fileUploadReducer, precheckFile, uploadUserFile, type UploadProblem } from './fileUploadClient';
+import { createInitialUploadState, fileUploadReducer, precheckFile, uploadUserFile, type UploadProblem } from '../../core/files/fileUploadClient';
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;

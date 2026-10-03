@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CapabilityDescriptor, ExecutionContext } from '../../../shared/contracts/capability';
+import { CapabilityDescriptor, ExecutionContext, isSafeDomainErrorCode } from '../../../shared/contracts/capability';
 import { isCanonicalPermissionId } from '../../../shared/security/permissions';
 import { storage } from '../../infrastructure/storage';
 import { serverModuleCatalog } from '../modules/moduleCatalog';
@@ -138,22 +138,33 @@ export class ServerCapabilityRegistry {
 
     try {
       const rawResult = await descriptor.execute(parseResult.data, context);
+      // Everything below this point runs AFTER the handler already had the
+      // chance to commit side effects, so every branch must report
+      // executionStarted: true. The gateway treats a missing flag as
+      // PRE_HANDLER and would otherwise replay an already-executed mutation.
       const output = descriptor.outputSchema?.safeParse(rawResult);
       if (output && !output.success) {
-        return { success: false, errorCode: 'INVALID_OUTPUT', error: `Capability "${id}" returned output that violates its declared contract.` };
+        return { success: false, errorCode: 'INVALID_OUTPUT', error: `Capability "${id}" returned output that violates its declared contract.`, executionStarted: true };
       }
       const result = output?.success ? output.data : rawResult;
       let serialized: string;
-      try { serialized = JSON.stringify(result); } catch { return { success: false, errorCode: 'INVALID_OUTPUT', error: `Capability "${id}" returned a non-serializable result.` }; }
-      if (serialized === undefined) return { success: false, errorCode: 'INVALID_OUTPUT', error: `Capability "${id}" returned a non-serializable result.` };
+      try { serialized = JSON.stringify(result); } catch { return { success: false, errorCode: 'INVALID_OUTPUT', error: `Capability "${id}" returned a non-serializable result.`, executionStarted: true }; }
+      if (serialized === undefined) return { success: false, errorCode: 'INVALID_OUTPUT', error: `Capability "${id}" returned a non-serializable result.`, executionStarted: true };
       const resultBytes = Buffer.byteLength(serialized, 'utf8');
       if (resultBytes > this.MAX_RESULT_BYTES) {
-        return { success: false, errorCode: 'RESULT_TOO_LARGE', error: `Capability "${id}" result exceeds the ${this.MAX_RESULT_BYTES}-byte execution limit.` };
+        return { success: false, errorCode: 'RESULT_TOO_LARGE', error: `Capability "${id}" result exceeds the ${this.MAX_RESULT_BYTES}-byte execution limit.`, executionStarted: true };
       }
       return { success: true, result, risk: descriptor.risk, effects: descriptor.effects, executionStarted: true };
     } catch (err: any) {
       if (context.abortSignal?.aborted || isCancellationError(err)) return { success: false, errorCode: 'EXECUTION_CANCELLED', error: 'Execution cancelled.', executionStarted: true };
-      return { success: false, errorCode: 'EXECUTION_ERROR', error: err?.message || 'Capability execution failed.', executionStarted: true };
+      // Allowlisted domain codes are part of the capability error contract and
+      // must survive so the client can distinguish stale/config/auth/output
+      // failures. Everything else collapses to a generic code; raw exception
+      // text is never forwarded.
+      if (isSafeDomainErrorCode(err?.code)) {
+        return { success: false, errorCode: err.code, error: 'Capability execution failed.', executionStarted: true };
+      }
+      return { success: false, errorCode: 'EXECUTION_ERROR', error: 'Capability execution failed.', executionStarted: true };
     }
   }
 }

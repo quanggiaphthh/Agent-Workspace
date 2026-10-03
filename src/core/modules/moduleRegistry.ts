@@ -12,10 +12,14 @@ import { authFetch } from '../../lib/authFetch';
 class LocalModuleRegistry {
   private manifests: Map<string, ModuleManifest> = new Map();
   private enabledMap: Map<string, boolean> = new Map();
+  /** Authoritative server module state has been confirmed at least once. */
+  private serverStateConfirmed = false;
 
   public register(manifest: ModuleManifest): void {
     this.manifests.set(manifest.id, manifest);
-    if (!this.enabledMap.has(manifest.id)) this.enabledMap.set(manifest.id, true);
+    // The server module catalog stays the enable/disable authority, so the local
+    // default must mirror its metadata default instead of always assuming on.
+    if (!this.enabledMap.has(manifest.id)) this.enabledMap.set(manifest.id, manifest.meta.defaultEnabled !== false);
     eventBus.emit('module.registered', { moduleId: manifest.id });
   }
 
@@ -25,7 +29,7 @@ class LocalModuleRegistry {
     eventBus.emit('module.unregistered', { moduleId });
   }
 
-  public reset(): void { this.manifests.clear(); this.enabledMap.clear(); }
+  public reset(): void { this.manifests.clear(); this.enabledMap.clear(); this.serverStateConfirmed = false; }
   public async enable(moduleId: string, persist?: () => Promise<void>): Promise<void> { return this.setEnabled(moduleId, true, persist); }
   public async disable(moduleId: string, persist?: () => Promise<void>): Promise<void> { return this.setEnabled(moduleId, false, persist); }
 
@@ -44,6 +48,9 @@ class LocalModuleRegistry {
   }
 
   public isEnabled(moduleId: string): boolean { return this.enabledMap.get(moduleId) ?? false; }
+
+  /** True only once the server module state has been confirmed for this session. */
+  public hasConfirmedServerState(): boolean { return this.serverStateConfirmed; }
 
   public getPrimaryRoute(moduleId: string): string {
     const manifest = this.manifests.get(moduleId);
@@ -98,16 +105,35 @@ class LocalModuleRegistry {
     );
   }
 
+  /**
+   * Apply the authoritative server module state. A failed or malformed sync is
+   * not treated as confirmation: subscribers are told the sync did not land so
+   * any module that starts closed stays closed until real server state arrives.
+   */
   public async syncWithServer(): Promise<void> {
     try {
       const res = await authFetch('/api/modules');
-      if (res.ok) {
-        const list: Array<{ id: string; enabled: boolean }> = await res.json();
-        list.forEach(item => { if (this.manifests.has(item.id)) this.enabledMap.set(item.id, item.enabled); });
-        eventBus.emit('modules.synced', {});
+      if (!res.ok) {
+        eventBus.emit('modules.synced', { failed: true });
+        return;
       }
+      const list: Array<{ id: string; enabled: boolean }> = await res.json();
+      if (!Array.isArray(list)) {
+        eventBus.emit('modules.synced', { failed: true });
+        return;
+      }
+      list.forEach(item => {
+        if (!this.manifests.has(item.id)) return;
+        if (typeof item.enabled !== 'boolean') return;
+        const previous = this.isEnabled(item.id);
+        this.enabledMap.set(item.id, item.enabled);
+        if (previous !== item.enabled) eventBus.emit('module.statusChanged', { moduleId: item.id, enabled: item.enabled });
+      });
+      this.serverStateConfirmed = true;
+      eventBus.emit('modules.synced', {});
     } catch (err) {
       console.warn('Could not sync module state with server:', err);
+      eventBus.emit('modules.synced', { failed: true });
     }
   }
 }

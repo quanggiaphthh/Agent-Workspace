@@ -1027,24 +1027,37 @@ app.post('/api/capabilities/execute', expensiveUserLimiter, async (req, res) => 
     const appContext = context && typeof context === 'object' && !Array.isArray(context)
       ? { ...context, user }
       : { user, availableCapabilities: [] };
+    // Generate the request id BEFORE the gateway runs, and reuse one identifier for the
+    // request, the gateway metadata (which the audit log records), and the response, so
+    // an id shown to the owner can actually be correlated with the audit trail.
+    const requestId = req.requestId || randomUUID();
+    req.requestId = requestId;
     const result = await CapabilityExecutionService.execute(
       id,
       input,
       { user, appContext, confirmed: false, abortSignal: requestCancellation.signal },
-      { source: 'rest', requestId: req.requestId, idempotencyKey, confirmationId, abortSignal: requestCancellation.signal },
+      { source: 'rest', requestId, idempotencyKey, confirmationId, abortSignal: requestCancellation.signal },
     );
 
+    // A safe, already-generated request identifier so a failed capability call can be
+    // traced in the audit log. It carries no secret and no document content.
     if (result.requiresConfirmation) {
-      return res.status(409).json(result);
+      return res.status(409).json({ ...result, requestId });
     }
-    res.json(result);
+    res.json({ ...result, requestId });
   } catch (err: any) {
     if (requestCancellation.signal.aborted || isCancellationError(err)) {
       if (!res.headersSent && !res.writableEnded) res.status(499).end();
       return;
     }
     console.error('Capability execution error:', fatalErrorSummary(err));
-    res.status(500).json({ success: false, error: redactAuditString(err?.message || 'Internal server error') });
+    // Include the same request id on the failure path so it can be correlated. The id is
+    // server-generated and carries no secret; the message stays redacted.
+    res.status(500).json({
+      success: false,
+      error: redactAuditString(err?.message || 'Internal server error'),
+      requestId: req.requestId,
+    });
   }
 });
 

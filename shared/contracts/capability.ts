@@ -5,6 +5,70 @@ export type CapabilityRisk = 'low' | 'medium' | 'high';
 export type CapabilitySideEffect = 'none' | 'mutation' | 'ui-local';
 export type CapabilityConfirmationPolicy = 'none' | 'required';
 
+/**
+ * Domain error codes that may cross the capability gateway unchanged.
+ *
+ * Domain layers (document Processor client, file authority, document-formatting
+ * capability) throw typed errors whose `code` is part of their stable contract.
+ * The gateway keeps those codes so the UI can distinguish stale/config/auth/
+ * output failures, but only for codes explicitly allowlisted here. Any other
+ * thrown value is collapsed to the generic `EXECUTION_ERROR` so no raw
+ * exception text, provider detail or secret can leak to the client.
+ */
+export const SAFE_DOMAIN_ERROR_CODES = [
+  // Document Processor remote contract.
+  'PROCESSOR_NOT_CONFIGURED',
+  'PROCESSOR_UNAVAILABLE',
+  'PROCESSOR_AUTH_FAILED',
+  'PROCESSOR_BUSY',
+  'PROCESSOR_INVALID_RESPONSE',
+  'PROCESSOR_RESPONSE_TOO_LARGE',
+  'PROCESSING_CANCELLED',
+  'PROCESSING_TIMEOUT',
+  'PROCESSING_FAILED',
+  'INPUT_TOO_LARGE',
+  'OUTPUT_TOO_LARGE',
+  'MALFORMED_DOCX',
+  'UNSUPPORTED_FILE_TYPE',
+  'UNSAFE_ARCHIVE',
+  'UNSAFE_ARCHIVE_PATH',
+  'UNSAFE_XML',
+  'ARCHIVE_ENTRY_LIMIT',
+  'ARCHIVE_ENTRY_TOO_LARGE',
+  'ARCHIVE_EXPANSION_LIMIT',
+  'UNSUPPORTED_FEATURE',
+  'PACKAGE_NOT_MUTABLE',
+  'TARGET_NOT_FOUND',
+  'TARGET_AMBIGUOUS',
+  'PROVENANCE_NOT_DIRECT',
+  'PRECONDITION_FAILED',
+  'POSTCONDITION_FAILED',
+  'TEMP_CREATE_FAILED',
+  'TEMP_CLEANUP_FAILED',
+  'OUTPUT_INTEGRITY_FAILED',
+  'SOURCE_IMMUTABILITY_VIOLATION',
+  'OUTPUT_PATH_INVALID',
+  'OUTPUT_ALREADY_EXISTS',
+  'STALE_DOCUMENT',
+  'AUTHORIZATION_REJECTED',
+  // File authority domain.
+  'FILE_TYPE_MISMATCH',
+  'FILE_INTEGRITY_FAILED',
+  'FILE_READ_CANCELLED',
+  'FILE_TOO_LARGE_FOR_MODEL',
+  // Document-formatting capability domain.
+  'DOCUMENT_PROCESSING_FAILED',
+  'OUTPUT_NOT_VERIFIED',
+] as const;
+
+export type SafeDomainErrorCode = (typeof SAFE_DOMAIN_ERROR_CODES)[number];
+
+const SAFE_DOMAIN_ERROR_CODE_SET: ReadonlySet<string> = new Set<string>(SAFE_DOMAIN_ERROR_CODES);
+
+export function isSafeDomainErrorCode(code: unknown): code is SafeDomainErrorCode {
+  return typeof code === 'string' && SAFE_DOMAIN_ERROR_CODE_SET.has(code);
+}
+
 export interface UserContext {
   id: string;
   email: string;

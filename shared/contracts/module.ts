@@ -49,6 +49,12 @@ export interface ModuleManifest {
     description?: string;
     icon?: string;
     order?: number;
+    /**
+     * Local enable state before the first authoritative server sync.
+     * Must mirror the server module metadata default. Anything other than
+     * `false` keeps the historical enabled-on-register behaviour.
+     */
+    defaultEnabled?: boolean;
   };
   navigation?: NavigationContribution[];
   routes: RouteContribution[];
