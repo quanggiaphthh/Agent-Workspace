@@ -2,8 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   User,
   onAuthStateChanged,
-  signInWithPopup,
-  GoogleAuthProvider,
+  signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
 import { auth } from './firebase';
@@ -15,7 +14,7 @@ import { resolveVerifiedPermissions, uniqueStrings } from '../../shared/security
 interface FirebaseAuthContextValue {
   user: User | null;
   loading: boolean;
-  login: () => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   getToken: () => Promise<string | null>;
 }
@@ -40,9 +39,6 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
         try {
           if (nextUser) {
             await useAIKeysStore.persist.rehydrate();
-            // Reconcile persisted credentialId against server-owned metadata before
-            // Agent runtime is allowed to consume the hydrated AI settings.
-            await useAIKeysStore.getState().syncKeys();
           }
         } catch (err) {
           console.warn('Failed to rehydrate user-scoped AI settings', err);
@@ -100,9 +96,8 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
     });
   }, []);
 
-  const login = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+  const login = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password);
   };
 
   const logout = async () => {
