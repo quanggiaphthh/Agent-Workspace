@@ -8,8 +8,17 @@ export interface ExecuteResult<T = any> {
   success: boolean;
   result?: T;
   error?: string;
+  errorCode?: string;
   requiresConfirmation?: boolean;
   risk?: 'low' | 'medium' | 'high';
+  confirmationId?: string;
+  confirmationExpiresAt?: string;
+}
+
+export interface ClientCapabilityExecutionOptions {
+  confirmationId?: string;
+  idempotencyKey?: string;
+  signal?: AbortSignal;
 }
 
 export type ServerUiActionProjection =
@@ -98,8 +107,10 @@ class ClientCapabilityRegistry {
   public async execute<TInput = any, TOutput = any>(
     id: string,
     input: TInput,
-    confirmed = false
+    confirmedOrOptions: boolean | ClientCapabilityExecutionOptions = false,
   ): Promise<ExecuteResult<TOutput>> {
+    const confirmed = typeof confirmedOrOptions === 'boolean' ? confirmedOrOptions : false;
+    const executionOptions = typeof confirmedOrOptions === 'boolean' ? {} : confirmedOrOptions;
     const contextStore = useContextStore.getState();
     const user = contextStore.user;
     const appContext = contextStore.getAppContext();
@@ -132,15 +143,18 @@ class ClientCapabilityRegistry {
 
     // 2. Server-side capability execution (e.g. demo.*, audit.*)
     try {
+      const headers = new Headers({ 'Content-Type': 'application/json' });
+      if (executionOptions.idempotencyKey) headers.set('Idempotency-Key', executionOptions.idempotencyKey);
       const response = await authFetch('/api/capabilities/execute', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           id,
           input,
           context: appContext,
-          confirmed,
+          ...(executionOptions.confirmationId ? { confirmationId: executionOptions.confirmationId } : {}),
         }),
+        signal: executionOptions.signal,
       });
 
       const data = await response.json();
@@ -148,8 +162,11 @@ class ClientCapabilityRegistry {
         return {
           success: false,
           error: data.error || `Failed executing capability ${id}`,
+          errorCode: typeof data.errorCode === 'string' ? data.errorCode : undefined,
           requiresConfirmation: data.requiresConfirmation,
           risk: data.risk,
+          confirmationId: typeof data.confirmationId === 'string' ? data.confirmationId : undefined,
+          confirmationExpiresAt: typeof data.confirmationExpiresAt === 'string' ? data.confirmationExpiresAt : undefined,
         };
       }
 
@@ -164,10 +181,13 @@ class ClientCapabilityRegistry {
         success: true,
         result: data.result,
         risk: data.risk,
+        confirmationId: typeof data.confirmationId === 'string' ? data.confirmationId : undefined,
+        confirmationExpiresAt: typeof data.confirmationExpiresAt === 'string' ? data.confirmationExpiresAt : undefined,
       };
     } catch (err: any) {
       return {
         success: false,
+        errorCode: executionOptions.signal?.aborted ? 'ABORTED' : undefined,
         error: err.message || 'Network error connecting to capability endpoint.',
       };
     }
