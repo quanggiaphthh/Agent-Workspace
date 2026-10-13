@@ -210,6 +210,21 @@ export class CapabilityExecutionService {
     try {
       throwIfAborted(meta.abortSignal);
 
+      if (descriptor?.allowedSources && !descriptor.allowedSources.includes(meta.source)) {
+        const denied: CapabilityGatewayResult = {
+          success: false,
+          errorCode: 'CAPABILITY_SOURCE_NOT_ALLOWED',
+          error: 'This capability is unavailable through the current execution source.',
+        };
+        await this.finalizeAudit(audit.id, startedAt, {
+          outcome: 'denied',
+          resultSummary: { errorCode: denied.errorCode },
+          errorCode: denied.errorCode,
+          errorSummary: denied.error,
+        });
+        return denied;
+      }
+
       if (descriptor?.confirmationPolicy === 'required') {
         // Preflight with confirmed=false validates input, module state and permission without executing the side effect.
         const preflight = await ServerCapabilityRegistry.execute(id, rawInput, safeContext);

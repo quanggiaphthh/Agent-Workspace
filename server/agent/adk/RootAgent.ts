@@ -110,7 +110,7 @@ export class RootAgent {
 
     // Search remains a custom server capability; settings only reduce the server-authoritative tool set.
     const availableCaps = filterAgentCapabilitiesForConfig(
-      await ServerCapabilityRegistry.listForContext(executionContext),
+      await ServerCapabilityRegistry.listForContext(executionContext, 'agent'),
       aiConfig,
     );
 

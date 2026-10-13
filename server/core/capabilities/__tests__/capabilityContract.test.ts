@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { bootstrapServer } from '../../../bootstrap';
 import { ServerCapabilityRegistry } from '../serverCapabilityRegistry';
@@ -32,6 +32,7 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
     registerPackagedServerModules();
     storage.initialize(serverModuleCatalog.listAll(), true);
   });
+  afterEach(() => vi.unstubAllEnvs());
 
   it('registers packaged Task metadata exactly once through the canonical ServerModuleCatalog', () => {
     expect(packagedServerModules.filter(module => module.metadata.id === 'tasks')).toHaveLength(1);
@@ -61,31 +62,42 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
   });
 
   it('keeps document formatting module-bound, disabled with its module, and confirmed before mutation', async () => {
+    vi.stubEnv('DOCUMENT_FORMATTING_V1_RELEASE_APPROVED', 'true');
+    vi.stubEnv('DOCUMENT_PROCESSOR_URL', 'https://processor.example');
+    vi.stubEnv('DOCUMENT_PROCESSOR_SHARED_TOKEN', 'test-shared-token-with-at-least-32-bytes');
     bootstrapServer();
     const capabilities = ServerCapabilityRegistry.listAll().filter(capability => capability.moduleId === 'document-formatting');
     expect(capabilities.map(capability => capability.id).sort()).toEqual(['document.applyAlignment', 'document.inspect']);
     expect(storage.getData().moduleSettings['document-formatting'].enabled).toBe(false);
-    const input = { fileId: 'source-id', sourceSha256: 'a'.repeat(64), paragraphId: 'p1', expectedBefore: 'LEFT', desiredAfter: 'CENTER' };
+    const input = { sourceSha256: 'a'.repeat(64), sizeBytes: 128, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+    const applyInput = { sourceSha256: 'a'.repeat(64), paragraphId: 'p1', expectedBefore: 'LEFT', desiredAfter: 'CENTER' };
     const documentContext = {
       ...context,
       user: { ...user, permissions: ['files.read', 'files.write'] },
       appContext: { ...context.appContext, user: { ...user, permissions: ['files.read', 'files.write'] } },
     };
 
-    const disabled = await ServerCapabilityRegistry.execute('document.applyAlignment', input, documentContext as any);
+    const disabled = await ServerCapabilityRegistry.execute('document.applyAlignment', applyInput, documentContext as any);
     expect(disabled).toMatchObject({ success: false, errorCode: 'MODULE_DISABLED' });
     expect((await ServerCapabilityRegistry.listForContext(documentContext as any)).some(capability => capability.moduleId === 'document-formatting')).toBe(false);
     expect((await ServerCapabilityRegistry.listForContext(context as any)).some(capability => capability.id === 'system.tasks.list')).toBe(true);
 
     await storage.setModuleEnabled('document-formatting', true);
+    vi.stubEnv('DOCUMENT_FORMATTING_V1_RELEASE_APPROVED', 'false');
+    expect((await ServerCapabilityRegistry.listForContext(documentContext as any, 'rest')).some(capability => capability.moduleId === 'document-formatting')).toBe(false);
+    expect(await ServerCapabilityRegistry.execute('document.inspect', input, documentContext as any))
+      .toMatchObject({ success: false, errorCode: 'MODULE_RELEASE_GATE_CLOSED' });
+    vi.stubEnv('DOCUMENT_FORMATTING_V1_RELEASE_APPROVED', 'true');
     expect((await ServerCapabilityRegistry.listForContext(documentContext as any)).map(capability => capability.id)).toEqual(expect.arrayContaining(['document.inspect', 'document.applyAlignment']));
+    expect((await ServerCapabilityRegistry.listForContext(documentContext as any, 'agent')).some(capability => capability.moduleId === 'document-formatting')).toBe(false);
+    expect((await ServerCapabilityRegistry.listForContext(documentContext as any, 'rest')).map(capability => capability.id)).toEqual(expect.arrayContaining(['document.inspect', 'document.applyAlignment']));
     for (const permissions of [['files.write'], ['files.read']]) {
       const limited = { ...documentContext, user: { ...documentContext.user, permissions } };
-      expect(await ServerCapabilityRegistry.execute('document.applyAlignment', input, limited as any))
+      expect(await ServerCapabilityRegistry.execute('document.applyAlignment', applyInput, limited as any))
         .toMatchObject({ success: false, errorCode: 'PERMISSION_DENIED' });
       expect((await ServerCapabilityRegistry.listForContext(limited as any)).some(capability => capability.id === 'document.applyAlignment')).toBe(false);
     }
-    const pending = await ServerCapabilityRegistry.execute('document.applyAlignment', input, documentContext as any);
+    const pending = await ServerCapabilityRegistry.execute('document.applyAlignment', applyInput, documentContext as any);
     expect(pending).toMatchObject({ success: false, errorCode: 'CONFIRMATION_REQUIRED', requiresConfirmation: true });
     await storage.setModuleEnabled('document-formatting', false);
     expect((await ServerCapabilityRegistry.listForContext(documentContext as any)).some(capability => capability.moduleId === 'document-formatting')).toBe(false);
@@ -157,6 +169,8 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
     expect(() => ServerCapabilityRegistry.register(descriptor({ permissions: ['unknown.permission'] }))).toThrow(/permission/i);
     expect(() => ServerCapabilityRegistry.register(descriptor({ confirmationPolicy: 'sometimes' }))).toThrow(/confirmation/i);
     expect(() => ServerCapabilityRegistry.register(descriptor({ moduleId: 'missing-module' }))).toThrow(/module/i);
+    expect(() => ServerCapabilityRegistry.register(descriptor({ allowedSources: [] }))).toThrow(/allowed sources/i);
+    expect(() => ServerCapabilityRegistry.register(descriptor({ allowedSources: ['rest', 'rest'] }))).toThrow(/allowed sources/i);
   });
 
   it('requires explicit confirmation metadata to be consistent with side effects', () => {

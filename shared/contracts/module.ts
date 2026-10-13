@@ -44,6 +44,8 @@ export interface EventDescriptor {
 export interface ModuleManifest {
   id: string;
   version: string;
+  /** First-run state for optional modules before the server setting is synchronized. */
+  defaultEnabled?: boolean;
   meta: {
     name: string;
     description?: string;

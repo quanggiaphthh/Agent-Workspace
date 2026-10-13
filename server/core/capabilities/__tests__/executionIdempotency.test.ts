@@ -86,6 +86,21 @@ describe('GĐ3 Lượt 2 mutation idempotency', () => {
     expect((await CapabilityExecutionService.execute('test.read', { value: 'A' }, context, { source: 'agent' })).success).toBe(true); expect(read).toHaveBeenCalledOnce();
   });
 
+  it('rejects a source-restricted capability through the gateway even if its ID is known', async () => {
+    const handler = vi.fn(async () => ({ ok: true as const, value: 'A' }));
+    ServerCapabilityRegistry.register({
+      id: 'test.rest-only', moduleId: 'system', description: 'REST only',
+      inputSchema: z.object({ value: z.string() }).strict(),
+      outputSchema: z.object({ ok: z.literal(true), value: z.string() }).strict(),
+      risk: 'low', sideEffect: 'none', confirmationPolicy: 'none', allowedSources: ['rest'],
+      permissions: [], execute: handler,
+    });
+
+    const result = await CapabilityExecutionService.execute('test.rest-only', { value: 'A' }, context, { source: 'agent' });
+    expect(result).toMatchObject({ success: false, errorCode: 'CAPABILITY_SOURCE_NOT_ALLOWED' });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it('fails closed after ambiguous handler failure and does not auto-retry', async () => {
     const handler = vi.fn(async () => { throw new Error('after possible side effect'); }); registerMutation(handler);
     const first = await CapabilityExecutionService.execute('test.mutation', { value: 'A' }, context, meta());

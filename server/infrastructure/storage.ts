@@ -258,6 +258,53 @@ class StorageEngine {
       this.recordPersistenceFailure(error, 'Module toggle transaction failed.');
     }
   }
+
+  public async setModuleEnabledWithAudit(id: string, enabled: boolean, user: ModuleAuditUser): Promise<ModuleSetting> {
+    const catalogSetting = this.getData().moduleSettings[id];
+    if (!catalogSetting) throw new Error(`Module "${id}" not found.`);
+    if (!catalogSetting.canDisable) throw new Error(`Module "${id}" is core and cannot be changed.`);
+
+    if (this.testMode) {
+      const updated = { ...catalogSetting, enabled };
+      this.data!.moduleSettings[id] = updated;
+      return updated;
+    }
+
+    try {
+      const docRef = this.collection().doc(id);
+      let updated: ModuleSetting | undefined;
+      await adminFirestore.runTransaction(async transaction => {
+        const snapshot = await transaction.get(docRef);
+        const persistedEnabled = snapshot.data()?.enabled;
+        if (typeof persistedEnabled !== 'boolean') throw new Error(`Durable module state for "${id}" is unavailable.`);
+
+        updated = { ...catalogSetting, enabled };
+        if (persistedEnabled === enabled) return;
+
+        transaction.set(docRef, { id, enabled, updatedAt: new Date().toISOString() }, { merge: true });
+        AuditService.stageLog(transaction, {
+          userId: user.id,
+          userEmail: user.email,
+          roles: user.roles || [],
+          effectivePermissions: user.permissions || [],
+          action: enabled ? 'module.enable' : 'module.disable',
+          moduleId: id,
+          target: id,
+          metadata: { enabled },
+          status: 'success',
+          outcome: 'success',
+          source: 'user',
+        });
+      });
+
+      if (!updated) throw new Error(`Module "${id}" state update did not complete.`);
+      this.data!.moduleSettings[id] = updated;
+      this.health = { status: 'ok', backend: 'firestore', mode: 'persistent' };
+      return updated;
+    } catch (error: any) {
+      this.recordPersistenceFailure(error, 'Module state update failed.');
+    }
+  }
 }
 
 export const storage = new StorageEngine();

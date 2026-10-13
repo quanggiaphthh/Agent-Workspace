@@ -5,6 +5,7 @@ import { storage } from '../../infrastructure/storage';
 import { serverModuleCatalog } from '../modules/moduleCatalog';
 import { PermissionResolver } from '../permissions/permissionResolver';
 import { isCancellationError } from '../runtime/requestCancellation';
+import { SafeCapabilityExecutionError } from './SafeCapabilityExecutionError';
 
 export interface ServerCapabilityExecutionResult {
   success: boolean;
@@ -27,6 +28,12 @@ function normalizeDescriptor<TInput, TOutput>(descriptor: CapabilityDescriptor<T
   const confirmationPolicy = descriptor.confirmationPolicy ?? (descriptor.risk === 'high' ? 'required' : 'none');
   const sideEffect = descriptor.sideEffect ?? (descriptor.risk === 'high' ? 'mutation' : 'none');
   return { ...descriptor, sideEffect, confirmationPolicy };
+}
+
+function isModuleReleaseReady(moduleId: string): boolean {
+  const guard = serverModuleCatalog.get(moduleId)?.isReleaseReady;
+  if (!guard) return true;
+  try { return guard() === true; } catch { return false; }
 }
 
 export class ServerCapabilityRegistry {
@@ -56,6 +63,12 @@ export class ServerCapabilityRegistry {
     if (rawDescriptor.confirmationPolicy !== undefined && !['none', 'required'].includes(rawDescriptor.confirmationPolicy)) {
       throw new Error(`Capability "${rawDescriptor.id}" has invalid confirmation policy.`);
     }
+    if (rawDescriptor.allowedSources !== undefined &&
+        (!Array.isArray(rawDescriptor.allowedSources) || rawDescriptor.allowedSources.length === 0 ||
+         rawDescriptor.allowedSources.some(source => !['agent', 'rest'].includes(source)) ||
+         new Set(rawDescriptor.allowedSources).size !== rawDescriptor.allowedSources.length)) {
+      throw new Error(`Capability "${rawDescriptor.id}" has invalid allowed sources.`);
+    }
 
     const descriptor = normalizeDescriptor(rawDescriptor);
     if (descriptor.confirmationPolicy === 'required' && descriptor.sideEffect === 'none') {
@@ -68,15 +81,17 @@ export class ServerCapabilityRegistry {
   public static listAll(): CapabilityDescriptor<any, any>[] { return Array.from(this.capabilities.values()); }
   public static reset() { this.capabilities.clear(); }
 
-  public static async listForContext(context: ExecutionContext): Promise<CapabilityDescriptor<any, any>[]> {
+  public static async listForContext(context: ExecutionContext, source?: 'agent' | 'rest'): Promise<CapabilityDescriptor<any, any>[]> {
     await storage.refreshModuleSettings();
     const settings = storage.getData().moduleSettings;
     return Array.from(this.capabilities.values()).filter(cap => {
+      if (source && cap.allowedSources && !cap.allowedSources.includes(source)) return false;
       if (cap.moduleId !== 'ui' && cap.moduleId !== 'system') {
         const moduleSetting = settings[cap.moduleId];
         if (!moduleSetting) return false;
         if (moduleSetting.canDisable && !storage.isPersistenceAvailable()) return false;
         if (!moduleSetting.enabled) return false;
+        if (!isModuleReleaseReady(cap.moduleId)) return false;
       }
       return PermissionResolver.checkPermission(cap.permissions || [], context).authorized;
     });
@@ -122,6 +137,7 @@ export class ServerCapabilityRegistry {
       if (!moduleSetting) return { success: false, errorCode: 'MODULE_NOT_FOUND', error: `Capability "${id}" is unavailable because module "${descriptor.moduleId}" is not registered.` };
       if (moduleSetting.canDisable && !storage.isPersistenceAvailable()) return { success: false, errorCode: 'MODULE_SETTINGS_UNAVAILABLE', error: `Capability "${id}" is unavailable because durable module settings cannot be verified.` };
       if (!moduleSetting.enabled) return { success: false, errorCode: 'MODULE_DISABLED', error: `Capability "${id}" is unavailable because module "${descriptor.moduleId}" is currently disabled.` };
+      if (!isModuleReleaseReady(descriptor.moduleId)) return { success: false, errorCode: 'MODULE_RELEASE_GATE_CLOSED', error: `Capability "${id}" is unavailable until its external release checks are approved.` };
     }
 
     if ((id.startsWith('system.memory.') || id.startsWith('system.tasks.')) && (!context.user?.id || ['guest', 'anonymous'].includes(context.user.id))) {
@@ -153,6 +169,10 @@ export class ServerCapabilityRegistry {
       return { success: true, result, risk: descriptor.risk, effects: descriptor.effects, executionStarted: true };
     } catch (err: any) {
       if (context.abortSignal?.aborted || isCancellationError(err)) return { success: false, errorCode: 'EXECUTION_CANCELLED', error: 'Execution cancelled.', executionStarted: true };
+      if (err instanceof SafeCapabilityExecutionError) {
+        const code = /^[A-Z0-9_]{1,64}$/.test(err.code) ? err.code : 'EXECUTION_ERROR';
+        return { success: false, errorCode: code, error: err.message.slice(0, 300), executionStarted: true };
+      }
       return { success: false, errorCode: 'EXECUTION_ERROR', error: err?.message || 'Capability execution failed.', executionStarted: true };
     }
   }

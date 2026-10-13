@@ -76,6 +76,13 @@ describe('Architectural Invariants P1 Preflight', () => {
       expect(moduleRegistry.resolve('settings')).toBeDefined();
     });
 
+    it('keeps the candidate Document Formatting route disabled until server state is synchronized', () => {
+      registerPackagedClientModules();
+
+      expect(moduleRegistry.isEnabled('document-formatting')).toBe(false);
+      expect(moduleRegistry.getRoutes().some(route => route.path === '/document-formatting')).toBe(false);
+    });
+
     it('exposes only the Vietnamese MVP shell navigation labels', () => {
       registerPackagedClientModules();
       const navigation = moduleRegistry.getNavigation({

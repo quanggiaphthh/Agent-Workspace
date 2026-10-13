@@ -4,6 +4,8 @@ export interface ModuleMetadata {
   enabled: boolean;
   canDisable: boolean;
   version: string;
+  /** Optional deployment gate for candidate modules that require external preflight. */
+  isReleaseReady?: () => boolean;
 }
 
 class ServerModuleCatalog {

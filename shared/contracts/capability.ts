@@ -4,6 +4,7 @@ import type { AIConfig } from './ai';
 export type CapabilityRisk = 'low' | 'medium' | 'high';
 export type CapabilitySideEffect = 'none' | 'mutation' | 'ui-local';
 export type CapabilityConfirmationPolicy = 'none' | 'required';
+export type CapabilitySource = 'agent' | 'rest';
 
 export interface UserContext {
   id: string;
@@ -75,6 +76,8 @@ export interface CapabilityDescriptor<TInput = unknown, TOutput = unknown> {
   sideEffect?: CapabilitySideEffect;
   /** Explicit HITL policy; risk remains independent security/business metadata. */
   confirmationPolicy?: CapabilityConfirmationPolicy;
+  /** Optional server-enforced execution channel restriction. */
+  allowedSources?: CapabilitySource[];
   permissions: string[];
   effects?: string[];
   execute(input: TInput, context: ExecutionContext): Promise<TOutput>;

@@ -6,7 +6,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { RootAgent } from './server/agent/adk/RootAgent';
@@ -20,6 +20,7 @@ import { AuditService } from './server/core/audit/auditService';
 import { storage } from './server/infrastructure/storage';
 import { ServerIdentityProvider } from './server/core/auth/identityProvider';
 import { PermissionResolver } from './server/core/permissions/permissionResolver';
+import { serverModuleCatalog } from './server/core/modules/moduleCatalog';
 import { adminFirestore, firebaseAdminConfig, probeFirestoreAdmin } from './server/lib/firebaseAdmin';
 import firebaseConfig from './firebase-applet-config.json';
 import { AIConfigSchema, type AIProviderId } from './shared/contracts/ai';
@@ -36,7 +37,11 @@ import { serializeAgentTransportComplete, serializeAgentTransportError } from '.
 import { sessionTranscript } from './server/agent/chat/sessionHistory';
 import { FileDomainError } from './server/core/files/UserFileService';
 import { fileIngestionService, userFileService } from './server/core/files/firebaseFileStores';
-import { MAX_FILE_BYTES, buildSafeContentDisposition, buildSafeFileAuditMetadata } from './server/core/files/filePolicy';
+import { MAX_FILE_BYTES, buildSafeContentDisposition, buildSafeFileAuditMetadata, sanitizeDisplayFilename, validateFileBytes, validateFilenameForMimeType } from './server/core/files/filePolicy';
+import { DOCX_MIME_TYPE } from './shared/contracts/fileUploadPolicy';
+import { runWithRequestScopedDocument, clearRequestScopedDocument, clearRequestScopedSource, clearRequestScopedOutput } from './server/core/documents/requestScopedDocument';
+import type { RequestScopedDocument } from './server/core/documents/requestScopedDocument';
+import { DocumentProcessorError } from './server/core/documents/documentProcessorClient';
 import { createRunScopedArtifactService } from './server/agent/adk/RunScopedArtifactService';
 import { createCanonicalAgentRunner } from './server/agent/adk/nativeArtifactIntegration';
 
@@ -522,6 +527,226 @@ const MemoryPatchSchema = z.object({
 
 // GĐ4 V1 canonical upload path: authenticated, server-mediated raw binary upload.
 // The browser never receives Firebase Storage authority; owner and storage identity are server-derived.
+const DocumentAlignmentSchema = z.enum(['LEFT', 'CENTER', 'RIGHT', 'JUSTIFY']);
+const DocumentAlignmentChangeSchema = z.object({
+  sourceSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  paragraphId: z.string().regex(/^p[1-9][0-9]{0,8}$/),
+  expectedBefore: DocumentAlignmentSchema,
+  desiredAfter: DocumentAlignmentSchema,
+}).strict().refine(value => value.expectedBefore !== value.desiredAfter, {
+  message: 'The requested alignment must change the current value.',
+});
+
+function documentErrorStatus(code: string): number {
+  if (['UNAUTHENTICATED', 'UNAUTHORIZED'].includes(code)) return 401;
+  if (['PERMISSION_DENIED', 'CAPABILITY_SOURCE_NOT_ALLOWED'].includes(code)) return 403;
+  if (['CAPABILITY_NOT_FOUND', 'DOCUMENT_ROUTE_REQUIRED', 'MODULE_NOT_FOUND', 'MODULE_DISABLED'].includes(code)) return 404;
+  if (['FILE_TOO_LARGE', 'INPUT_TOO_LARGE', 'OUTPUT_TOO_LARGE'].includes(code)) return 413;
+  if (['UNSUPPORTED_FILE_TYPE', 'FILE_EXTENSION_MISMATCH', 'FILE_TYPE_MISMATCH'].includes(code)) return 415;
+  if (['INVALID_INPUT', 'INVALID_FILENAME', 'INVALID_FILE_BODY', 'EMPTY_FILE', 'FILE_INTEGRITY_FAILED'].includes(code)) return 400;
+  if (['STALE_DOCUMENT', 'CONFIRMATION_REQUIRED', 'CONFIRMATION_FAILED', 'CONFIRMATION_NOT_FOUND', 'CONFIRMATION_EXPIRED', 'CONFIRMATION_REPLAY', 'CONFIRMATION_CANCELLED', 'CONFIRMATION_EXECUTION_MISMATCH', 'CONFIRMATION_INPUT_MISMATCH', 'CONFIRMATION_USER_MISMATCH', 'CONFIRMATION_CAPABILITY_MISMATCH', 'EXECUTION_IDENTITY_MISMATCH', 'EXECUTION_IN_PROGRESS', 'EXECUTION_RECONCILIATION_REQUIRED', 'EPHEMERAL_OUTPUT_UNAVAILABLE'].includes(code)) return 409;
+  if (code === 'IDEMPOTENCY_KEY_REQUIRED') return 400;
+  if (code === 'PROCESSOR_BUSY') return 429;
+  if (code === 'PROCESSING_TIMEOUT') return 504;
+  if (['PROCESSOR_INVALID_RESPONSE', 'PROCESSOR_RESPONSE_TOO_LARGE'].includes(code)) return 502;
+  if (['TEMP_CLEANUP_FAILED', 'TEMP_CREATE_FAILED', 'PROCESSOR_NOT_CONFIGURED', 'PROCESSOR_UNAVAILABLE', 'PROCESSOR_AUTH_FAILED', 'MODULE_SETTINGS_UNAVAILABLE'].includes(code)) return 503;
+  if (['SOURCE_IMMUTABILITY_VIOLATION', 'OUTPUT_PATH_INVALID', 'OUTPUT_ALREADY_EXISTS', 'OUTPUT_INTEGRITY_FAILED'].includes(code)) return 502;
+  if (code === 'EXECUTION_CANCELLED') return 499;
+  if (['PROCESSING_FAILED', 'DOCUMENT_PROCESSING_FAILED', 'EXECUTION_ERROR'].includes(code)) return 500;
+  if (['UNSAFE_ARCHIVE', 'ARCHIVE_EXPANSION_LIMIT', 'ARCHIVE_ENTRY_LIMIT', 'ARCHIVE_ENTRY_TOO_LARGE', 'UNSAFE_ARCHIVE_PATH', 'UNSAFE_XML', 'MALFORMED_DOCX', 'PACKAGE_NOT_MUTABLE', 'TARGET_NOT_FOUND', 'TARGET_AMBIGUOUS', 'PROVENANCE_NOT_DIRECT', 'PRECONDITION_FAILED', 'UNSUPPORTED_OPERATION', 'POSTCONDITION_FAILED'].includes(code)) return 422;
+  return 500;
+}
+
+function documentFailure(res: express.Response, result: { errorCode?: string; error?: string; requiresConfirmation?: boolean }) {
+  const code = result.errorCode || (result.requiresConfirmation ? 'CONFIRMATION_REQUIRED' : 'DOCUMENT_PROCESSING_FAILED');
+  return res.status(documentErrorStatus(code)).json({
+    success: false,
+    error: result.error || 'Document processing failed safely.',
+    code,
+    ...(result.requiresConfirmation ? { requiresConfirmation: true } : {}),
+  });
+}
+
+const DOCUMENT_REQUEST_ERROR_MESSAGES: Record<string, string> = {
+  UNSUPPORTED_FILE_TYPE: 'Chỉ nhận tệp DOCX.',
+  FILE_EXTENSION_MISMATCH: 'Phần mở rộng tên tệp không khớp định dạng DOCX.',
+  FILE_TYPE_MISMATCH: 'Nội dung tệp không khớp định dạng DOCX.',
+  EMPTY_FILE: 'Tệp DOCX rỗng.',
+  FILE_TOO_LARGE: 'Tệp DOCX vượt giới hạn 20 MiB.',
+  INVALID_FILENAME: 'Tên tệp không hợp lệ.',
+  INVALID_FILE_BODY: 'Thiếu dữ liệu DOCX dạng nhị phân.',
+  FILE_INTEGRITY_FAILED: 'Kích thước DOCX không khớp dữ liệu nhận được.',
+  DOCUMENT_REQUEST_FAILED: 'Không thể xử lý yêu cầu DOCX an toàn.',
+  DOCUMENT_CONFIRMATION_FAILED: 'Không thể chuẩn bị xác nhận DOCX an toàn.',
+};
+
+function documentRequestFailure(res: express.Response, error: unknown, fallbackCode: string) {
+  const knownProcessorError = error instanceof DocumentProcessorError;
+  const candidateCode = knownProcessorError ? error.code : (error as any)?.code;
+  const code = knownProcessorError || Object.prototype.hasOwnProperty.call(DOCUMENT_REQUEST_ERROR_MESSAGES, candidateCode)
+    ? candidateCode
+    : fallbackCode;
+  const message = knownProcessorError
+    ? error.message
+    : DOCUMENT_REQUEST_ERROR_MESSAGES[code] || 'Không thể xử lý yêu cầu DOCX an toàn.';
+  return res.status(documentErrorStatus(code)).json({ success: false, error: message, code });
+}
+
+function parseDocumentFilename(req: express.Request): { filename: string; mimeType: string } {
+  const mimeType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  if (mimeType !== DOCX_MIME_TYPE) throw Object.assign(new Error('The document route accepts DOCX only.'), { code: 'UNSUPPORTED_FILE_TYPE', status: 415 });
+  let rawFilename = String(req.headers['x-file-name'] || 'document.docx');
+  try { rawFilename = decodeURIComponent(rawFilename); } catch {
+    throw Object.assign(new Error('The document filename is invalid.'), { code: 'INVALID_FILENAME', status: 400 });
+  }
+  const filename = sanitizeDisplayFilename(rawFilename);
+  validateFilenameForMimeType(filename, mimeType);
+  return { filename, mimeType };
+}
+
+function validateDocumentRequestBytes(req: express.Request): Buffer {
+  if (!Buffer.isBuffer(req.body)) throw Object.assign(new Error('A raw DOCX request body is required.'), { code: 'INVALID_FILE_BODY', status: 400 });
+  const bytes = req.body as Buffer;
+  validateFileBytes(DOCX_MIME_TYPE, bytes);
+  const declaredLength = req.headers['content-length'];
+  if (typeof declaredLength === 'string' && (!/^\d+$/.test(declaredLength) || Number(declaredLength) !== bytes.length)) {
+    throw Object.assign(new Error('The DOCX content length does not match its body.'), { code: 'FILE_INTEGRITY_FAILED', status: 400 });
+  }
+  return bytes;
+}
+
+app.post('/api/document-formatting/inspect', expensiveUserLimiter, requirePermission('files.read'), express.raw({ type: () => true, limit: MAX_FILE_BYTES }), async (req, res) => {
+  const cancellation = bindRequestCancellation(req, res);
+  let scoped: RequestScopedDocument | undefined;
+  try {
+    const user = requireAuthenticatedUser(req);
+    const { filename, mimeType } = parseDocumentFilename(req);
+    const bytes = validateDocumentRequestBytes(req);
+    const sourceSha256 = createHash('sha256').update(bytes).digest('hex');
+    scoped = makeDocumentScope(bytes, sourceSha256, filename);
+    const input = { sourceSha256, sizeBytes: bytes.length, mimeType };
+    const result = await runWithRequestScopedDocument(scoped, () => CapabilityExecutionService.execute(
+      'document.inspect', input,
+      { user, appContext: { user, availableCapabilities: [] }, confirmed: false, abortSignal: cancellation.signal },
+      { source: 'rest', requestId: req.requestId, abortSignal: cancellation.signal },
+    ));
+    if (!result.success) return documentFailure(res, result);
+    if (!scoped.inspection) return documentFailure(res, { errorCode: 'PROCESSOR_INVALID_RESPONSE', error: 'The document processor returned no inspection result.' });
+    return res.status(200).set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }).json({
+      success: true,
+      result: result.result,
+      inspection: scoped.inspection,
+    });
+  } catch (error: any) {
+    if (cancellation.signal.aborted || isCancellationError(error)) {
+      if (!res.headersSent && !res.writableEnded) res.status(499).end();
+      return;
+    }
+    return documentRequestFailure(res, error, 'DOCUMENT_REQUEST_FAILED');
+  } finally {
+    cancellation.cleanup();
+    if (scoped) clearRequestScopedDocument(scoped);
+  }
+});
+
+app.post('/api/document-formatting/confirm', expensiveUserLimiter, requirePermission('files.read'), requirePermission('files.write'), async (req, res) => {
+  const parsed = DocumentAlignmentChangeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, error: 'Invalid document alignment confirmation request.', code: 'INVALID_INPUT' });
+  try {
+    const user = requireAuthenticatedUser(req);
+    const result = await CapabilityExecutionService.execute(
+      'document.applyAlignment', parsed.data,
+      { user, appContext: { user, availableCapabilities: [] }, confirmed: false },
+      { source: 'rest', requestId: req.requestId },
+    );
+    if (result.success || !result.requiresConfirmation) return documentFailure(res, result);
+    return res.status(409).json({
+      success: false,
+      requiresConfirmation: true,
+      confirmationId: result.confirmationId,
+      confirmationExpiresAt: result.confirmationExpiresAt,
+      risk: result.risk,
+      effects: result.effects,
+      errorCode: result.errorCode,
+      error: result.error,
+    });
+  } catch (error: any) {
+    return documentRequestFailure(res, error, 'DOCUMENT_CONFIRMATION_FAILED');
+  }
+});
+
+app.post('/api/document-formatting/apply', expensiveUserLimiter, requirePermission('files.read'), requirePermission('files.write'), express.raw({ type: () => true, limit: MAX_FILE_BYTES }), async (req, res, next) => {
+  const cancellation = bindRequestCancellation(req, res);
+  let scoped: RequestScopedDocument | undefined;
+  let responseOwnsOutput = false;
+  try {
+    const user = requireAuthenticatedUser(req);
+    const { filename } = parseDocumentFilename(req);
+    const bytes = validateDocumentRequestBytes(req);
+    const sourceSha256 = createHash('sha256').update(bytes).digest('hex');
+    const change = DocumentAlignmentChangeSchema.safeParse({
+      sourceSha256: req.headers['x-document-source-sha256'],
+      paragraphId: req.headers['x-document-paragraph-id'],
+      expectedBefore: req.headers['x-document-expected-alignment'],
+      desiredAfter: req.headers['x-document-desired-alignment'],
+    });
+    if (!change.success) return res.status(400).json({ success: false, error: 'Invalid document alignment metadata.', code: 'INVALID_INPUT' });
+    if (sourceSha256 !== change.data.sourceSha256) return res.status(409).json({ success: false, error: 'The selected DOCX differs from the inspected source. Inspect it again.', code: 'STALE_DOCUMENT' });
+
+    const confirmationId = req.get('X-Confirmation-ID')?.trim();
+    const idempotencyKey = req.get('Idempotency-Key')?.trim();
+    if (!confirmationId || confirmationId.length > 128) return res.status(409).json({ success: false, error: 'A current confirmation challenge is required.', code: 'CONFIRMATION_REQUIRED' });
+    if (!idempotencyKey || !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) return res.status(400).json({ success: false, error: 'A valid Idempotency-Key is required.', code: 'IDEMPOTENCY_KEY_REQUIRED' });
+
+    scoped = makeDocumentScope(bytes, sourceSha256, filename);
+    const result = await runWithRequestScopedDocument(scoped, () => CapabilityExecutionService.execute(
+      'document.applyAlignment', change.data,
+      { user, appContext: { user, availableCapabilities: [] }, confirmed: false, abortSignal: cancellation.signal },
+      { source: 'rest', requestId: req.requestId, confirmationId, idempotencyKey, abortSignal: cancellation.signal },
+    ));
+    if (!result.success) return documentFailure(res, result);
+    if (!scoped.output) return documentFailure(res, { errorCode: 'EPHEMERAL_OUTPUT_UNAVAILABLE', error: 'The one-time output is no longer available. Inspect and confirm the document again.' });
+
+    const output = scoped.output;
+    const outputName = `${filename.replace(/\.docx$/i, '') || 'document'}-formatted.docx`;
+    responseOwnsOutput = true;
+    const cleanup = () => { if (scoped) clearRequestScopedDocument(scoped); };
+    res.once('finish', cleanup);
+    res.once('close', cleanup);
+    return res.status(200).set({
+      'Content-Type': DOCX_MIME_TYPE,
+      'Content-Length': String(output.bytes.length),
+      'Content-Disposition': buildSafeContentDisposition(outputName),
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Document-Output-Sha256': output.sha256,
+    }).end(output.bytes);
+  } catch (error: any) {
+    if (cancellation.signal.aborted || isCancellationError(error)) {
+      if (!res.headersSent && !res.writableEnded) res.status(499).end();
+      return;
+    }
+    return documentRequestFailure(res, error, 'DOCUMENT_REQUEST_FAILED');
+  } finally {
+    cancellation.cleanup();
+    if (scoped) {
+      clearRequestScopedSource(scoped);
+      scoped.inspection = undefined;
+      if (!responseOwnsOutput) clearRequestScopedOutput(scoped);
+    }
+  }
+});
+
+function makeDocumentScope(sourceBytes: Buffer, sourceSha256: string, originalName: string): RequestScopedDocument {
+  return { sourceBytes, sourceSha256, originalName };
+}
+
+app.use('/api/document-formatting', (error: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (error?.type === 'entity.too.large') return res.status(413).json({ success: false, error: 'The DOCX exceeds the 20 MiB limit.', code: 'FILE_TOO_LARGE' });
+  if (error instanceof SyntaxError) return res.status(400).json({ success: false, error: 'Invalid document request.', code: 'INVALID_INPUT' });
+  return next(error);
+});
+
 app.post('/api/files', requirePermission('files.write'), express.raw({ type: () => true, limit: MAX_FILE_BYTES }), async (req, res) => {
   const startedAt = Date.now();
   const user = requireAuthenticatedUser(req);
@@ -993,7 +1218,7 @@ app.get('/api/capabilities', async (req, res) => {
       user,
       appContext: { user, availableCapabilities: [] },
       confirmed: false,
-    })).map(c => ({
+    }, 'rest')).map(c => ({
       id: c.id,
       moduleId: c.moduleId,
       description: c.description,
@@ -1018,6 +1243,9 @@ app.post('/api/capabilities/execute', expensiveUserLimiter, async (req, res) => 
     }
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'Capability ID is required.' });
+    }
+    if (id === 'document.inspect' || id === 'document.applyAlignment') {
+      return res.status(404).json({ error: 'Document capabilities require their authenticated binary routes.', code: 'DOCUMENT_ROUTE_REQUIRED' });
     }
     if (confirmationId !== undefined && typeof confirmationId !== 'string') {
       return res.status(400).json({ error: 'confirmationId must be a string when provided.' });
@@ -1073,7 +1301,10 @@ app.get('/api/audit', async (req, res) => {
 // Module Manager Settings
 app.get('/api/modules', async (_req, res) => {
   try {
-    res.json(await storage.listModuleSettings());
+    const settings = await storage.listModuleSettings();
+    res.json(settings.map(setting => isServerModuleReleaseReady(setting.id)
+      ? setting
+      : { ...setting, enabled: false }));
   } catch (err: any) {
     res.status(503).json({ error: redactAuditString(err?.message || 'Module settings persistence unavailable.') });
   }
@@ -1094,6 +1325,19 @@ app.post('/api/modules/:id/toggle', requirePermission('module.manage'), async (r
       return res.status(400).json({ error: `Module "${id}" is core and cannot be disabled.` });
     }
 
+    if (id === 'document-formatting') {
+      const requested = z.object({ enabled: z.boolean() }).strict().safeParse(req.body);
+      if (!requested.success) return res.status(400).json({ error: 'An explicit enabled state is required.', code: 'INVALID_MODULE_STATE' });
+      if (requested.data.enabled && !isServerModuleReleaseReady(id)) {
+        return res.status(409).json({
+          error: 'Document Formatting V1 remains disabled until processor security and deployment preflight are approved.',
+          code: 'DOCUMENT_FORMATTING_RELEASE_GATE_CLOSED',
+        });
+      }
+      const updated = await storage.setModuleEnabledWithAudit(id, requested.data.enabled, user);
+      return res.json({ ...updated, enabled: updated.enabled && isServerModuleReleaseReady(id) });
+    }
+
     const updated = await storage.toggleModuleEnabledWithAudit(id, user);
     res.json(updated);
   } catch (err: any) {
@@ -1101,6 +1345,12 @@ app.post('/api/modules/:id/toggle', requirePermission('module.manage'), async (r
     res.status(503).json({ error: redactAuditString(err?.message || 'Module settings persistence unavailable.') });
   }
 });
+
+function isServerModuleReleaseReady(moduleId: string): boolean {
+  const guard = serverModuleCatalog.get(moduleId)?.isReleaseReady;
+  if (!guard) return true;
+  try { return guard() === true; } catch { return false; }
+}
 
 // Keep API misses inside the JSON API contract instead of letting the SPA
 // catch-all return index.html to an API client.

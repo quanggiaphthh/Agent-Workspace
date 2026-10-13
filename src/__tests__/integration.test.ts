@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll, afterEach } from 'vitest';
 import request from 'supertest';
 import { app } from '../../server';
 import { adminAuth, adminFirestore } from '../../server/lib/firebaseAdmin';
@@ -8,6 +8,13 @@ import { CapabilityExecutionService } from '../../server/core/capabilities/Capab
 import { CredentialService } from '../../server/core/ai/CredentialService';
 import { fileIngestionService } from '../../server/core/files/firebaseFileStores';
 import { MAX_FILE_BYTES } from '../../server/core/files/filePolicy';
+import { DOCX_MIME_TYPE } from '../../shared/contracts/fileUploadPolicy';
+import { createHash } from 'crypto';
+import { DocumentProcessorClient } from '../../server/core/documents/documentProcessorClient';
+import { CapabilityConfirmationService } from '../../server/core/capabilities/CapabilityConfirmationService';
+import { CapabilityExecutionIdempotencyService, type MutationExecutionRecord } from '../../server/core/capabilities/CapabilityExecutionService';
+import { storage } from '../../server/infrastructure/storage';
+import { userFileService } from '../../server/core/files/firebaseFileStores';
 
 const testMocks = vi.hoisted(() => ({
   persistenceProbe: vi.fn(),
@@ -426,6 +433,162 @@ describe('Production Integration & Security Suite', () => {
         expect(ingestSpy).toHaveBeenCalledTimes(1);
       } finally {
         ingestSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('Document Formatting V1 temporary binary routes', () => {
+    const originalProcessorUrl = process.env.DOCUMENT_PROCESSOR_URL;
+    const originalProcessorToken = process.env.DOCUMENT_PROCESSOR_SHARED_TOKEN;
+    const originalReleaseApproval = process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED;
+    const inputBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x11, 0x22]);
+    const outputBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x33, 0x44]);
+    const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+
+    class MemoryExecutionRepo {
+      records = new Map<string, MutationExecutionRecord>();
+      async claim(record: MutationExecutionRecord): Promise<any> {
+        const existing = this.records.get(record.executionId);
+        if (existing?.state === 'SUCCEEDED') return { kind: 'succeeded', record: existing };
+        if (existing) return { kind: 'running', record: existing };
+        this.records.set(record.executionId, record);
+        return { kind: 'claimed', record };
+      }
+      async succeed(id: string, result: any) { Object.assign(this.records.get(id)!, { state: 'SUCCEEDED', result }); }
+      async fail(id: string, failureKind: any, errorCode: string) { Object.assign(this.records.get(id)!, { state: 'FAILED', failureKind, errorCode }); }
+    }
+
+    beforeEach(async () => {
+      process.env.DOCUMENT_PROCESSOR_URL = 'http://127.0.0.1';
+      process.env.DOCUMENT_PROCESSOR_SHARED_TOKEN = 'test-shared-token-with-at-least-32-bytes';
+      process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED = 'true';
+      await storage.setModuleEnabled('document-formatting', true);
+      vi.spyOn(AuditService, 'log').mockResolvedValue({ id: 'doc-audit' } as any);
+      vi.spyOn(AuditService, 'update').mockResolvedValue();
+      CapabilityExecutionIdempotencyService.setRepositoryForTests(new MemoryExecutionRepo() as any);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      CapabilityExecutionIdempotencyService.resetRepositoryForTests();
+    });
+
+    afterAll(async () => {
+      await storage.setModuleEnabled('document-formatting', false);
+      CapabilityExecutionIdempotencyService.resetRepositoryForTests();
+      if (originalProcessorUrl === undefined) delete process.env.DOCUMENT_PROCESSOR_URL;
+      else process.env.DOCUMENT_PROCESSOR_URL = originalProcessorUrl;
+      if (originalProcessorToken === undefined) delete process.env.DOCUMENT_PROCESSOR_SHARED_TOKEN;
+      else process.env.DOCUMENT_PROCESSOR_SHARED_TOKEN = originalProcessorToken;
+      if (originalReleaseApproval === undefined) delete process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED;
+      else process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED = originalReleaseApproval;
+    });
+
+    it('keeps discovery disabled and rejects module enablement until release approval is configured', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);
+      await storage.setModuleEnabled('document-formatting', false);
+      process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED = 'false';
+
+      const list = await request(app).get('/api/modules').set('Authorization', 'Bearer token_A');
+      expect(list.status).toBe(200);
+      expect(list.body.find((module: any) => module.id === 'document-formatting').enabled).toBe(false);
+
+      const enable = await request(app)
+        .post('/api/modules/document-formatting/toggle')
+        .set('Authorization', 'Bearer token_A')
+        .send({ enabled: true });
+      expect(enable.status).toBe(409);
+      expect(enable.body.code).toBe('DOCUMENT_FORMATTING_RELEASE_GATE_CLOSED');
+      expect(storage.getData().moduleSettings['document-formatting'].enabled).toBe(false);
+    });
+
+    it('inspects in request scope and keeps paragraph text out of durable audit and file stores', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
+      const privateText = 'DOCX PRIVATE PARAGRAPH SENTINEL';
+      const inspectSpy = vi.spyOn(DocumentProcessorClient.prototype, 'inspect').mockResolvedValue({
+        sourceSha256: digest(inputBytes), profile: 'generic-direct-alignment-spike', safeToMutate: true, packagePolicy: 'NORMAL',
+        paragraphs: [{ paragraphId: 'p1', text: privateText, directAlignment: 'LEFT', issueId: null }],
+        paragraphsTruncated: false, diagnostics: [],
+      } as any);
+      const ingestSpy = vi.spyOn(fileIngestionService, 'ingest');
+      const storeSpy = vi.spyOn(userFileService, 'store');
+      const auditPayloads: unknown[] = [];
+      vi.mocked(AuditService.log).mockImplementation(async (payload: any) => { auditPayloads.push(payload); return { id: 'doc-audit' } as any; });
+      vi.mocked(AuditService.update).mockImplementation(async (...args: any[]) => { auditPayloads.push(args); });
+      try {
+        const response = await request(app)
+          .post('/api/document-formatting/inspect')
+          .set('Authorization', 'Bearer token_A')
+          .set('Content-Type', DOCX_MIME_TYPE)
+          .set('X-File-Name', encodeURIComponent('private.docx'))
+          .send(inputBytes);
+
+        expect(response.status).toBe(200);
+        expect(response.body.inspection.paragraphs[0].text).toBe(privateText);
+        expect(inspectSpy).toHaveBeenCalledOnce();
+        expect(ingestSpy).not.toHaveBeenCalled();
+        expect(storeSpy).not.toHaveBeenCalled();
+        expect(JSON.stringify(auditPayloads)).not.toContain(privateText);
+        expect(inspectSpy.mock.calls[0][0].every(byte => byte === 0)).toBe(true);
+      } finally {
+        inspectSpy.mockRestore(); ingestSpy.mockRestore(); storeSpy.mockRestore();
+      }
+    });
+
+    it('returns a one-time confirmed DOCX binary and fails closed on idempotent output replay', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
+      vi.spyOn(CapabilityConfirmationService, 'prepare').mockResolvedValue({ confirmationId: 'confirm-doc-1', expiresAt: new Date(Date.now() + 60_000).toISOString() });
+      vi.spyOn(CapabilityConfirmationService, 'consume').mockResolvedValue({ ok: true, confirmationId: 'confirm-doc-1' });
+      const inspectSpy = vi.spyOn(DocumentProcessorClient.prototype, 'inspect').mockImplementation(async (bytes: Buffer) => ({
+        sourceSha256: digest(bytes), profile: 'generic-direct-alignment-spike', safeToMutate: true, packagePolicy: 'NORMAL',
+        paragraphs: [{ paragraphId: 'p1', text: 'PRIVATE_APPLY_TEXT', directAlignment: bytes.equals(outputBytes) ? 'CENTER' : 'LEFT', issueId: null }],
+        paragraphsTruncated: false, diagnostics: [],
+      } as any));
+      const applySpy = vi.spyOn(DocumentProcessorClient.prototype, 'applyAlignment').mockResolvedValue({ bytes: Buffer.from(outputBytes), sha256: digest(outputBytes) });
+      const ingestSpy = vi.spyOn(fileIngestionService, 'ingest');
+      const storeSpy = vi.spyOn(userFileService, 'store');
+      const auditPayloads: unknown[] = [];
+      vi.mocked(AuditService.log).mockImplementation(async (payload: any) => { auditPayloads.push(payload); return { id: 'doc-audit' } as any; });
+      vi.mocked(AuditService.update).mockImplementation(async (...args: any[]) => { auditPayloads.push(args); });
+      try {
+        const confirm = await request(app)
+          .post('/api/document-formatting/confirm')
+          .set('Authorization', 'Bearer token_A')
+          .send({ sourceSha256: digest(inputBytes), paragraphId: 'p1', expectedBefore: 'LEFT', desiredAfter: 'CENTER' });
+        expect(confirm.status).toBe(409);
+        expect(confirm.body.confirmationId).toBe('confirm-doc-1');
+
+        const headers = {
+          Authorization: 'Bearer token_A',
+          'Content-Type': DOCX_MIME_TYPE,
+          'X-File-Name': encodeURIComponent('source.docx'),
+          'X-Document-Source-Sha256': digest(inputBytes),
+          'X-Document-Paragraph-Id': 'p1',
+          'X-Document-Expected-Alignment': 'LEFT',
+          'X-Document-Desired-Alignment': 'CENTER',
+          'X-Confirmation-ID': confirm.body.confirmationId,
+          'Idempotency-Key': 'docfmt:test-replay-001',
+        };
+        const response = await request(app).post('/api/document-formatting/apply').set(headers).buffer(true).parse((rawResponse, callback) => {
+          const chunks: Buffer[] = [];
+          rawResponse.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+          rawResponse.on('end', () => callback(null, Buffer.concat(chunks)));
+        }).send(inputBytes);
+        expect(response.status).toBe(200);
+        expect(Buffer.from(response.body)).toEqual(outputBytes);
+        expect(response.headers['content-type']).toContain(DOCX_MIME_TYPE);
+        expect(response.headers['cache-control']).toBe('no-store');
+
+        const replay = await request(app).post('/api/document-formatting/apply').set(headers).send(inputBytes);
+        expect(replay.status).toBe(409);
+        expect(replay.body.code).toBe('EPHEMERAL_OUTPUT_UNAVAILABLE');
+        expect(applySpy).toHaveBeenCalledOnce();
+        expect(applySpy.mock.calls[0][0].bytes.every(byte => byte === 0)).toBe(true);
+        expect(ingestSpy).not.toHaveBeenCalled();
+        expect(storeSpy).not.toHaveBeenCalled();
+        expect(JSON.stringify(auditPayloads)).not.toContain('PRIVATE_APPLY_TEXT');
+      } finally {
+        inspectSpy.mockRestore(); applySpy.mockRestore(); ingestSpy.mockRestore(); storeSpy.mockRestore();
       }
     });
   });

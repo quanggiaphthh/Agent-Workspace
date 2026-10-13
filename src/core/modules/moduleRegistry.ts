@@ -15,7 +15,7 @@ class LocalModuleRegistry {
 
   public register(manifest: ModuleManifest): void {
     this.manifests.set(manifest.id, manifest);
-    if (!this.enabledMap.has(manifest.id)) this.enabledMap.set(manifest.id, true);
+    if (!this.enabledMap.has(manifest.id)) this.enabledMap.set(manifest.id, manifest.defaultEnabled ?? true);
     eventBus.emit('module.registered', { moduleId: manifest.id });
   }
 

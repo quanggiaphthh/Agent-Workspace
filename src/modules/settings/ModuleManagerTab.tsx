@@ -43,7 +43,11 @@ export function ModuleManagerTab() {
     try {
       setToggling(manifest.id);
       await moduleRegistry.setEnabled(manifest.id, !isCurrentlyEnabled, async () => {
-        const res = await authFetch(`/api/modules/${manifest.id}/toggle`, { method: 'POST' });
+        const res = await authFetch(`/api/modules/${manifest.id}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !isCurrentlyEnabled }),
+        });
         if (!res.ok) throw new Error('Không thể cập nhật trạng thái module.');
       });
 

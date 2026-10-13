@@ -1,20 +1,26 @@
 import { createHash } from 'crypto';
 import { z } from 'zod';
 import { ServerCapabilityRegistry } from '../../core/capabilities/serverCapabilityRegistry';
-import { FileDomainError, UserFileService } from '../../core/files/UserFileService';
-import { sanitizeDisplayFilename } from '../../core/files/filePolicy';
-import { userFileService } from '../../core/files/firebaseFileStores';
-import { DocumentInspectionSchema, DocumentProcessorClient, DocumentProcessorError, ProcessorAlignmentSchema } from '../../core/documents/documentProcessorClient';
+import { SafeCapabilityExecutionError } from '../../core/capabilities/SafeCapabilityExecutionError';
+import {
+  DocumentProcessorClient,
+  DocumentProcessorError,
+  ProcessorAlignmentSchema,
+} from '../../core/documents/documentProcessorClient';
+import { currentRequestScopedDocument } from '../../core/documents/requestScopedDocument';
 import type { CapabilityDescriptor } from '../../../shared/contracts/capability';
 import type { ModuleMetadata } from '../../core/modules/moduleCatalog';
 import { DOCX_MIME_TYPE, MAX_FILE_BYTES } from '../../../shared/contracts/fileUploadPolicy';
+import { isDocumentFormattingReleaseReady } from './releaseGate';
 
-const FileIdSchema = z.string().trim().min(1).max(128);
-const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/i);
+const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const ParagraphIdSchema = z.string().regex(/^p[1-9][0-9]{0,8}$/);
-const InspectInputSchema = z.object({ fileId: FileIdSchema }).strict();
+const InspectInputSchema = z.object({
+  sourceSha256: Sha256Schema,
+  sizeBytes: z.number().int().positive().max(MAX_FILE_BYTES),
+  mimeType: z.literal(DOCX_MIME_TYPE),
+}).strict();
 const ApplyInputSchema = z.object({
-  fileId: FileIdSchema,
   sourceSha256: Sha256Schema,
   paragraphId: ParagraphIdSchema,
   expectedBefore: ProcessorAlignmentSchema,
@@ -23,34 +29,24 @@ const ApplyInputSchema = z.object({
   message: 'The requested alignment must change the current value.',
 });
 
-const FileDescriptorSchema = z.object({
-  fileId: z.string().max(128),
-  originalName: z.string().max(255),
-  mimeType: z.literal(DOCX_MIME_TYPE),
-  sizeBytes: z.number().int().nonnegative().max(MAX_FILE_BYTES),
-  status: z.literal('ready'),
-  createdAt: z.string().nullable(),
-}).strict();
-
 const InspectOutputSchema = z.object({
-  sourceFileId: z.string().max(128),
-  inspection: DocumentInspectionSchema,
+  sourceSha256: Sha256Schema,
+  sizeBytes: z.number().int().positive().max(MAX_FILE_BYTES),
+  profile: z.literal('generic-direct-alignment-spike'),
+  safeToMutate: z.boolean(),
+  packagePolicy: z.enum(['NORMAL', 'GUARDED', 'AUDIT_ONLY', 'PROHIBITED']),
+  paragraphCount: z.number().int().nonnegative().max(250),
+  paragraphsTruncated: z.boolean(),
+  diagnosticCodes: z.array(z.string().max(64)).max(32),
 }).strict();
 
 const ApplyOutputSchema = z.object({
-  success: z.literal(true),
-  sourceFileId: z.string().max(128),
-  outputFile: FileDescriptorSchema,
-  changeManifest: z.object({
-    property: z.literal('paragraph.alignment'),
-    paragraphId: ParagraphIdSchema,
-    before: ProcessorAlignmentSchema,
-    after: ProcessorAlignmentSchema,
-    sourceSha256: Sha256Schema,
-    outputSha256: Sha256Schema,
-    appliedAt: z.string().datetime(),
-    summary: z.string().max(160),
-  }).strict(),
+  sourceSha256: Sha256Schema,
+  outputSha256: Sha256Schema,
+  outputSizeBytes: z.number().int().positive().max(MAX_FILE_BYTES),
+  paragraphId: ParagraphIdSchema,
+  before: ProcessorAlignmentSchema,
+  after: ProcessorAlignmentSchema,
   verification: z.object({
     reopened: z.literal(true),
     revalidated: z.literal(true),
@@ -65,140 +61,121 @@ export const documentFormattingModuleMetadata: ModuleMetadata = {
   enabled: false,
   canDisable: true,
   version: '0.1.0-candidate',
+  isReleaseReady: isDocumentFormattingReleaseReady,
 };
 
 type ProcessorClient = Pick<DocumentProcessorClient, 'inspect' | 'applyAlignment'>;
-type FileService = Pick<UserFileService, 'readBytes' | 'store'>;
-export type DocumentFormattingDependencies = { files?: FileService; processor?: ProcessorClient };
-
-class DocumentCapabilityError extends Error {
-  constructor(public readonly code: string, message: string) { super(message); }
-}
+export type DocumentFormattingDependencies = { processor?: ProcessorClient };
 
 function safeCapabilityError(code: string, message: string): Error {
-  return new DocumentCapabilityError(code, message);
+  return new SafeCapabilityExecutionError(code, message);
 }
 
 function preserveSafeFailure(error: unknown): never {
-  if (error instanceof FileDomainError || error instanceof DocumentProcessorError || error instanceof DocumentCapabilityError) throw error;
+  if (error instanceof SafeCapabilityExecutionError) throw error;
+  if (error instanceof DocumentProcessorError) throw new SafeCapabilityExecutionError(error.code, error.message);
   throw safeCapabilityError('DOCUMENT_PROCESSING_FAILED', 'Document processing failed safely.');
 }
 
 function sha256(bytes: Buffer): string { return createHash('sha256').update(bytes).digest('hex'); }
 
-async function readCanonicalDocx(files: FileService, ownerId: string, fileId: string, signal?: AbortSignal) {
-  const { file, bytes } = await files.readBytes(ownerId, fileId, MAX_FILE_BYTES, signal);
-  if (file.mimeType !== DOCX_MIME_TYPE || !file.originalName.toLowerCase().endsWith('.docx'))
-    throw new FileDomainError('FILE_TYPE_MISMATCH', 415, 'The selected file is not a DOCX document.');
-  if (!Buffer.isBuffer(bytes) || bytes.length !== file.sizeBytes || bytes.length > MAX_FILE_BYTES)
-    throw new FileDomainError('FILE_INTEGRITY_FAILED', 503, 'The canonical DOCX file could not be verified.');
-  return { file, bytes };
+function requireBoundDocument(sourceSha256: string, expectedSize?: number) {
+  const request = currentRequestScopedDocument();
+  if (!request || !Buffer.isBuffer(request.sourceBytes))
+    throw safeCapabilityError('DOCUMENT_REQUEST_CONTEXT_REQUIRED', 'A request-scoped DOCX binary is required.');
+  if (request.sourceBytes.length === 0 || request.sourceBytes.length > MAX_FILE_BYTES ||
+      (expectedSize !== undefined && request.sourceBytes.length !== expectedSize))
+    throw safeCapabilityError('INVALID_INPUT', 'The request-scoped DOCX binary is invalid.');
+  const actualSha256 = sha256(request.sourceBytes);
+  if (actualSha256 !== sourceSha256 || actualSha256 !== request.sourceSha256)
+    throw safeCapabilityError('STALE_DOCUMENT', 'The DOCX source changed after inspection.');
+  return request;
 }
 
 export function createDocumentFormattingCapabilities(dependencies: DocumentFormattingDependencies = {}): CapabilityDescriptor<any, any>[] {
-  const files = dependencies.files ?? userFileService;
   const processor = dependencies.processor;
 
   return [
     {
       id: 'document.inspect',
       moduleId: 'document-formatting',
-      description: 'Inspect a DOCX already stored in the owner-bound file service. Returns deterministic package safety and direct paragraph alignment data; makes no legal-compliance claim.',
+      description: 'Inspect one request-scoped DOCX and return deterministic safety and direct paragraph alignment data through the document route. Makes no legal-compliance claim and stores no document content.',
       inputSchema: InspectInputSchema,
       outputSchema: InspectOutputSchema,
       risk: 'low' as const,
       sideEffect: 'none' as const,
       confirmationPolicy: 'none' as const,
+      allowedSources: ['rest'],
       permissions: ['files.read'],
       execute: async (input: z.infer<typeof InspectInputSchema>, context: { user?: { id: string }; abortSignal?: AbortSignal }) => {
         try {
-          const ownerId = context.user?.id;
-          if (!ownerId) throw safeCapabilityError('UNAUTHORIZED', 'A verified owner is required.');
-          const { file, bytes } = await readCanonicalDocx(files, ownerId, input.fileId, context.abortSignal);
+          if (!context.user?.id) throw safeCapabilityError('UNAUTHORIZED', 'A verified owner is required.');
+          const request = requireBoundDocument(input.sourceSha256, input.sizeBytes);
           const client = processor ?? new DocumentProcessorClient();
-          const inspection = await client.inspect(bytes, context.abortSignal);
-          if (inspection.sourceSha256 !== sha256(bytes))
-            throw safeCapabilityError('PROCESSOR_INVALID_RESPONSE', 'The document processor source digest did not match the canonical file.');
-          return { sourceFileId: file.fileId, inspection };
+          const inspection = await client.inspect(request.sourceBytes, context.abortSignal);
+          if (inspection.sourceSha256 !== input.sourceSha256)
+            throw safeCapabilityError('PROCESSOR_INVALID_RESPONSE', 'The document processor source digest did not match.');
+          request.inspection = inspection;
+          return {
+            sourceSha256: inspection.sourceSha256,
+            sizeBytes: input.sizeBytes,
+            profile: inspection.profile,
+            safeToMutate: inspection.safeToMutate,
+            packagePolicy: inspection.packagePolicy,
+            paragraphCount: inspection.paragraphs.length,
+            paragraphsTruncated: inspection.paragraphsTruncated,
+            diagnosticCodes: inspection.diagnostics.map(diagnostic => diagnostic.code),
+          };
         } catch (error) { return preserveSafeFailure(error); }
       },
     },
     {
       id: 'document.applyAlignment',
       moduleId: 'document-formatting',
-      description: 'Apply exactly one user-confirmed direct paragraph alignment change to an owner-authorized DOCX. Always creates a new canonical fileId and preserves the source.',
+      description: 'After server-authoritative confirmation, apply exactly one direct paragraph alignment change to request-scoped DOCX bytes and return the binary only through the document route. Does not persist the artifact.',
       inputSchema: ApplyInputSchema,
       outputSchema: ApplyOutputSchema,
       risk: 'medium' as const,
       sideEffect: 'mutation' as const,
       confirmationPolicy: 'required' as const,
+      allowedSources: ['rest'],
       permissions: ['files.read', 'files.write'],
-      effects: ['Creates a new DOCX artifact after applying one confirmed direct paragraph alignment change.'],
+      effects: ['Applies one confirmed direct paragraph alignment change to request-scoped DOCX bytes.'],
       execute: async (input: z.infer<typeof ApplyInputSchema>, context: { user?: { id: string }; abortSignal?: AbortSignal }) => {
         try {
-        const ownerId = context.user?.id;
-        if (!ownerId) throw safeCapabilityError('UNAUTHORIZED', 'A verified owner is required.');
-        const { file: sourceFile, bytes: sourceBytes } = await readCanonicalDocx(files, ownerId, input.fileId, context.abortSignal);
-        const actualSourceSha256 = sha256(sourceBytes);
-        if (actualSourceSha256 !== input.sourceSha256.toLowerCase())
-          throw safeCapabilityError('STALE_DOCUMENT', 'The DOCX source changed after inspection.');
+          if (!context.user?.id) throw safeCapabilityError('UNAUTHORIZED', 'A verified owner is required.');
+          const request = requireBoundDocument(input.sourceSha256);
+          const client = processor ?? new DocumentProcessorClient();
+          const applied = await client.applyAlignment({
+            bytes: request.sourceBytes,
+            sourceSha256: input.sourceSha256,
+            paragraphId: input.paragraphId,
+            expectedBefore: input.expectedBefore,
+            desiredAfter: input.desiredAfter,
+          }, context.abortSignal);
+          if (applied.sha256 !== sha256(applied.bytes))
+            throw safeCapabilityError('PROCESSOR_INVALID_RESPONSE', 'The document processor output digest did not match.');
 
-        const client = processor ?? new DocumentProcessorClient();
-        const applied = await client.applyAlignment({
-          bytes: sourceBytes,
-          sourceSha256: actualSourceSha256,
-          paragraphId: input.paragraphId,
-          expectedBefore: input.expectedBefore,
-          desiredAfter: input.desiredAfter,
-        }, context.abortSignal);
-        if (applied.sha256 !== sha256(applied.bytes))
-          throw safeCapabilityError('PROCESSOR_INVALID_RESPONSE', 'The document processor output digest did not match.');
+          const outputInspection = await client.inspect(applied.bytes, context.abortSignal);
+          const outputParagraph = outputInspection.paragraphs.find(paragraph => paragraph.paragraphId === input.paragraphId);
+          if (!outputInspection.safeToMutate || outputInspection.packagePolicy !== 'NORMAL' ||
+              outputInspection.sourceSha256 !== applied.sha256 || outputParagraph?.directAlignment !== input.desiredAfter)
+            throw safeCapabilityError('OUTPUT_INTEGRITY_FAILED', 'The generated DOCX failed output revalidation.');
+          if (sha256(request.sourceBytes) !== input.sourceSha256)
+            throw safeCapabilityError('SOURCE_IMMUTABILITY_VIOLATION', 'The source DOCX changed during processing.');
+          if (applied.bytes.length === 0 || applied.bytes.length > MAX_FILE_BYTES)
+            throw safeCapabilityError('OUTPUT_TOO_LARGE', 'The generated DOCX exceeds the allowed size.');
 
-        const outputInspection = await client.inspect(applied.bytes, context.abortSignal);
-        const outputParagraph = outputInspection.paragraphs.find(paragraph => paragraph.paragraphId === input.paragraphId);
-        if (!outputInspection.safeToMutate || outputInspection.packagePolicy !== 'NORMAL' ||
-            outputInspection.sourceSha256 !== applied.sha256 || outputParagraph?.directAlignment !== input.desiredAfter)
-          throw safeCapabilityError('OUTPUT_INTEGRITY_FAILED', 'The generated DOCX failed output revalidation.');
-
-        const reloadedSource = await files.readBytes(ownerId, sourceFile.fileId, MAX_FILE_BYTES, context.abortSignal);
-        if (sha256(reloadedSource.bytes) !== actualSourceSha256)
-          throw safeCapabilityError('SOURCE_IMMUTABILITY_VIOLATION', 'The source DOCX changed during processing.');
-
-        const baseName = sourceFile.originalName.replace(/\.docx$/i, '') || 'document';
-        const outputName = sanitizeDisplayFilename(`${baseName}-formatted.docx`);
-        const appliedAt = new Date().toISOString();
-        const summary = `Direct paragraph alignment changed from ${input.expectedBefore} to ${input.desiredAfter}.`;
-        const outputFile = await files.store(ownerId, {
-          originalName: outputName,
-          mimeType: DOCX_MIME_TYPE,
-          bytes: applied.bytes,
-          avoidFileId: sourceFile.fileId,
-          signal: context.abortSignal,
-        });
-
-        return {
-          success: true as const,
-          sourceFileId: sourceFile.fileId,
-          outputFile: {
-            fileId: outputFile.fileId,
-            originalName: outputFile.originalName,
-            mimeType: outputFile.mimeType,
-            sizeBytes: outputFile.sizeBytes,
-            status: outputFile.status,
-            createdAt: outputFile.createdAt,
-          },
-          changeManifest: {
-            property: 'paragraph.alignment' as const,
+          request.output = { bytes: applied.bytes, sha256: applied.sha256 };
+          return {
+            sourceSha256: input.sourceSha256,
+            outputSha256: applied.sha256,
+            outputSizeBytes: applied.bytes.length,
             paragraphId: input.paragraphId,
             before: input.expectedBefore,
             after: input.desiredAfter,
-            sourceSha256: actualSourceSha256,
-            outputSha256: applied.sha256,
-            appliedAt,
-            summary,
-          },
-          verification: { reopened: true as const, revalidated: true as const, sourceUnchanged: true as const, outputInspectionPassed: true as const },
-        };
+            verification: { reopened: true as const, revalidated: true as const, sourceUnchanged: true as const, outputInspectionPassed: true as const },
+          };
         } catch (error) { return preserveSafeFailure(error); }
       },
     },
