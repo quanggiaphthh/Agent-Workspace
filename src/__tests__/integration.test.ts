@@ -9,9 +9,10 @@ import { CredentialService } from '../../server/core/ai/CredentialService';
 import { fileIngestionService } from '../../server/core/files/firebaseFileStores';
 import { MAX_FILE_BYTES } from '../../server/core/files/filePolicy';
 import { DOCX_MIME_TYPE } from '../../shared/contracts/fileUploadPolicy';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { DocumentProcessorClient } from '../../server/core/documents/documentProcessorClient';
 import { CapabilityConfirmationService } from '../../server/core/capabilities/CapabilityConfirmationService';
+import { evaluateConfirmationRecord, hashCapabilityInput } from '../../server/core/capabilities/CapabilityConfirmationPolicy';
 import { CapabilityExecutionIdempotencyService, type MutationExecutionRecord } from '../../server/core/capabilities/CapabilityExecutionService';
 import { storage } from '../../server/infrastructure/storage';
 import { userFileService } from '../../server/core/files/firebaseFileStores';
@@ -535,10 +536,75 @@ describe('Production Integration & Security Suite', () => {
       }
     });
 
-    it('returns a one-time confirmed DOCX binary and fails closed on idempotent output replay', async () => {
+    it('rejects /confirm requests when Idempotency-Key is missing or invalid', async () => {
       vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
-      vi.spyOn(CapabilityConfirmationService, 'prepare').mockResolvedValue({ confirmationId: 'confirm-doc-1', expiresAt: new Date(Date.now() + 60_000).toISOString() });
-      vi.spyOn(CapabilityConfirmationService, 'consume').mockResolvedValue({ ok: true, confirmationId: 'confirm-doc-1' });
+      const prepareSpy = vi.spyOn(CapabilityConfirmationService, 'prepare');
+      const body = { sourceSha256: digest(inputBytes), paragraphId: 'p1', expectedBefore: 'LEFT', desiredAfter: 'CENTER' };
+
+      const missing = await request(app)
+        .post('/api/document-formatting/confirm')
+        .set('Authorization', 'Bearer token_A')
+        .send(body);
+      expect(missing.status).toBe(400);
+      expect(missing.body.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
+
+      const invalid = await request(app)
+        .post('/api/document-formatting/confirm')
+        .set('Authorization', 'Bearer token_A')
+        .set('Idempotency-Key', 'short')
+        .send(body);
+      expect(invalid.status).toBe(400);
+      expect(invalid.body.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
+
+      expect(prepareSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns a one-time confirmed DOCX binary with matching Idempotency-Key, rejects mismatched key, and fails closed on replay', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
+
+      const confirmationRecords = new Map<string, any>();
+      vi.spyOn(CapabilityConfirmationService, 'prepare').mockImplementation(async (options: any) => {
+        const confirmationId = `confirm-doc-${randomUUID()}`;
+        const expiresAtMs = Date.now() + 60_000;
+        const execution = options.executionContext || { source: 'rest' as const };
+        const record = {
+          confirmationId,
+          userId: options.userId,
+          capabilityId: options.capabilityId,
+          inputHash: hashCapabilityInput(options.rawInput),
+          createdAt: new Date().toISOString(),
+          expiresAtMs,
+          consumedAt: null,
+          decision: 'pending',
+          source: execution.source,
+          sessionId: execution.sessionId,
+          toolCallId: execution.toolCallId,
+          logicalExecutionId: execution.logicalExecutionId,
+          temporaryMode: execution.temporaryMode === true,
+        };
+        confirmationRecords.set(confirmationId, record);
+        return { confirmationId, expiresAt: new Date(expiresAtMs).toISOString() };
+      });
+
+      vi.spyOn(CapabilityConfirmationService, 'consume').mockImplementation(async (options: any) => {
+        const record = confirmationRecords.get(options.confirmationId);
+        if (!record) return { ok: false, confirmationId: options.confirmationId, errorCode: 'CONFIRMATION_NOT_FOUND', errorSummary: 'Confirmation challenge was not found.' };
+        const expected = {
+          userId: options.userId,
+          capabilityId: options.capabilityId,
+          inputHash: hashCapabilityInput(options.rawInput),
+          source: options.source,
+          sessionId: options.sessionId,
+          toolCallId: options.toolCallId,
+          logicalExecutionId: options.logicalExecutionId,
+        };
+        const evaluation = evaluateConfirmationRecord(record, expected);
+        if (!evaluation.ok) return { ok: false, confirmationId: options.confirmationId, errorCode: evaluation.errorCode, errorSummary: evaluation.errorSummary };
+        record.consumedAt = new Date().toISOString();
+        record.decision = 'approved';
+        return { ok: true, confirmationId: options.confirmationId };
+      });
+
       const inspectSpy = vi.spyOn(DocumentProcessorClient.prototype, 'inspect').mockImplementation(async (bytes: Buffer) => ({
         sourceSha256: digest(bytes), profile: 'generic-direct-alignment-spike', safeToMutate: true, packagePolicy: 'NORMAL',
         paragraphs: [{ paragraphId: 'p1', text: 'PRIVATE_APPLY_TEXT', directAlignment: bytes.equals(outputBytes) ? 'CENTER' : 'LEFT', issueId: null }],
@@ -550,15 +616,26 @@ describe('Production Integration & Security Suite', () => {
       const auditPayloads: unknown[] = [];
       vi.mocked(AuditService.log).mockImplementation(async (payload: any) => { auditPayloads.push(payload); return { id: 'doc-audit' } as any; });
       vi.mocked(AuditService.update).mockImplementation(async (...args: any[]) => { auditPayloads.push(args); });
+
+      const boundKey = 'docfmt:test-bound-001';
+      const mismatchedKey = 'docfmt:test-mismatched-999';
+
       try {
         const confirm = await request(app)
           .post('/api/document-formatting/confirm')
           .set('Authorization', 'Bearer token_A')
+          .set('Idempotency-Key', boundKey)
           .send({ sourceSha256: digest(inputBytes), paragraphId: 'p1', expectedBefore: 'LEFT', desiredAfter: 'CENTER' });
         expect(confirm.status).toBe(409);
-        expect(confirm.body.confirmationId).toBe('confirm-doc-1');
+        expect(confirm.body.confirmationId).toBeTruthy();
+        const confirmationId = confirm.body.confirmationId;
 
-        const headers = {
+        // Verify logicalExecutionId was stored in the confirmation record
+        const savedRecord = confirmationRecords.get(confirmationId);
+        expect(savedRecord).toBeDefined();
+        expect(savedRecord.logicalExecutionId).toBe(`rest:${boundKey}`);
+
+        const baseHeaders = {
           Authorization: 'Bearer token_A',
           'Content-Type': DOCX_MIME_TYPE,
           'X-File-Name': encodeURIComponent('source.docx'),
@@ -566,23 +643,43 @@ describe('Production Integration & Security Suite', () => {
           'X-Document-Paragraph-Id': 'p1',
           'X-Document-Expected-Alignment': 'LEFT',
           'X-Document-Desired-Alignment': 'CENTER',
-          'X-Confirmation-ID': confirm.body.confirmationId,
-          'Idempotency-Key': 'docfmt:test-replay-001',
+          'X-Confirmation-ID': confirmationId,
         };
-        const response = await request(app).post('/api/document-formatting/apply').set(headers).buffer(true).parse((rawResponse, callback) => {
-          const chunks: Buffer[] = [];
-          rawResponse.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
-          rawResponse.on('end', () => callback(null, Buffer.concat(chunks)));
-        }).send(inputBytes);
+
+        // Negative test: Applying with mismatched Idempotency-Key must fail and NOT call processor
+        const mismatchedResponse = await request(app)
+          .post('/api/document-formatting/apply')
+          .set({ ...baseHeaders, 'Idempotency-Key': mismatchedKey })
+          .send(inputBytes);
+        expect(mismatchedResponse.status).toBe(409);
+        expect(mismatchedResponse.body.code).toBe('CONFIRMATION_EXECUTION_MISMATCH');
+        expect(applySpy).not.toHaveBeenCalled();
+
+        // Positive test: Applying with matching Idempotency-Key succeeds
+        const response = await request(app)
+          .post('/api/document-formatting/apply')
+          .set({ ...baseHeaders, 'Idempotency-Key': boundKey })
+          .buffer(true)
+          .parse((rawResponse, callback) => {
+            const chunks: Buffer[] = [];
+            rawResponse.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+            rawResponse.on('end', () => callback(null, Buffer.concat(chunks)));
+          })
+          .send(inputBytes);
         expect(response.status).toBe(200);
         expect(Buffer.from(response.body)).toEqual(outputBytes);
         expect(response.headers['content-type']).toContain(DOCX_MIME_TYPE);
         expect(response.headers['cache-control']).toBe('no-store');
-
-        const replay = await request(app).post('/api/document-formatting/apply').set(headers).send(inputBytes);
-        expect(replay.status).toBe(409);
-        expect(replay.body.code).toBe('EPHEMERAL_OUTPUT_UNAVAILABLE');
         expect(applySpy).toHaveBeenCalledOnce();
+
+        // Replay test: Replaying with the same key fails closed
+        const replay = await request(app)
+          .post('/api/document-formatting/apply')
+          .set({ ...baseHeaders, 'Idempotency-Key': boundKey })
+          .send(inputBytes);
+        expect(replay.status).toBe(409);
+        expect(replay.body.code).toBe('CONFIRMATION_REPLAY');
+        expect(applySpy).toHaveBeenCalledOnce(); // No second call
         expect(applySpy.mock.calls[0][0].bytes.every(byte => byte === 0)).toBe(true);
         expect(ingestSpy).not.toHaveBeenCalled();
         expect(storeSpy).not.toHaveBeenCalled();

@@ -28,6 +28,7 @@ type PendingConfirmation = {
   paragraphId: string;
   expectedBefore: Alignment;
   desiredAfter: Alignment;
+  idempotencyKey: string;
 };
 
 const ALIGNMENTS: Alignment[] = ['LEFT', 'CENTER', 'RIGHT', 'JUSTIFY'];
@@ -147,10 +148,14 @@ export function DocumentFormattingModule() {
     setBusy('prepare');
     setError(null);
     setPendingConfirmation(null);
+    const idempotencyKey = makeIdempotencyKey();
     try {
       const response = await authFetch('/api/document-formatting/confirm', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
         body: JSON.stringify({
           sourceSha256: inspection.sourceSha256,
           paragraphId: selectedParagraph.paragraphId,
@@ -170,6 +175,7 @@ export function DocumentFormattingModule() {
         paragraphId: selectedParagraph.paragraphId,
         expectedBefore: selectedParagraph.directAlignment,
         desiredAfter,
+        idempotencyKey,
       });
     } catch (caught) {
       if (controller.signal.aborted) setError('Đã hủy thao tác xác nhận.');
@@ -203,7 +209,7 @@ export function DocumentFormattingModule() {
           'X-Document-Expected-Alignment': pendingConfirmation.expectedBefore,
           'X-Document-Desired-Alignment': pendingConfirmation.desiredAfter,
           'X-Confirmation-ID': pendingConfirmation.confirmationId,
-          'Idempotency-Key': makeIdempotencyKey(),
+          'Idempotency-Key': pendingConfirmation.idempotencyKey,
         },
         body: file,
         signal: controller.signal,

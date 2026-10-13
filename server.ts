@@ -652,12 +652,16 @@ app.post('/api/document-formatting/inspect', expensiveUserLimiter, requirePermis
 app.post('/api/document-formatting/confirm', expensiveUserLimiter, requirePermission('files.read'), requirePermission('files.write'), async (req, res) => {
   const parsed = DocumentAlignmentChangeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, error: 'Invalid document alignment confirmation request.', code: 'INVALID_INPUT' });
+  const idempotencyKey = req.get('Idempotency-Key')?.trim();
+  if (!idempotencyKey || !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) {
+    return res.status(400).json({ success: false, error: 'A valid Idempotency-Key is required.', code: 'IDEMPOTENCY_KEY_REQUIRED' });
+  }
   try {
     const user = requireAuthenticatedUser(req);
     const result = await CapabilityExecutionService.execute(
       'document.applyAlignment', parsed.data,
       { user, appContext: { user, availableCapabilities: [] }, confirmed: false },
-      { source: 'rest', requestId: req.requestId },
+      { source: 'rest', requestId: req.requestId, idempotencyKey },
     );
     if (result.success || !result.requiresConfirmation) return documentFailure(res, result);
     return res.status(409).json({

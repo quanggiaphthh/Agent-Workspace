@@ -24,4 +24,25 @@ describe('GĐ3 Lượt 4 confirmation resume binding policy', () => {
   it('rejects a terminal rejection replay', () => expect(evaluateConfirmationRecord({ ...base, consumedAt: new Date().toISOString(), decision:'rejected' }, expected)).toMatchObject({ ok:false, errorCode:'CONFIRMATION_REPLAY' }));
   it('rejects a cancelled pending execution', () => expect(evaluateConfirmationRecord({ ...base, decision:'cancelled' }, expected)).toMatchObject({ ok:false, errorCode:'CONFIRMATION_CANCELLED' }));
   it('records temporary-mode binding without changing conversation persistence authority', () => expect(evaluateConfirmationRecord({ ...base, temporaryMode:true }, expected)).toEqual({ ok:true }));
+  it('accepts the exact original REST execution identity and fails closed on mismatch or missing key', () => {
+    const restBase = {
+      ...base,
+      source: 'rest' as const,
+      sessionId: undefined,
+      toolCallId: undefined,
+      logicalExecutionId: 'rest:docfmt:key-12345678',
+    };
+    const restExpected = {
+      userId: restBase.userId,
+      capabilityId: restBase.capabilityId,
+      inputHash: restBase.inputHash,
+      source: 'rest' as const,
+      logicalExecutionId: 'rest:docfmt:key-12345678',
+    };
+    expect(evaluateConfirmationRecord(restBase, restExpected)).toEqual({ ok: true });
+    expect(evaluateConfirmationRecord(restBase, { ...restExpected, logicalExecutionId: 'rest:docfmt:key-different' }))
+      .toMatchObject({ ok: false, errorCode: 'CONFIRMATION_EXECUTION_MISMATCH' });
+    expect(evaluateConfirmationRecord({ ...restBase, logicalExecutionId: undefined }, restExpected))
+      .toMatchObject({ ok: false, errorCode: 'CONFIRMATION_EXECUTION_MISMATCH' });
+  });
 });
