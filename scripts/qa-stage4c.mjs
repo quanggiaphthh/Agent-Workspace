@@ -97,11 +97,26 @@ check('module capability discovery refreshes shared state before filtering',
 check('module capability execution refreshes shared state before module policy',
   /public static async execute/.test(registry)
   && /execute[\s\S]{0,1400}?await storage\.refreshModuleSettings\(\)/.test(registry));
+const moduleToggleRouteStart = server.indexOf("app.post('/api/modules/:id/toggle'");
+const moduleToggleRouteEnd = server.indexOf('\nfunction isServerModuleReleaseReady', moduleToggleRouteStart);
+const moduleToggleRoute = moduleToggleRouteStart >= 0 && moduleToggleRouteEnd > moduleToggleRouteStart
+  ? server.slice(moduleToggleRouteStart, moduleToggleRouteEnd)
+  : '';
+const moduleToggleStorageStart = storage.indexOf('public async toggleModuleEnabledWithAudit');
+const moduleSetStorageStart = storage.indexOf('public async setModuleEnabledWithAudit');
+const moduleToggleStorage = moduleToggleStorageStart >= 0 && moduleSetStorageStart > moduleToggleStorageStart
+  ? storage.slice(moduleToggleStorageStart, moduleSetStorageStart)
+  : '';
+const moduleSetStorage = moduleSetStorageStart >= 0 ? storage.slice(moduleSetStorageStart) : '';
 check('module toggle commits durable state and audit atomically',
-  /runTransaction/.test(storage)
-  && /AuditService\.stageLog/.test(storage)
-  && /api\/modules\/:id\/toggle[\s\S]{0,1200}?await storage\.toggleModuleEnabledWithAudit/.test(server)
-  && !/api\/modules\/:id\/toggle[\s\S]{0,1200}?await AuditService\.log/.test(server));
+  moduleToggleRoute.length > 0
+  && /await storage\.toggleModuleEnabledWithAudit/.test(moduleToggleRoute)
+  && /await storage\.setModuleEnabledWithAudit/.test(moduleToggleRoute)
+  && !/await AuditService\.log/.test(moduleToggleRoute)
+  && /runTransaction/.test(moduleToggleStorage)
+  && /AuditService\.stageLog/.test(moduleToggleStorage)
+  && /runTransaction/.test(moduleSetStorage)
+  && /AuditService\.stageLog/.test(moduleSetStorage));
 
 check('production session fallback remains fail-closed',
   /NODE_ENV\s*!==\s*['"]production['"][\s\S]{0,200}?LocalInMemorySessionService/.test(session));
@@ -162,7 +177,7 @@ const sessionIntegration = spawnSync(
   ['--no-warnings', '--experimental-strip-types', 'scripts/qa-stage4c-session-integration.mjs'],
   { encoding: 'utf8' },
 );
-if (sessionIntegration.stdout) process.stdout.write(behavior.stdout);
+if (sessionIntegration.stdout) process.stdout.write(sessionIntegration.stdout);
 if (sessionIntegration.stderr) process.stderr.write(sessionIntegration.stderr);
 check('GĐ4C FirestoreSessionService recovery integration passes', sessionIntegration.status === 0);
 
