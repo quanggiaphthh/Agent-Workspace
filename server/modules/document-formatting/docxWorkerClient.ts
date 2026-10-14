@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { MAX_FILE_BYTES } from '../../../shared/contracts/fileUploadPolicy';
 
@@ -28,8 +28,10 @@ export function processDocxInWorker(
 
   // esbuild bundles the server into dist/server.cjs and the worker into dist/docx.worker.cjs.
   // In development and tests, use the source worker beside this module.
-  const bundledWorker = join(__dirname, 'docx.worker.cjs');
-  const workerPath = existsSync(bundledWorker) ? bundledWorker : join(__dirname, 'docxWorker.mjs');
+  const bundledWorker = resolve(__dirname, 'docx.worker.cjs');
+  // tsx compiles source with __dirname='.'; the production bundle has an absolute dist directory.
+  const sourceWorker = resolve(process.cwd(), 'server/modules/document-formatting/docxWorker.mjs');
+  const workerPath = existsSync(bundledWorker) ? bundledWorker : sourceWorker;
   active = true;
   let worker: Worker;
   try {
