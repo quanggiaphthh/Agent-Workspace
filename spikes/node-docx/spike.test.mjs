@@ -49,13 +49,12 @@ describe('isolated bounded Node DOCX feasibility seam',()=>{
   await rejects(await make({'_rels/.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="missing.xml"/></Relationships>'}),'MALFORMED_DOCX');
   await rejects(await make({'_rels/.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'}),'MALFORMED_DOCX');
  });
- it('resolves the main document through OPC relationships rather than a fixed part path',async()=>{
+ it('rejects alternate main document paths until independent reader compatibility is proven',async()=>{
   const ct=sourceParts['[Content_Types].xml'].replace('<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>','<Override PartName="/custom/main.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>');
   const rel='<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rMain" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="custom/main.xml"/></Relationships>';
   const b=await make({'[Content_Types].xml':ct,'_rels/.rels':rel,'word/document.xml':null,'word/_rels/document.xml.rels':null,'custom/main.xml':xml});
-  const r=await inspect(b);expect(r.safeToMutate).toBe(true);expect(r.mainDocumentPart).toBe('custom/main.xml');expect(r.paragraphs[0].directAlignment).toBe('LEFT');
-  const out=await applyAlignment(b,{sourceSha256:r.sourceSha256,paragraphId:'p1',anchor:r.paragraphs[0].anchor,expectedBefore:'LEFT',desiredAfter:'RIGHT'});
-  expect((await inspect(out.bytes)).paragraphs[0].directAlignment).toBe('RIGHT');
+  await expect(inspect(b)).rejects.toMatchObject({code:'PACKAGE_NOT_MUTABLE'});
+  await expect(applyAlignment(b,{sourceSha256:sha(b),paragraphId:'p1',anchor:'0'.repeat(64),expectedBefore:'LEFT',desiredAfter:'RIGHT'})).rejects.toMatchObject({code:'PACKAGE_NOT_MUTABLE'});
  });
  it('rejects missing internal relationship targets and absolute or traversing relationship targets',async()=>{
   const rels=target=>`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${target}"/></Relationships>`;
@@ -133,26 +132,26 @@ describe('isolated bounded Node DOCX feasibility seam',()=>{
   });
   await expect(inspect(alternate)).rejects.toMatchObject({code:'PACKAGE_NOT_MUTABLE'});
   await expect(applyAlignment(alternate,{sourceSha256:sha(alternate),paragraphId:'p1',anchor:'0'.repeat(64),expectedBefore:'LEFT',desiredAfter:'RIGHT'})).rejects.toMatchObject({code:'PACKAGE_NOT_MUTABLE'});
-  await expect(applyTopMargin(alternate,{sourceSha256:sha(alternate),expectedBeforeTwips:1440,desiredAfterTwips:1400})).rejects.toMatchObject({code:'PACKAGE_NOT_MUTABLE'});
+  await expect(applyTopMargin(alternate,{sourceSha256:sha(alternate),sectionIndex:0,expectedBeforeTwips:1440,desiredAfterTwips:1400})).rejects.toMatchObject({code:'PACKAGE_NOT_MUTABLE'});
  });
  it('changes one actual page margin in Vietnamese DOCX with table and image; proves every other XML byte and compressed package part unchanged',async()=>{
   const source=await readFixture('24-vietnamese-rich.docx');
   const sourceHash=sha(source), inspection=await inspect(source);
   const before=inspection.pageMargins.map(item=>item.topTwips);
-  expect(before).toHaveLength(1);
+  expect(before).toHaveLength(2);
   const desired=before[0]===1440?1400:1440;
   const sourcePartsData=await readParts(source),compressedBefore=await compressedParts(source);
   expect(Object.keys(sourcePartsData)).toEqual(expect.arrayContaining([
    'word/document.xml','word/header1.xml','word/footer1.xml','word/media/image1.png'
   ]));
-  const applied=await applyTopMargin(source,{sourceSha256:sourceHash,expectedBeforeTwips:before[0],desiredAfterTwips:desired});
+  const applied=await applyTopMargin(source,{sourceSha256:sourceHash,sectionIndex:0,expectedBeforeTwips:before[0],desiredAfterTwips:desired});
   expect(sha(source)).toBe(sourceHash);
   expect(sha(applied.bytes)).toBe(applied.outputSha256);
   expect(applied.reopened&&applied.revalidated).toBe(true);
   const after=await inspect(applied.bytes);
-  expect(after.pageMargins).toEqual([{topTwips:desired}]);
+  expect(after.pageMargins).toEqual([{topTwips:desired},{topTwips:before[1]}]);
   expect(after.paragraphs).toEqual(inspection.paragraphs);
-  expect(applied.changes).toEqual([{property:'section.topMargin',beforeTwips:before[0],afterTwips:desired}]);
+  expect(applied.changes).toEqual([{property:'section.topMargin',sectionIndex:0,beforeTwips:before[0],afterTwips:desired}]);
   const afterParts=await readParts(applied.bytes),compressedAfter=await compressedParts(applied.bytes);
   expect(Object.keys(afterParts)).toEqual(Object.keys(sourcePartsData));
   for(const name of Object.keys(sourcePartsData)){
@@ -162,12 +161,12 @@ describe('isolated bounded Node DOCX feasibility seam',()=>{
   }
   const oldXml=sourcePartsData['word/document.xml'].toString('utf8'),newXml=afterParts['word/document.xml'].toString('utf8');
   const marginTags=[...oldXml.matchAll(/<w:pgMar\b[^>]*\bw:top=(["'])(-?[0-9]+)\1[^>]*\/?>/gu)];
-  expect(marginTags).toHaveLength(1);
+  expect(marginTags).toHaveLength(2);
   expect(Number(marginTags[0][2])).toBe(before[0]);
   const originalTag=marginTags[0][0];
   const replacedTag=originalTag.replace(/(\bw:top=["'])-?[0-9]+(["'])/u,(_match,left,right)=>`${left}${desired}${right}`);
   expect(newXml).toBe(oldXml.replace(originalTag,replacedTag));
-  await expect(applyTopMargin(source,{sourceSha256:sourceHash,expectedBeforeTwips:before[0]+1,desiredAfterTwips:desired})).rejects.toMatchObject({code:'PRECONDITION_FAILED'});
+  await expect(applyTopMargin(source,{sourceSha256:sourceHash,sectionIndex:0,expectedBeforeTwips:before[0]+1,desiredAfterTwips:desired})).rejects.toMatchObject({code:'PRECONDITION_FAILED'});
  });
 
 });

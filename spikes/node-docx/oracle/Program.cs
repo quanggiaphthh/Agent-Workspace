@@ -105,17 +105,27 @@ foreach (var testCase in cases)
         using (var word = WordprocessingDocument.Open(new MemoryStream(marginOutput, writable: false), false))
         {
             var pageMargins = word.MainDocumentPart?.Document?.Descendants<DocumentFormat.OpenXml.Wordprocessing.PageMargin>().ToArray();
-            Require(pageMargins?.Length == 1 &&
+            Require(pageMargins?.Length == 2 &&
                 int.TryParse(pageMargins[0].Top?.ToString(), out var actualTop) &&
-                actualTop == testCase.MarginDesiredAfterTwips, $"Open XML SDK margin mismatch in {testCase.FileName}.");
+                actualTop == testCase.MarginDesiredAfterTwips &&
+                int.TryParse(pageMargins[1].Top?.ToString(), out var unchangedTop) &&
+                unchangedTop == testCase.MarginExpectedBeforeTwips, $"Open XML SDK margin mismatch in {testCase.FileName}.");
         }
         var main = testCase.MainDocumentPart ?? throw new InvalidDataException("Main part missing for margin proof.");
         var sourceXml = ReadZipText(source, main);
         var marginXml = ReadZipText(marginOutput, main);
         var originalAttribute = "w:top=" + (char)34 + testCase.MarginExpectedBeforeTwips + (char)34;
         var changedAttribute = "w:top=" + (char)34 + testCase.MarginDesiredAfterTwips + (char)34;
-        Require(sourceXml.Split(originalAttribute, StringSplitOptions.None).Length == 2, "Expected one explicit original page-top margin.");
-        Require(marginXml == sourceXml.Replace(originalAttribute, changedAttribute, StringComparison.Ordinal), $"Unapproved main-document XML change for {testCase.FileName}.");
+        var firstMarginStart = sourceXml.IndexOf("<w:pgMar", StringComparison.Ordinal);
+        Require(firstMarginStart >= 0, "No explicit source page margin.");
+        var firstMarginEnd = sourceXml.IndexOf('>', firstMarginStart);
+        Require(firstMarginEnd > firstMarginStart, "Unterminated source page margin.");
+        var firstMarginTag = sourceXml.Substring(firstMarginStart, firstMarginEnd - firstMarginStart + 1);
+        Require(firstMarginTag.Contains(originalAttribute, StringComparison.Ordinal), "Unexpected original page-top margin.");
+        var expectedMainXml = sourceXml[..firstMarginStart]
+            + firstMarginTag.Replace(originalAttribute, changedAttribute, StringComparison.Ordinal)
+            + sourceXml[(firstMarginEnd + 1)..];
+        Require(marginXml == expectedMainXml, $"Unapproved main-document XML change for {testCase.FileName}.");
         VerifyNonTargetParts(source, marginOutput, main);
         Require(Hash(await File.ReadAllBytesAsync(inputPath)) == testCase.SourceSha256, "Margin mutation changed source bytes.");
         checks++;

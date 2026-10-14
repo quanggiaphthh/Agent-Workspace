@@ -448,12 +448,12 @@ async function preflight(input, signal) {
     }
     if (officeDocument.length !== 1) reject('MALFORMED_DOCX');
     mainPart = resolveRelationshipTarget('', officeDocument[0].target);
-    // P0 compatibility gate: the independent canonical .NET processor rejects alternate
-    // main-part paths. Fail closed until both validators agree on that OPC shape.
-    if (mainPart !== 'word/document.xml') reject('PACKAGE_NOT_MUTABLE');
     const mainEntry = entries.get(mainPart);
     if (!mainEntry || mainEntry.directory || byKey.get(mainPart.toLowerCase()) !== mainPart) reject('MALFORMED_DOCX');
     if (contentTypes.resolve(mainPart) !== DOCX_MAIN_CONTENT_TYPE) reject('MALFORMED_DOCX');
+    // P0 compatibility gate: the independent canonical .NET processor rejects alternate
+    // main-part paths. Fail closed until both validators agree on that OPC shape.
+    if (mainPart !== 'word/document.xml') reject('PACKAGE_NOT_MUTABLE');
     const mainBytes = parsedParts.get(mainPart)?.bytes;
     if (!mainBytes) reject('MALFORMED_DOCX');
     const parsedMain = parseSimpleXml(mainBytes, mainPart, signal, mainPart);
@@ -605,8 +605,9 @@ export async function applyTopMargin(input, operation, signal) {
     if (!Number.isSafeInteger(before) || !Number.isSafeInteger(after) ||
         before < 0 || after < 0 || before > 10000 || after > 10000 || before === after) reject('UNSUPPORTED_OPERATION');
     const margins = packageState.document.pageMargins;
-    if (margins.length !== 1) reject('PACKAGE_NOT_MUTABLE');
-    const margin = margins[0];
+    const sectionIndex = operation.sectionIndex;
+    if (!Number.isSafeInteger(sectionIndex) || sectionIndex < 0 || sectionIndex >= margins.length) reject('UNSUPPORTED_OPERATION');
+    const margin = margins[sectionIndex];
     if (margin.topTwips !== before) reject('PRECONDITION_FAILED');
 
     const original = packageState.parsedParts.get(packageState.mainPart).document.xml;
@@ -621,7 +622,10 @@ export async function applyTopMargin(input, operation, signal) {
 
     const result = await writeVerifiedMainPart(input, packageState, xml, outputState => {
       const afterMargins = outputState.document.pageMargins;
-      if (afterMargins.length !== 1 || afterMargins[0].topTwips !== after) reject('POSTCONDITION_FAILED');
+      if (afterMargins.length !== margins.length || afterMargins[sectionIndex].topTwips !== after) reject('POSTCONDITION_FAILED');
+      for (let i = 0; i < margins.length; i++) {
+        if (i !== sectionIndex && afterMargins[i].topTwips !== margins[i].topTwips) reject('OUTPUT_INTEGRITY_FAILED');
+      }
       if (outputState.parsedParts.get(packageState.mainPart).document.xml !== xml) reject('OUTPUT_INTEGRITY_FAILED');
       if (outputState.document.paragraphs.length !== packageState.document.paragraphs.length) reject('OUTPUT_INTEGRITY_FAILED');
       for (let i = 0; i < packageState.document.paragraphs.length; i++) {
@@ -630,7 +634,7 @@ export async function applyTopMargin(input, operation, signal) {
     }, signal);
     return {
       ...result,
-      changes: [{ property: 'section.topMargin', beforeTwips: margin.topTwips, afterTwips: after }],
+      changes: [{ property: 'section.topMargin', sectionIndex, beforeTwips: margin.topTwips, afterTwips: after }],
     };
   } catch (error) {
     if (error?.code) throw error;

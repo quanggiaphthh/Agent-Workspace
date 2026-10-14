@@ -91,12 +91,12 @@ for (const fixture of [...fixtures.map(fileName => ({ fileName, source: null }))
     }
     if (fileName === '24-vietnamese-rich.docx') {
       const margins = inspection.pageMargins ?? [];
-      if (margins.length !== 1) throw new Error('Expected exactly one supported explicit top margin.');
+      if (margins.length !== 2) throw new Error('Expected the representative rich DOCX to retain two sections.');
       const expectedBeforeTwips = margins[0].topTwips;
       const desiredAfterTwips = expectedBeforeTwips === 1440 ? 1400 : 1440;
-      const marginResult = await applyTopMargin(source, { sourceSha256, expectedBeforeTwips, desiredAfterTwips });
+      const marginResult = await applyTopMargin(source, { sourceSha256, sectionIndex: 0, expectedBeforeTwips, desiredAfterTwips });
       const reopened = await inspect(marginResult.bytes);
-      if (reopened.pageMargins.length !== 1 || reopened.pageMargins[0].topTwips !== desiredAfterTwips) {
+      if (reopened.pageMargins.length !== margins.length || reopened.pageMargins[0].topTwips !== desiredAfterTwips || reopened.pageMargins[1].topTwips !== margins[1].topTwips) {
         throw new Error('Margin output did not reopen with the actual requested value.');
       }
       const marginOutputFile = `${fileName}.node-margin.docx`;
