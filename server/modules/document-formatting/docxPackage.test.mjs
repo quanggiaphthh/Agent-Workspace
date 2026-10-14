@@ -97,6 +97,36 @@ describe('DOCX package engine on current main', () => {
     expect(digest(source)).toBe(before.sourceSha256);
   });
 
+  it('preserves internal custom XML and rejects relationships that escape the package', async () => {
+    const documentRels = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml" Target="../customXml/item1.xml"/></Relationships>';
+    const itemRels = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXmlProps" Target="itemProps1.xml"/></Relationships>';
+    const customParts = {
+      'word/_rels/document.xml.rels': documentRels,
+      'customXml/item1.xml': '<Sources xmlns="urn:example"/>',
+      'customXml/_rels/item1.xml.rels': itemRels,
+      'customXml/itemProps1.xml': '<datastoreItem xmlns="urn:example"/>',
+      'word/document.xml': documentXml.replace('<w:pgMar', '<w:pgSz w:w="12240" w:h="15840"/><w:pgMar'),
+    };
+    const source = await makeDocx(customParts);
+    const before = await partsOf(source);
+    const output = await applyAdministrativePageLayout(source);
+    const after = await partsOf(output.bytes);
+    expect((await inspect(output.bytes)).paragraphs.map(item => item.text))
+      .toEqual((await inspect(source)).paragraphs.map(item => item.text));
+    for (const [name, bytes] of before) if (name !== 'word/document.xml')
+      expect(digest(after.get(name))).toBe(digest(bytes));
+    expect(output.actualChanges.map(item => item.property)).toEqual(['w:pgSz/@w:w', 'w:pgSz/@w:h', 'w:pgMar/@w:top', 'w:pgMar/@w:bottom']);
+
+    const escape = await makeDocx({ ...customParts,
+      'word/_rels/document.xml.rels': documentRels.replace('../customXml/item1.xml', '../../customXml/item1.xml'),
+    });
+    await expect(inspect(escape)).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE_PATH' });
+    const external = await makeDocx({ ...customParts,
+      'word/_rels/document.xml.rels': documentRels.replace('Target="../customXml/item1.xml"', 'Target="https://example.org/item" TargetMode="External"'),
+    });
+    await expect(inspect(external)).rejects.toMatchObject({ code: 'PACKAGE_NOT_MUTABLE' });
+  });
+
   it('rejects alternate main part paths without classifying valid OPC as malformed', async () => {
     const source = await makeDocx({
       '[Content_Types].xml': contentTypes.replace('/word/document.xml', '/word/custom-document.xml'),

@@ -13,7 +13,12 @@ function mapFailure(error: unknown): never {
   const code = typeof (error as { code?: unknown })?.code === 'string'
     ? (error as { code: string }).code
     : 'PROCESSING_FAILED';
-  throw new DocumentProcessorError(code, 'The DOCX could not be processed safely.');
+  const message = code === 'PACKAGE_NOT_MUTABLE'
+    ? 'Tệp Word này có cấu trúc chưa được hỗ trợ để chỉnh sửa an toàn.'
+    : code === 'MALFORMED_DOCX'
+      ? 'Tệp Word không hợp lệ hoặc đã bị hỏng.'
+      : 'Chưa thể xử lý tệp Word này an toàn.';
+  throw new DocumentProcessorError(code, message);
 }
 
 /** Local implementation of the existing document processor contract. */

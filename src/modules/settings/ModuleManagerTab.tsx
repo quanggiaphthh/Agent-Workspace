@@ -32,7 +32,7 @@ export function ModuleManagerTab() {
     const isCore = manifest.id === 'home' || manifest.id === 'settings';
     if (isCore || toggling) return;
 
-    if (isCurrentlyEnabled) {
+    if (isCurrentlyEnabled && manifest.id !== 'document-formatting') {
       const confirmed = window.confirm(
         `Tắt ${manifest.meta.name}? Module này sẽ tạm ẩn khỏi ứng dụng, nhưng dữ liệu đã lưu vẫn được giữ nguyên.`
       );

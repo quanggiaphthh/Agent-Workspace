@@ -297,9 +297,16 @@ function resolveRelationshipTarget(sourcePart, target) {
   if (typeof target !== 'string' || target.length === 0 || target.startsWith('/') || target.startsWith('\\') ||
       target.includes('\\') || /[?#]/u.test(target) || /%/u.test(target) || /^[a-z][a-z0-9+.-]*:/iu.test(target)) reject('UNSAFE_ARCHIVE_PATH');
   const sourceDirectory = sourcePart ? sourcePart.slice(0, Math.max(0, sourcePart.lastIndexOf('/') + 1)) : '';
-  const segments = [...sourceDirectory.split('/').filter(Boolean), ...target.split('/')];
-  if (segments.some(segment => !segment || segment === '.' || segment === '..' || /[\u0000-\u001f\u007f]/u.test(segment))) reject('UNSAFE_ARCHIVE_PATH');
-  return segments.map(segment => segment.normalize('NFC')).join('/');
+  const segments = sourceDirectory.split('/').filter(Boolean);
+  for (const segment of target.split('/')) {
+    if (!segment || segment === '.' || /[\u0000-\u001f\u007f]/u.test(segment)) reject('UNSAFE_ARCHIVE_PATH');
+    if (segment === '..') {
+      if (segments.length === 0) reject('UNSAFE_ARCHIVE_PATH');
+      segments.pop();
+    } else segments.push(segment.normalize('NFC'));
+  }
+  if (segments.length === 0) reject('UNSAFE_ARCHIVE_PATH');
+  return segments.join('/');
 }
 
 function sourcePartForRels(relsName) {
@@ -396,7 +403,7 @@ async function preflight(input, signal) {
       declaredTotal += entry.uncompressedSize;
       if (declaredTotal > LIMITS.total) reject('ARCHIVE_EXPANSION_LIMIT');
       if (entry.uncompressedSize > 0 && (entry.compressedSize === 0 || entry.uncompressedSize / entry.compressedSize > LIMITS.ratio)) reject('ARCHIVE_EXPANSION_LIMIT');
-      if (/(^|\/)(?:vbaProject\.bin|[^/]*\.bin|embeddings|activeX|_xmlsignatures|customXml)(\/|$)/iu.test(normalized) || /\.docm$/iu.test(normalized)) reject('PACKAGE_NOT_MUTABLE');
+      if (/(^|\/)(?:vbaProject\.bin|[^/]*\.bin|embeddings|activeX|_xmlsignatures)(\/|$)/iu.test(normalized) || /\.docm$/iu.test(normalized)) reject('PACKAGE_NOT_MUTABLE');
 
       const isXml = !directory && (/\.(?:xml|rels)$/iu.test(normalized) || normalized === '[Content_Types].xml');
       const chunks = [];
