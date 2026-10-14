@@ -1,6 +1,9 @@
 name: M1 ND30 canonical-only targeted verification
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - task/m1-nd30-ci-evidence-20261014
 permissions:
   contents: read
 jobs:
@@ -31,7 +34,7 @@ jobs:
       - name: Targeted document and capability tests
         shell: bash
         run: |
-          mapfile -t tests < <(git ls-files '*test.ts' '*test.tsx' '*spec.ts' '*spec.tsx' | grep -Ei '(document|docx|capabilit|module|filePolicy|permission)' || true)
+          mapfile -t tests < <(git ls-files '*test.ts' '*test.tsx' '*test.mjs' '*spec.ts' '*spec.tsx' '*spec.mjs' | grep -Ei '(document|docx|capabilit|module|filePolicy|permission|auth|apiFallback|fileIngestion|requestScoped|executionDeadline)' || true)
           printf 'Targeted test files: %s\n' "${tests[*]}"
           if [ "${#tests[@]}" -eq 0 ]; then echo "::error::No targeted tests"; exit 43; fi
           ./node_modules/.bin/vitest run "${tests[@]}"
@@ -63,4 +66,4 @@ jobs:
         run: |
           echo "Agent branch SHA: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
           echo "Rule authority SHA: 078dae21f9e23975676179fa189f5c01b605f49a" >> "$GITHUB_STEP_SUMMARY"
-          echo "Remaining API/Auth/XSS and administrative-data acceptance require separate targeted evidence; no automatic M1 PASS." >> "$GITHUB_STEP_SUMMARY"
+          echo "M1 Final Gate requires inspected CI logs and all relevant negative gates; no automatic M1 PASS." >> "$GITHUB_STEP_SUMMARY"
