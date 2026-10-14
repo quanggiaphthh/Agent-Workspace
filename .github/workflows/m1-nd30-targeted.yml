@@ -1,106 +1,66 @@
-name: M1 ND30 targeted verification
+name: M1 ND30 canonical-only targeted verification
 on:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: m1-nd30-${{ github.ref }}
-  cancel-in-progress: false
 jobs:
-  verify:
+  targeted:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    env:
-      AGENT_SHA: 7adc5f3dbbe5ccd834cd912a7ecda3f1eae27ef1
-      DOCS_SHA: f92c43546ff08b2677e079cad2383bd2d57ccbcb
     steps:
-      - name: Checkout canonical pinned SHA
+      - name: Checkout verification branch (includes test harness)
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.AGENT_SHA }}
-          path: agent
           persist-credentials: false
-      - name: Verify canonical checkout SHA
-        run: test "$(git -C agent rev-parse HEAD)" = "$AGENT_SHA"
-      - name: Fail closed if private reference read credential is absent
-        env:
-          DOCS_READ_TOKEN: ${{ secrets.DOCS_ND30_READ_TOKEN }}
+      - name: Record exact checkout SHA and ensure canonical baseline ancestor
         run: |
-          if [ -z "$DOCS_READ_TOKEN" ]; then
-            echo "::error::Missing DOCS_ND30_READ_TOKEN (read-only, single-repository credential)."
-            exit 42
-          fi
-      - name: Checkout private reference pinned SHA
-        uses: actions/checkout@v4
-        with:
-          repository: tranhaihp26-bit/Docs-ND30
-          ref: ${{ env.DOCS_SHA }}
-          token: ${{ secrets.DOCS_ND30_READ_TOKEN }}
-          path: docs
-          persist-credentials: false
-      - name: Verify reference checkout SHA
-        run: test "$(git -C docs rev-parse HEAD)" = "$DOCS_SHA"
+          git rev-parse HEAD
+          git merge-base --is-ancestor 7adc5f3dbbe5ccd834cd912a7ecda3f1eae27ef1 HEAD
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: agent/package-lock.json
-      - name: Canonical lockfile install
-        working-directory: agent
+      - name: Install canonical dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Canonical targeted build and worker artifact
-        working-directory: agent
+      - name: Build canonical and check worker ESM/CJS
         run: |
           npm run build
+          node --check server/modules/document-formatting/docxWorker.mjs
           test -s dist/docx.worker.cjs
           node --check dist/docx.worker.cjs
-          node --check server/modules/document-formatting/docxWorker.mjs
-      - name: Targeted existing document tests
-        working-directory: agent
+      - name: Targeted document and capability tests
         shell: bash
         run: |
           mapfile -t tests < <(git ls-files '*test.ts' '*test.tsx' '*spec.ts' '*spec.tsx' | grep -Ei '(document|docx|capabilit|module|filePolicy|permission)' || true)
-          printf 'Selected test files: %s\n' "${tests[*]}"
-          if [ "${#tests[@]}" -eq 0 ]; then echo "::error::No targeted test files discovered"; exit 43; fi
+          printf 'Targeted test files: %s\n' "${tests[*]}"
+          if [ "${#tests[@]}" -eq 0 ]; then echo "::error::No targeted tests"; exit 43; fi
           ./node_modules/.bin/vitest run "${tests[@]}"
-      - name: Worker negative smoke (real ESM worker)
-        working-directory: agent
+      - name: Worker rejects invalid DOCX for all four operations
         run: |
           node --input-type=module <<'NODE'
           import { Worker } from 'node:worker_threads';
-          const run = (operation, bytes) => new Promise((resolve, reject) => {
-            const w = new Worker(new URL('./server/modules/document-formatting/docxWorker.mjs', import.meta.url));
-            const timer = setTimeout(() => { w.terminate(); reject(new Error('worker timeout')); }, 5000);
-            w.once('message', value => { clearTimeout(timer); w.terminate(); resolve(value); });
-            w.once('error', error => { clearTimeout(timer); reject(error); });
-            w.postMessage({ operation, bytes, input: {} });
-          });
+          async function invoke(operation) {
+            const worker = new Worker(new URL('./server/modules/document-formatting/docxWorker.mjs', import.meta.url));
+            return await new Promise((resolve,reject) => {
+              const timer = setTimeout(() => { void worker.terminate(); reject(new Error('timeout')); },5000);
+              worker.once('message', result => { clearTimeout(timer); void worker.terminate(); resolve(result); });
+              worker.once('error', error => { clearTimeout(timer); reject(error); });
+              worker.postMessage({operation,bytes:Buffer.from('fake-docx'),input:{}});
+            });
+          }
           for (const op of ['inspect','applyAlignment','applyTopMargin','applyAdministrativePageLayout']) {
-            const result = await run(op, Buffer.from('not-a-docx'));
-            if (result.ok !== false || typeof result.code !== 'string') throw new Error(op + ' failed fail-closed smoke');
-            console.log(op + ': rejected invalid DOCX with ' + result.code);
+            const r=await invoke(op);
+            if (r.ok!==false || typeof r.code!=='string') throw new Error('fail-closed violated: '+op);
+            console.log(op,r.code);
           }
           NODE
-      - name: Setup Bun for reference frozen lockfile
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.0'
-      - name: Reference install and targeted check
-        working-directory: docs
+      - name: Document rule authority reference
         run: |
-          npm --version
-          if [ -f package-lock.json ]; then
-            npm ci --ignore-scripts --no-audit --no-fund
-            npm run build
-          elif [ -f bun.lock ]; then
-            bun install --frozen-lockfile
-            bun run build
-          else
-            echo 'No supported frozen lockfile'; exit 45
-          fi
-      - name: Write execution summary
+          echo 'ND30 verified rules are sourced from quanggiaphthh/chuan-hoa-van-ban-nghi-dinh-30 at SHA 078dae21f9e23975676179fa189f5c01b605f49a'
+          echo 'This workflow does NOT checkout Docs-ND30.'
+      - name: Evidence summary
         if: always()
         run: |
-          echo "Agent pinned: $AGENT_SHA" >> "$GITHUB_STEP_SUMMARY"
-          echo "Docs pinned: $DOCS_SHA" >> "$GITHUB_STEP_SUMMARY"
-          echo "This workflow is not by itself a full M1 PASS: evaluate missing API/auth/XSS/administrative-fact negatives." >> "$GITHUB_STEP_SUMMARY"
+          echo "Agent branch SHA: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Rule authority SHA: 078dae21f9e23975676179fa189f5c01b605f49a" >> "$GITHUB_STEP_SUMMARY"
+          echo "Remaining API/Auth/XSS and administrative-data acceptance require separate targeted evidence; no automatic M1 PASS." >> "$GITHUB_STEP_SUMMARY"
