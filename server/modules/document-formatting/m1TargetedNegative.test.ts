@@ -80,7 +80,8 @@ describe('M1 targeted negative evidence: DOCX worker boundaries', () => {
     const beforeXml = await xmlOf(bytes);
     const output = await applyAdministrativePageLayout(bytes);
     const afterXml = await xmlOf(output.bytes);
-    const texts = (xml: string) => Array.from(xml.matchAll(/<w:t(?:\\s[^>]*)?>([\\s\\S]*?)<\\/w:t>/gu), match => match[1]);
+    const texts = (xml: string) => Array.from(xml.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/gu), match => match[1]);
+    expect(texts(beforeXml).length).toBeGreaterThan(0);
     expect(texts(afterXml)).toEqual(texts(beforeXml));
     expect(digest(bytes)).toBe(inputHash);
     expect(output.sourceSha256).toBe(inputHash);
