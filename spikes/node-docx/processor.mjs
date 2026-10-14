@@ -586,12 +586,12 @@ export async function applyTopMargin(input, { sourceSha256, expectedBeforeTwips,
     const current = state.parsedParts.get(state.mainPart).document.xml;
     // Only operate on a single explicit section-margin element with an existing top value.
     // Exact textual replacement avoids touching runs, table cells, media references or style XML.
-    const matches = [...current.matchAll(/<w:pgMar\\b[^>]*\\/>/gu)];
+    const matches = [...current.matchAll(/<w:pgMar\b[^>]*\/>/gu)];
     if (matches.length !== 1) reject('PACKAGE_NOT_MUTABLE');
     const tag = matches[0][0];
-    const attrs = [...tag.matchAll(/\\bw:top=(["'])([0-9]+)\\1/gu)];
+    const attrs = [...tag.matchAll(/\bw:top=(["'])([0-9]+)\1/gu)];
     if (attrs.length !== 1 || Number(attrs[0][2]) !== expectedBeforeTwips) reject('PRECONDITION_FAILED');
-    const replacement = tag.replace(/\\bw:top=(["'])([0-9]+)\\1/u, (_all, quote) => `w:top=${quote}${desiredAfterTwips}${quote}`);
+    const replacement = tag.replace(/\bw:top=(["'])([0-9]+)\1/u, (_all, quote) => `w:top=${quote}${desiredAfterTwips}${quote}`);
     const revised = current.slice(0, matches[0].index) + replacement + current.slice(matches[0].index + tag.length);
     if (revised === current) reject('POSTCONDITION_FAILED');
     const writer = new ZipWriter(new Uint8ArrayWriter(), { zip64: false });
