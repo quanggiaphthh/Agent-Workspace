@@ -530,7 +530,7 @@ export async function applyAlignment(input, operation, signal) {
     const escapedValue = from.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
     const expression = new RegExp(`(\\b${escapedName}\\s*=\\s*["'])${escapedValue}(["'])`, 'gu');
     const matches = [...tag.matchAll(expression)];
-    if (matches.length !== 1) reject('PACKAGE_NOT_MUTABLE');
+    if (matches.length < 1) reject('PACKAGE_NOT_MUTABLE');
     const replacement = tag.replace(expression, (_match, prefix, quote) => `${prefix}${to}${quote}`);
     const xml = parsed.document.xml.slice(0, start) + replacement + parsed.document.xml.slice(end);
 
