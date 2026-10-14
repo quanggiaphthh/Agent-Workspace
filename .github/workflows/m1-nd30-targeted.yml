@@ -34,6 +34,8 @@ jobs:
           node --check dist/docx.worker.cjs
       - name: Targeted document and capability tests
         shell: bash
+        env:
+          VITE_FIREBASE_API_KEY: 'm1-ci-test-placeholder-not-a-credential'
         run: |
           mapfile -t tests < <(git ls-files '*test.ts' '*test.tsx' '*test.mjs' '*spec.ts' '*spec.tsx' '*spec.mjs' | grep -Ei '(document|docx|capabilit|module|filePolicy|permission|auth|apiFallback|fileIngestion|requestScoped|executionDeadline)' || true)
           printf 'Targeted test files: %s\n' "${tests[*]}"
