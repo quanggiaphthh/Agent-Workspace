@@ -441,7 +441,6 @@ describe('Production Integration & Security Suite', () => {
   });
 
   describe('Document Formatting V1 temporary binary routes', () => {
-    const originalReleaseApproval = process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED;
     const inputBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x11, 0x22]);
     const outputBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x33, 0x44]);
     const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -460,7 +459,6 @@ describe('Production Integration & Security Suite', () => {
     }
 
     beforeEach(async () => {
-      process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED = 'true';
       await storage.setModuleEnabled('document-formatting', true);
       vi.spyOn(AuditService, 'log').mockResolvedValue({ id: 'doc-audit' } as any);
       vi.spyOn(AuditService, 'update').mockResolvedValue();
@@ -475,14 +473,11 @@ describe('Production Integration & Security Suite', () => {
     afterAll(async () => {
       await storage.setModuleEnabled('document-formatting', false);
       CapabilityExecutionIdempotencyService.resetRepositoryForTests();
-      if (originalReleaseApproval === undefined) delete process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED;
-      else process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED = originalReleaseApproval;
     });
 
-    it('keeps discovery disabled and rejects module enablement until release approval is configured', async () => {
+    it('enables document formatting for an authorized owner without deployment flags', async () => {
       vi.mocked(adminAuth.verifyIdToken).mockResolvedValue(mockUserA as any);
       await storage.setModuleEnabled('document-formatting', false);
-      process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED = 'false';
 
       const list = await request(app).get('/api/modules').set('Authorization', 'Bearer token_A');
       expect(list.status).toBe(200);
@@ -492,9 +487,16 @@ describe('Production Integration & Security Suite', () => {
         .post('/api/modules/document-formatting/toggle')
         .set('Authorization', 'Bearer token_A')
         .send({ enabled: true });
-      expect(enable.status).toBe(409);
-      expect(enable.body.code).toBe('DOCUMENT_FORMATTING_RELEASE_GATE_CLOSED');
-      expect(storage.getData().moduleSettings['document-formatting'].enabled).toBe(false);
+      expect(enable.status).toBe(200);
+      expect(enable.body.enabled).toBe(true);
+      expect(storage.getData().moduleSettings['document-formatting'].enabled).toBe(true);
+
+      const disable = await request(app)
+        .post('/api/modules/document-formatting/toggle')
+        .set('Authorization', 'Bearer token_A')
+        .send({ enabled: false });
+      expect(disable.status).toBe(200);
+      expect(disable.body.enabled).toBe(false);
     });
 
     it('inspects in request scope and keeps paragraph text out of durable audit and file stores', async () => {

@@ -7,7 +7,6 @@ import { currentRequestScopedDocument } from '../../core/documents/requestScoped
 import type { CapabilityDescriptor } from '../../../shared/contracts/capability';
 import type { ModuleMetadata } from '../../core/modules/moduleCatalog';
 import { DOCX_MIME_TYPE, MAX_FILE_BYTES } from '../../../shared/contracts/fileUploadPolicy';
-import { isDocumentFormattingReleaseReady } from './releaseGate';
 import { LocalDocumentProcessor } from './localDocumentProcessor';
 
 const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -78,7 +77,6 @@ export const documentFormattingModuleMetadata: ModuleMetadata = {
   enabled: false,
   canDisable: true,
   version: '0.1.0-candidate',
-  isReleaseReady: isDocumentFormattingReleaseReady,
 };
 
 type ProcessorClient = Pick<LocalDocumentProcessor, 'inspect' | 'applyAlignment'>;

@@ -62,12 +62,10 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
   });
 
   it('keeps document formatting module-bound, disabled with its module, and confirmed before mutation', async () => {
-    vi.stubEnv('DOCUMENT_FORMATTING_V1_RELEASE_APPROVED', 'true');
     bootstrapServer();
     const capabilities = ServerCapabilityRegistry.listAll().filter(capability => capability.moduleId === 'document-formatting');
     expect(capabilities.map(capability => capability.id).sort()).toEqual(['document.applyAlignment', 'document.autoFormatPage', 'document.inspect']);
     expect(storage.getData().moduleSettings['document-formatting'].enabled).toBe(false);
-    const input = { sourceSha256: 'a'.repeat(64), sizeBytes: 128, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
     const applyInput = { sourceSha256: 'a'.repeat(64), paragraphId: 'p1', expectedBefore: 'LEFT', desiredAfter: 'CENTER' };
     const documentContext = {
       ...context,
@@ -81,11 +79,6 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
     expect((await ServerCapabilityRegistry.listForContext(context as any)).some(capability => capability.id === 'system.tasks.list')).toBe(true);
 
     await storage.setModuleEnabled('document-formatting', true);
-    vi.stubEnv('DOCUMENT_FORMATTING_V1_RELEASE_APPROVED', 'false');
-    expect((await ServerCapabilityRegistry.listForContext(documentContext as any, 'rest')).some(capability => capability.moduleId === 'document-formatting')).toBe(false);
-    expect(await ServerCapabilityRegistry.execute('document.inspect', input, documentContext as any))
-      .toMatchObject({ success: false, errorCode: 'MODULE_RELEASE_GATE_CLOSED' });
-    vi.stubEnv('DOCUMENT_FORMATTING_V1_RELEASE_APPROVED', 'true');
     expect((await ServerCapabilityRegistry.listForContext(documentContext as any)).map(capability => capability.id)).toEqual(expect.arrayContaining(['document.inspect', 'document.applyAlignment']));
     expect((await ServerCapabilityRegistry.listForContext(documentContext as any, 'agent')).some(capability => capability.moduleId === 'document-formatting')).toBe(false);
     expect((await ServerCapabilityRegistry.listForContext(documentContext as any, 'rest')).map(capability => capability.id)).toEqual(expect.arrayContaining(['document.inspect', 'document.applyAlignment']));

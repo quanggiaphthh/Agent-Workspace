@@ -1383,14 +1383,8 @@ app.post('/api/modules/:id/toggle', requirePermission('module.manage'), async (r
     if (id === 'document-formatting') {
       const requested = z.object({ enabled: z.boolean() }).strict().safeParse(req.body);
       if (!requested.success) return res.status(400).json({ error: 'An explicit enabled state is required.', code: 'INVALID_MODULE_STATE' });
-      if (requested.data.enabled && !isServerModuleReleaseReady(id)) {
-        return res.status(409).json({
-          error: 'Document Formatting remains disabled until explicitly approved for this environment.',
-          code: 'DOCUMENT_FORMATTING_RELEASE_GATE_CLOSED',
-        });
-      }
       const updated = await storage.setModuleEnabledWithAudit(id, requested.data.enabled, user);
-      return res.json({ ...updated, enabled: updated.enabled && isServerModuleReleaseReady(id) });
+      return res.json(updated);
     }
 
     const updated = await storage.toggleModuleEnabledWithAudit(id, user);

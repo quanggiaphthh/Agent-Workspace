@@ -50,10 +50,7 @@ export function ModuleManagerTab() {
           body: JSON.stringify({ enabled: !isCurrentlyEnabled }),
         });
         if (!res.ok) {
-          const response = await res.json().catch(() => null) as { code?: unknown } | null;
-          if (res.status === 409 && response?.code === 'DOCUMENT_FORMATTING_RELEASE_GATE_CLOSED') {
-            failureMessage = 'Chức năng Định dạng văn bản chưa được mở thử nghiệm trên môi trường này.';
-          } else if (res.status === 503) {
+          if (res.status === 503) {
             failureMessage = 'Chưa thể lưu trạng thái module. Vui lòng thử lại khi kết nối ổn định.';
           }
           throw new Error('Không thể cập nhật trạng thái module.');
