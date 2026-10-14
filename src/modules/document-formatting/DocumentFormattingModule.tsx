@@ -125,10 +125,11 @@ export function DocumentFormattingModule() {
       return;
     }
     setFile(chosen);
+    void formatPageAutomatically(chosen);
   };
 
-  const formatPageAutomatically = async () => {
-    if (!file || busy) return;
+  const formatPageAutomatically = async (selectedFile: File | null = file) => {
+    if (!selectedFile || busy) return;
     const controller = new AbortController();
     requestController.current = controller;
     setBusy('automatic');
@@ -142,8 +143,8 @@ export function DocumentFormattingModule() {
     try {
       const response = await authFetch('/api/document-formatting/automatic', {
         method: 'POST',
-        headers: { 'Content-Type': DOCX_MIME_TYPE, 'X-File-Name': encodeHeaderValue(file.name) },
-        body: file,
+        headers: { 'Content-Type': DOCX_MIME_TYPE, 'X-File-Name': encodeHeaderValue(selectedFile.name) },
+        body: selectedFile,
         signal: controller.signal,
       });
       if (!response.ok) throw new Error(await parseResponseError(response));
@@ -179,7 +180,7 @@ export function DocumentFormattingModule() {
       if (controller.signal.aborted) throw new Error('Đã hủy xử lý.');
       const url = URL.createObjectURL(output);
       objectUrls.current.add(url);
-      setAutomaticResult({ url, filename: safeOutputFilename(file.name), changes: decoded as PageChange[], bodySummary: parsedBody });
+      setAutomaticResult({ url, filename: safeOutputFilename(selectedFile.name), changes: decoded as PageChange[], bodySummary: parsedBody });
     } catch (caught) {
       setError(controller.signal.aborted ? 'Đã hủy xử lý tệp.' :
         caught instanceof Error ? caught.message : 'Không thể tự động xử lý DOCX.');
@@ -388,7 +389,7 @@ export function DocumentFormattingModule() {
       <Card>
         <CardHeader>
           <CardTitle>Chọn tệp Word</CardTitle>
-          <CardDescription>Tệp DOCX tối đa 20 MiB. Tài liệu không được lưu trong kho tệp của ứng dụng.</CardDescription>
+          <CardDescription>Chọn DOCX để tự động định dạng và nhận tệp tải về. Tối đa 20 MiB; tài liệu không được lưu trong kho tệp.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <label className="block">
@@ -404,10 +405,10 @@ export function DocumentFormattingModule() {
           {file && <p className="break-all text-xs text-neutral-500">{file.name} · {(file.size / (1024 * 1024)).toFixed(2)} MiB</p>}
           <Button type="button" onClick={() => void formatPageAutomatically()} disabled={!file || busy !== null}>
             {busy === 'automatic' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-            {busy === 'automatic' ? 'Đang xử lý…' : 'Tự động định dạng'}
+            {busy === 'automatic' ? 'Đang xử lý…' : 'Định dạng lại'}
           </Button>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => void inspect()} disabled={!file || busy !== null}>
+            <Button type="button" variant="outline" onClick={() => void inspect()} disabled={!file || busy !== null}>
               {busy === 'inspect' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               {busy === 'inspect' ? 'Đang kiểm tra…' : 'Kiểm tra DOCX'}
             </Button>
@@ -448,15 +449,15 @@ export function DocumentFormattingModule() {
       {inspection && (
         <Card>
           <CardHeader>
-            <CardTitle>2. Kết quả kiểm tra</CardTitle>
-            <CardDescription>Profile: {inspection.profile} · {inspection.paragraphs.length} đoạn{inspection.paragraphsTruncated ? ' (đã giới hạn danh sách)' : ''}</CardDescription>
+            <CardTitle>Kết quả kiểm tra tệp</CardTitle>
+            <CardDescription>Đã đọc {inspection.paragraphs.length} đoạn{inspection.paragraphsTruncated ? ' (danh sách đã được giới hạn)' : ''}. Tệp được tự động xử lý khi chọn; có thể bấm “Định dạng lại” ở trên.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className={`flex items-start gap-3 rounded-md border p-3 text-sm ${inspection.safeToMutate && inspection.packagePolicy === 'NORMAL' ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : 'border-amber-200 bg-amber-50 text-amber-950'}`}>
               {inspection.safeToMutate && inspection.packagePolicy === 'NORMAL' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
               <div>
-                <p className="font-medium">Chính sách gói: {inspection.packagePolicy}</p>
-                <p className="mt-1 text-xs leading-5">{inspection.safeToMutate && inspection.packagePolicy === 'NORMAL' ? 'Có thể chọn một đoạn có căn lề trực tiếp để thử thay đổi.' : 'Tệp này không đủ điều kiện chỉnh sửa tự động. Không có thay đổi nào được áp dụng.'}</p>
+                <p className="font-medium">{inspection.safeToMutate && inspection.packagePolicy === 'NORMAL' ? 'Tệp Word có thể xử lý' : 'Tệp Word cần kiểm tra thêm'}</p>
+                <p className="mt-1 text-xs leading-5">{inspection.safeToMutate && inspection.packagePolicy === 'NORMAL' ? 'Chưa có định dạng nào được áp dụng ở bước kiểm tra này.' : 'Không có thay đổi nào được áp dụng.'}</p>
               </div>
             </div>
             {inspection.diagnostics.length > 0 && (
@@ -465,6 +466,9 @@ export function DocumentFormattingModule() {
                 {inspection.diagnostics.map((item, index) => <p key={`${item.code}-${index}`} className="text-xs leading-5 text-neutral-600">{item.code}: {item.message}</p>)}
               </div>
             )}
+            <details className="rounded-md border border-neutral-200 p-3">
+              <summary className="cursor-pointer text-sm font-medium text-neutral-800">Tùy chọn: chỉnh căn lề một đoạn</summary>
+              <div className="mt-4 space-y-4">
             {inspection.paragraphs.length === 0 ? (
               <p className="rounded-md border border-dashed border-neutral-300 p-4 text-sm text-neutral-600">Không tìm thấy đoạn văn trong giới hạn kiểm tra.</p>
             ) : (
@@ -519,6 +523,8 @@ export function DocumentFormattingModule() {
                 </div>
               </div>
             )}
+              </div>
+            </details>
           </CardContent>
         </Card>
       )}

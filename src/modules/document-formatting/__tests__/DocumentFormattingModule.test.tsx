@@ -47,14 +47,16 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
     };
 
     authFetchMock.fetch
-      // 1. inspect call
+      // Automatic formatting starts as soon as a file is chosen; failure still allows manual inspection.
+      .mockResolvedValueOnce({ ok: false, status: 422, json: async () => ({ error: 'Tệp cần kiểm tra thêm.' }) })
+      // 2. inspect call
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
         json: async () => ({ inspection: mockInspection }),
       })
-      // 2. confirm call
+      // 3. confirm call
       .mockResolvedValueOnce({
         ok: false,
         status: 409,
@@ -66,7 +68,7 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
           confirmationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
         }),
       })
-      // 3. apply call
+      // 4. apply call
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -100,7 +102,11 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
       inspectButton!.click();
     });
 
-    expect(authFetchMock.fetch).toHaveBeenNthCalledWith(1, '/api/document-formatting/inspect', expect.anything());
+    expect(authFetchMock.fetch).toHaveBeenNthCalledWith(1, '/api/document-formatting/automatic', expect.objectContaining({ body: file }));
+    expect(authFetchMock.fetch).toHaveBeenNthCalledWith(2, '/api/document-formatting/inspect', expect.anything());
+    expect(container.textContent).toContain('Đã đọc 1 đoạn');
+    expect(container.textContent).toContain('Chưa có định dạng nào được áp dụng');
+    expect(container.querySelector('details')?.open).toBe(false);
 
     // 3. Click "Chuẩn bị xác nhận" (prepare confirmation)
     const prepareButton = Array.from(container.querySelectorAll('button'))
@@ -110,8 +116,8 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
       prepareButton!.click();
     });
 
-    expect(authFetchMock.fetch).toHaveBeenNthCalledWith(2, '/api/document-formatting/confirm', expect.anything());
-    const confirmCallHeaders = authFetchMock.fetch.mock.calls[1][1].headers;
+    expect(authFetchMock.fetch).toHaveBeenNthCalledWith(3, '/api/document-formatting/confirm', expect.anything());
+    const confirmCallHeaders = authFetchMock.fetch.mock.calls[2][1].headers;
     const confirmKey = confirmCallHeaders['Idempotency-Key'];
     expect(confirmKey).toBeDefined();
     expect(confirmKey).toMatch(/^docfmt:[A-Za-z0-9._:-]{8,128}$/);
@@ -124,8 +130,8 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
       applyButton!.click();
     });
 
-    expect(authFetchMock.fetch).toHaveBeenNthCalledWith(3, '/api/document-formatting/apply', expect.anything());
-    const applyCallHeaders = authFetchMock.fetch.mock.calls[2][1].headers;
+    expect(authFetchMock.fetch).toHaveBeenNthCalledWith(4, '/api/document-formatting/apply', expect.anything());
+    const applyCallHeaders = authFetchMock.fetch.mock.calls[3][1].headers;
     const applyKey = applyCallHeaders['Idempotency-Key'];
 
     // CRITICAL: The Idempotency-Key passed to /apply must be IDENTICAL to the one passed to /confirm
@@ -155,10 +161,8 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
       Object.defineProperty(input, 'files', { value: [new File([bytes], 'mau.docx')], configurable: true });
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    const button = Array.from(container.querySelectorAll('button'))
-      .find(item => item.textContent?.includes('Tự động định dạng'));
-    expect(button).toBeTruthy();
-    await act(async () => { button!.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(authFetchMock.fetch).toHaveBeenCalledTimes(1);
     expect(authFetchMock.fetch).toHaveBeenCalledWith('/api/document-formatting/automatic', expect.objectContaining({ method: 'POST' }));
     expect(container.textContent).toContain('Lề trái: 24.7 → 30.0 mm');
     expect(container.textContent).toContain('2 đoạn chưa xác định được vai trò');
