@@ -44,3 +44,44 @@ it('lets the owner turn off document formatting inside a frame without a browser
     container.remove();
   }
 });
+
+
+it('lets the owner re-enable document formatting from the disabled state', async () => {
+  moduleRegistry.register(documentFormattingManifest);
+  fetchMock.mockResolvedValue({ ok: true, json: async () => ({ enabled: true }) });
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<ModuleManagerTab />));
+    const button = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('Bật'));
+    expect(button).toBeTruthy();
+    await act(async () => button!.click());
+    expect(fetchMock).toHaveBeenCalledWith('/api/modules/document-formatting/toggle', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ enabled: true }),
+    }));
+    expect(moduleRegistry.isEnabled('document-formatting')).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it('does not change local module state when the server rejects a toggle', async () => {
+  moduleRegistry.register(documentFormattingManifest);
+  fetchMock.mockResolvedValue({ ok: false, status: 403 });
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<ModuleManagerTab />));
+    const button = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('Bật'));
+    expect(button).toBeTruthy();
+    await act(async () => button!.click());
+    expect(moduleRegistry.isEnabled('document-formatting')).toBe(false);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Trạng thái trước đó vẫn được giữ nguyên');
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
