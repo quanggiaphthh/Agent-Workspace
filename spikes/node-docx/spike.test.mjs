@@ -4,7 +4,7 @@ import {ZipReader,ZipWriter,Uint8ArrayReader,Uint8ArrayWriter,TextReader} from '
 import {readFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {inspect,applyAlignment,LIMITS} from './processor.mjs';
+import {inspect,applyAlignment,applyTopMargin,LIMITS} from './processor.mjs';
 import {processInWorker} from './thread-client.mjs';
 
 const sha=b=>createHash('sha256').update(b).digest('hex');
@@ -121,4 +121,46 @@ describe('isolated bounded Node DOCX feasibility seam',()=>{
   await expect(inspect(broken)).rejects.toMatchObject({code:'MALFORMED_DOCX'});
   await expect(applyAlignment(broken,{sourceSha256:sha(broken),paragraphId:'p1',anchor:sha(Buffer.from('bad OPC')),expectedBefore:'LEFT',desiredAfter:'RIGHT'})).rejects.toMatchObject({code:'MALFORMED_DOCX'});
  });
+ it('P0 explicitly rejects alternate OPC main-part locations, including the 25 cross-oracle case',async()=>{
+   const ct=sourceParts['[Content_Types].xml'].replace('/word/document.xml','/word/custom-document.xml');
+   const rel=sourceParts['_rels/.rels'].replace('word/document.xml','word/custom-document.xml');
+   const b=await make({'[Content_Types].xml':ct,'_rels/.rels':rel,
+      'word/document.xml':null,'word/_rels/document.xml.rels':null,
+      'word/custom-document.xml':xml});
+   await expect(inspect(b)).rejects.toMatchObject({code:'PACKAGE_NOT_MUTABLE'});
+   await expect(applyTopMargin(b,{sourceSha256:sha(b),expectedBeforeTwips:1440,desiredAfterTwips:1420}))
+     .rejects.toMatchObject({code:'PACKAGE_NOT_MUTABLE'});
+ });
+ it('P0 changes only one real section top margin, preserves Vietnamese text/table/image and all other OPC parts',async()=>{
+   const source=await readFixture('24-vietnamese-rich.docx');
+   const inspection=await inspect(source);
+   const before=await readParts(source);
+   const documentXml=before['word/document.xml'].toString('utf8');
+   const margin=documentXml.match(/<w:pgMar\b[^>]*\/>/u)?.[0];
+   expect(margin).toBeTruthy();
+   const old=Number(margin.match(/\bw:top=(["'])([0-9]+)\1/u)?.[2]);
+   expect(Number.isSafeInteger(old)).toBe(true);
+   const next=old===1420?1440:1420;
+   const output=await applyTopMargin(source,{sourceSha256:inspection.sourceSha256,
+     expectedBeforeTwips:old,desiredAfterTwips:next});
+   expect(output.reopened&&output.revalidated).toBe(true);
+   expect(output.actualChanges).toEqual([{part:'word/document.xml',
+     property:'w:pgMar/@w:top',beforeTwips:old,afterTwips:next}]);
+   expect(sha(source)).toBe(inspection.sourceSha256);
+   const after=await readParts(output.bytes);
+   expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+   for(const name of Object.keys(before)){
+     if(name!=='word/document.xml')expect(sha(after[name])).toBe(sha(before[name]));
+   }
+   const expectedXml=documentXml.replace(margin,margin.replace(/\bw:top=(["'])([0-9]+)\1/u,
+     (_all,quote)=>'w:top='+quote+next+quote));
+   expect(after['word/document.xml'].toString('utf8')).toBe(expectedXml);
+   expect(expectedXml).toContain('Việt Nam');
+   expect((await inspect(output.bytes)).paragraphs.map(p=>p.text))
+     .toEqual(inspection.paragraphs.map(p=>p.text));
+   expect(before['word/media/image1.png']).toBeDefined();
+   expect(before['word/numbering.xml']).toBeDefined();
+   expect(before['word/header1.xml']).toBeDefined();
+ });
+
 });
