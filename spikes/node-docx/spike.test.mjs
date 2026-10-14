@@ -49,14 +49,14 @@ describe('isolated bounded Node DOCX feasibility seam',()=>{
   await rejects(await make({'_rels/.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="missing.xml"/></Relationships>'}),'MALFORMED_DOCX');
   await rejects(await make({'_rels/.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'}),'MALFORMED_DOCX');
  });
- it('resolves the main document through OPC relationships rather than a fixed part path',async()=>{
-  const ct=sourceParts['[Content_Types].xml'].replace('<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>','<Override PartName="/custom/main.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>');
-  const rel='<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rMain" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="custom/main.xml"/></Relationships>';
-  const b=await make({'[Content_Types].xml':ct,'_rels/.rels':rel,'word/document.xml':null,'word/_rels/document.xml.rels':null,'custom/main.xml':xml});
-  const r=await inspect(b);expect(r.safeToMutate).toBe(true);expect(r.mainDocumentPart).toBe('custom/main.xml');expect(r.paragraphs[0].directAlignment).toBe('LEFT');
-  const out=await applyAlignment(b,{sourceSha256:r.sourceSha256,paragraphId:'p1',anchor:r.paragraphs[0].anchor,expectedBefore:'LEFT',desiredAfter:'RIGHT'});
-  expect((await inspect(out.bytes)).paragraphs[0].directAlignment).toBe('RIGHT');
+ it('follows OPC relationships but rejects alternate main-part paths for P0 cross-oracle parity',async()=>{
+  const ct=sourceParts['[Content_Types].xml'].replace('/word/document.xml','/custom/main.xml');
+  const rel=sourceParts['_rels/.rels'].replace('word/document.xml','custom/main.xml');
+  const b=await make({'[Content_Types].xml':ct,'_rels/.rels':rel,'word/document.xml':null,
+    'word/_rels/document.xml.rels':null,'custom/main.xml':xml});
+  await expect(inspect(b)).rejects.toMatchObject({code:'PACKAGE_NOT_MUTABLE'});
  });
+
  it('rejects missing internal relationship targets and absolute or traversing relationship targets',async()=>{
   const rels=target=>`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${target}"/></Relationships>`;
   await rejects(await make({'word/_rels/document.xml.rels':rels('media/missing.png')}),'MALFORMED_DOCX');
