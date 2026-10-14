@@ -81,6 +81,10 @@ jobs:
             console.log(op + ': rejected invalid DOCX with ' + result.code);
           }
           NODE
+      - name: Setup Bun for reference frozen lockfile
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
       - name: Reference install and targeted check
         working-directory: docs
         run: |
@@ -89,8 +93,8 @@ jobs:
             npm ci --ignore-scripts --no-audit --no-fund
             npm run build
           elif [ -f bun.lock ]; then
-            echo 'Bun lock detected; setup-bun required; no mixed npm install allowed'
-            exit 44
+            bun install --frozen-lockfile
+            bun run build
           else
             echo 'No supported frozen lockfile'; exit 45
           fi
