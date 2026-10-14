@@ -437,6 +437,9 @@ async function preflight(input, signal) {
     }
     if (officeDocument.length !== 1) reject('MALFORMED_DOCX');
     mainPart = resolveRelationshipTarget('', officeDocument[0].target);
+    // P0 policy: noncanonical OPC main-part paths are valid in principle but unsupported
+    // by the independent canonical processor; fail closed rather than claiming cross-oracle parity.
+    if (mainPart !== 'word/document.xml') reject('PACKAGE_NOT_MUTABLE');
     const mainEntry = entries.get(mainPart);
     if (!mainEntry || mainEntry.directory || byKey.get(mainPart.toLowerCase()) !== mainPart) reject('MALFORMED_DOCX');
     if (contentTypes.resolve(mainPart) !== DOCX_MAIN_CONTENT_TYPE) reject('MALFORMED_DOCX');
@@ -568,4 +571,66 @@ export async function applyAlignment(input, operation, signal) {
   } finally {
     await packageState.reader.close();
   }
+}
+
+/**
+ * P0-only layout probe. Adjusts one existing top-margin attribute, never reconstructs
+ * a DOCX. This deliberately has no UI/API wiring or ND30 rule selection.
+ */
+export async function applyTopMargin(input, { sourceSha256, expectedBeforeTwips, desiredAfterTwips }, signal) {
+  const state = await preflight(input, signal);
+  try {
+    if (state.sourceSha256 !== sourceSha256) reject('STALE_DOCUMENT');
+    if (![expectedBeforeTwips, desiredAfterTwips].every(n => Number.isSafeInteger(n) && n >= 0 && n <= 31680) ||
+        expectedBeforeTwips === desiredAfterTwips) reject('UNSUPPORTED_OPERATION');
+    const current = state.parsedParts.get(state.mainPart).document.xml;
+    // Only operate on a single explicit section-margin element with an existing top value.
+    // Exact textual replacement avoids touching runs, table cells, media references or style XML.
+    const matches = [...current.matchAll(/<w:pgMar\\b[^>]*\\/>/gu)];
+    if (matches.length !== 1) reject('PACKAGE_NOT_MUTABLE');
+    const tag = matches[0][0];
+    const attrs = [...tag.matchAll(/\\bw:top=(["'])([0-9]+)\\1/gu)];
+    if (attrs.length !== 1 || Number(attrs[0][2]) !== expectedBeforeTwips) reject('PRECONDITION_FAILED');
+    const replacement = tag.replace(/\\bw:top=(["'])([0-9]+)\\1/u, (_all, quote) => `w:top=${quote}${desiredAfterTwips}${quote}`);
+    const revised = current.slice(0, matches[0].index) + replacement + current.slice(matches[0].index + tag.length);
+    if (revised === current) reject('POSTCONDITION_FAILED');
+    const writer = new ZipWriter(new Uint8ArrayWriter(), { zip64: false });
+    for (const [name, record] of state.entries) {
+      checkCancelled(signal);
+      if (name === state.mainPart) await writer.add(record.originalName, new Uint8ArrayReader(Buffer.from(revised)), { level: 6 });
+      else {
+        const compressed = await record.entry.getData(new Uint8ArrayWriter(), { passThrough: true, strictness: 'strict' });
+        await writer.add(record.originalName, new Uint8ArrayReader(compressed), { passThrough: true, entry: record.entry });
+      }
+    }
+    const bytes = Buffer.from(await writer.close());
+    if (bytes.length > LIMITS.output) reject('OUTPUT_TOO_LARGE');
+    const reopened = await preflight(bytes, signal);
+    try {
+      const actual = reopened.parsedParts.get(reopened.mainPart).document.xml;
+      if (actual !== revised || reopened.entries.size !== state.entries.size ||
+          !actual.includes(replacement) || sha256(input) !== sourceSha256) reject('OUTPUT_INTEGRITY_FAILED');
+      // Compare unmodified parts both uncompressed and as stored ZIP payloads.
+      for (const [name, record] of state.entries) {
+        if (name === state.mainPart) continue;
+        const other = reopened.entries.get(name);
+        if (!other) reject('OUTPUT_INTEGRITY_FAILED');
+        for (const passThrough of [false, true]) {
+          const options = passThrough ? { passThrough: true } : { checkCrc32: true };
+          const a = await record.entry.getData(new Uint8ArrayWriter(), options);
+          const b = await other.entry.getData(new Uint8ArrayWriter(), options);
+          if (sha256(a) !== sha256(b)) reject('OUTPUT_INTEGRITY_FAILED');
+        }
+      }
+      return {
+        bytes, sourceSha256, outputSha256: reopened.sourceSha256,
+        reopened: true, revalidated: true,
+        actualChanges: [{ part: state.mainPart, property: 'w:pgMar/@w:top',
+          beforeTwips: expectedBeforeTwips, afterTwips: desiredAfterTwips }],
+      };
+    } finally { await reopened.reader.close(); }
+  } catch (error) {
+    if (error?.code) throw error;
+    reject('PROCESSING_FAILED');
+  } finally { await state.reader.close(); }
 }
