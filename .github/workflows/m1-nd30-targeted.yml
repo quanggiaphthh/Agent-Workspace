@@ -1,0 +1,102 @@
+name: M1 ND30 targeted verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: m1-nd30-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      AGENT_SHA: 7adc5f3dbbe5ccd834cd912a7ecda3f1eae27ef1
+      DOCS_SHA: f92c43546ff08b2677e079cad2383bd2d57ccbcb
+    steps:
+      - name: Checkout canonical pinned SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.AGENT_SHA }}
+          path: agent
+          persist-credentials: false
+      - name: Verify canonical checkout SHA
+        run: test "$(git -C agent rev-parse HEAD)" = "$AGENT_SHA"
+      - name: Fail closed if private reference read credential is absent
+        env:
+          DOCS_READ_TOKEN: ${{ secrets.DOCS_ND30_READ_TOKEN }}
+        run: |
+          if [ -z "$DOCS_READ_TOKEN" ]; then
+            echo "::error::Missing DOCS_ND30_READ_TOKEN (read-only, single-repository credential)."
+            exit 42
+          fi
+      - name: Checkout private reference pinned SHA
+        uses: actions/checkout@v4
+        with:
+          repository: tranhaihp26-bit/Docs-ND30
+          ref: ${{ env.DOCS_SHA }}
+          token: ${{ secrets.DOCS_ND30_READ_TOKEN }}
+          path: docs
+          persist-credentials: false
+      - name: Verify reference checkout SHA
+        run: test "$(git -C docs rev-parse HEAD)" = "$DOCS_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: agent/package-lock.json
+      - name: Canonical lockfile install
+        working-directory: agent
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Canonical targeted build and worker artifact
+        working-directory: agent
+        run: |
+          npm run build
+          test -s dist/docx.worker.cjs
+          node --check dist/docx.worker.cjs
+          node --check server/modules/document-formatting/docxWorker.mjs
+      - name: Targeted existing document tests
+        working-directory: agent
+        shell: bash
+        run: |
+          mapfile -t tests < <(git ls-files '*test.ts' '*test.tsx' '*spec.ts' '*spec.tsx' | grep -Ei '(document|docx|capabilit|module|filePolicy|permission)' || true)
+          printf 'Selected test files: %s\n' "${tests[*]}"
+          if [ "${#tests[@]}" -eq 0 ]; then echo "::error::No targeted test files discovered"; exit 43; fi
+          ./node_modules/.bin/vitest run "${tests[@]}"
+      - name: Worker negative smoke (real ESM worker)
+        working-directory: agent
+        run: |
+          node --input-type=module <<'NODE'
+          import { Worker } from 'node:worker_threads';
+          const run = (operation, bytes) => new Promise((resolve, reject) => {
+            const w = new Worker(new URL('./server/modules/document-formatting/docxWorker.mjs', import.meta.url));
+            const timer = setTimeout(() => { w.terminate(); reject(new Error('worker timeout')); }, 5000);
+            w.once('message', value => { clearTimeout(timer); w.terminate(); resolve(value); });
+            w.once('error', error => { clearTimeout(timer); reject(error); });
+            w.postMessage({ operation, bytes, input: {} });
+          });
+          for (const op of ['inspect','applyAlignment','applyTopMargin','applyAdministrativePageLayout']) {
+            const result = await run(op, Buffer.from('not-a-docx'));
+            if (result.ok !== false || typeof result.code !== 'string') throw new Error(op + ' failed fail-closed smoke');
+            console.log(op + ': rejected invalid DOCX with ' + result.code);
+          }
+          NODE
+      - name: Reference install and targeted check
+        working-directory: docs
+        run: |
+          npm --version
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts --no-audit --no-fund
+            npm run build
+          elif [ -f bun.lock ]; then
+            echo 'Bun lock detected; setup-bun required; no mixed npm install allowed'
+            exit 44
+          else
+            echo 'No supported frozen lockfile'; exit 45
+          fi
+      - name: Write execution summary
+        if: always()
+        run: |
+          echo "Agent pinned: $AGENT_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Docs pinned: $DOCS_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "This workflow is not by itself a full M1 PASS: evaluate missing API/auth/XSS/administrative-fact negatives." >> "$GITHUB_STEP_SUMMARY"
