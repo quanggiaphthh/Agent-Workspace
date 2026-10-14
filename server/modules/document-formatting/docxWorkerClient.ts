@@ -28,10 +28,10 @@ export function processDocxInWorker(
 
   // esbuild bundles the server into dist/server.cjs and the worker into dist/docx.worker.cjs.
   // In development and tests, use the source worker beside this module.
-  const bundledWorker = resolve(__dirname, 'docx.worker.cjs');
-  // tsx compiles source with __dirname='.'; the production bundle has an absolute dist directory.
+  const bundledWorker = typeof __dirname === 'string' ? resolve(__dirname, 'docx.worker.cjs') : null;
+  // Source ESM under tsx has no __dirname; the production CommonJS bundle does.
   const sourceWorker = resolve(process.cwd(), 'server/modules/document-formatting/docxWorker.mjs');
-  const workerPath = existsSync(bundledWorker) ? bundledWorker : sourceWorker;
+  const workerPath = bundledWorker && existsSync(bundledWorker) ? bundledWorker : sourceWorker;
   active = true;
   let worker: Worker;
   try {

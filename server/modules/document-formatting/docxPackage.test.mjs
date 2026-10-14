@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { ZipReader, ZipWriter, TextReader, Uint8ArrayReader, Uint8ArrayWriter } from '@zip.js/zip.js';
 import { inspect, applyAlignment, applyTopMargin, applyAdministrativePageLayout } from './docxPackage.mjs';
@@ -7,6 +9,7 @@ import { processDocxInWorker } from './docxWorkerClient.ts';
 import { LocalDocumentProcessor } from './localDocumentProcessor.ts';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const execFileAsync = promisify(execFile);
 const documentXml = '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:jc w:val="left"/></w:pPr><w:r><w:t>Xin chào Việt Nam</w:t></w:r></w:p><w:sectPr><w:pgMar w:top="1440" w:right="1134" w:bottom="1440" w:left="1701"/></w:sectPr></w:body></w:document>';
 const contentTypes = '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>';
 const relationships = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>';
@@ -156,6 +159,19 @@ describe('DOCX package engine on current main', () => {
       documentXml.replace('<w:pgMar', '<w:pgSz w:w="12240" w:h="15840"/><w:pgMar') });
     const layout = await processDocxInWorker('applyAdministrativePageLayout', layoutSource);
     expect(layout.actualChanges.map(change => change.property)).toEqual(['w:pgSz/@w:w', 'w:pgSz/@w:h', 'w:pgMar/@w:top', 'w:pgMar/@w:bottom']);
+  });
+
+  it('starts the source worker from the ESM development server without __dirname', async () => {
+    const script = `import('./server/modules/document-formatting/localDocumentProcessor.ts').then(async ({ LocalDocumentProcessor }) => {
+      const { readFileSync } = await import('node:fs');
+      const bytes = readFileSync('server/modules/document-formatting/fixtures/24-vietnamese-rich.docx');
+      const inspection = await new LocalDocumentProcessor().inspect(bytes);
+      console.log(inspection.paragraphs.length);
+    }).catch(error => { console.error(error); process.exitCode = 1; });`;
+    const { stdout } = await execFileAsync(process.execPath, ['--import', 'tsx', '-e', script], {
+      cwd: process.cwd(), timeout: 10_000,
+    });
+    expect(Number(stdout.trim())).toBeGreaterThan(0);
   });
 
   it('satisfies the existing inspection and apply contract without an external processor', async () => {
