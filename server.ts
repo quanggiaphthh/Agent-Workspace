@@ -1385,7 +1385,7 @@ app.post('/api/modules/:id/toggle', requirePermission('module.manage'), async (r
       if (!requested.success) return res.status(400).json({ error: 'An explicit enabled state is required.', code: 'INVALID_MODULE_STATE' });
       if (requested.data.enabled && !isServerModuleReleaseReady(id)) {
         return res.status(409).json({
-          error: 'Document Formatting V1 remains disabled until processor security and deployment preflight are approved.',
+          error: 'Document Formatting remains disabled until explicitly approved for this environment.',
           code: 'DOCUMENT_FORMATTING_RELEASE_GATE_CLOSED',
         });
       }
