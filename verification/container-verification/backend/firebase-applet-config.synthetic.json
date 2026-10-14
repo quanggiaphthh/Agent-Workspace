@@ -1,0 +1,12 @@
+{
+  "projectId": "synthetic-staging-project",
+  "appId": "1:123456789:web:syntheticstage",
+  "apiKey": "",
+  "authDomain": "synthetic-staging-project.firebaseapp.com",
+  "firestoreDatabaseId": "synthetic-staging-db",
+  "storageBucket": "synthetic-staging-project.firebasestorage.app",
+  "messagingSenderId": "123456789",
+  "measurementId": "",
+  "oAuthClientId": "synthetic-staging-client",
+  "recaptchaSiteKey": ""
+}

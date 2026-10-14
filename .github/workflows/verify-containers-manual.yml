@@ -1,0 +1,87 @@
+name: Manual Container Verification (Processor & Backend)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  processor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+      - uses: actions/checkout@v4
+        with:
+          repository: quanggiaphthh/chuan-hoa-van-ban-nghi-dinh-30
+          ref: 078dae21f9e23975676179fa189f5c01b605f49a
+          path: processor-source
+      - name: Verify identity and build image
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/docfmt-evidence"
+          test "$(git -C processor-source rev-parse HEAD)" = 078dae21f9e23975676179fa189f5c01b605f49a
+          git -C processor-source diff --exit-code
+          printf '.git\n**/bin\n**/obj\n' > processor-source/.dockerignore
+          docker version > "$RUNNER_TEMP/docfmt-evidence/docker-version.txt"
+          docker build --iidfile "$RUNNER_TEMP/docfmt-evidence/image-id.txt" \
+            -f harness/verification/container-verification/processor/Dockerfile \
+            -t docfmt-processor:verification processor-source 2>&1 | tee "$RUNNER_TEMP/docfmt-evidence/build.log"
+      - name: Verify processor container
+        run: |
+          set -euo pipefail
+          bash harness/verification/container-verification/processor/test-processor-container.sh \
+            docfmt-processor:verification processor-source 2>&1 | tee "$RUNNER_TEMP/docfmt-evidence/test.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docfmt-processor-container-evidence
+          path: ${{ runner.temp }}/docfmt-evidence/
+          retention-days: 7
+          if-no-files-found: warn
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+      - uses: actions/checkout@v4
+        with:
+          ref: 8e4821e6d5bd59fa580a1e8f21d024e4e792f1fa
+          path: app-source
+      - name: Verify identity and build isolated image
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/docfmt-evidence"
+          test "$(git -C app-source rev-parse HEAD)" = 8e4821e6d5bd59fa580a1e8f21d024e4e792f1fa
+          git -C app-source diff --exit-code
+          cp harness/verification/container-verification/backend/firebase-applet-config.synthetic.json \
+            app-source/firebase-applet-config.synthetic.json
+          printf '.git\nnode_modules\ndist\n' > app-source/.dockerignore
+          docker version > "$RUNNER_TEMP/docfmt-evidence/docker-version.txt"
+          docker build --iidfile "$RUNNER_TEMP/docfmt-evidence/image-id.txt" \
+            -f harness/verification/container-verification/backend/Dockerfile \
+            -t docfmt-backend:verification app-source 2>&1 | tee "$RUNNER_TEMP/docfmt-evidence/build.log"
+      - name: Verify backend image artifacts
+        run: |
+          set -euo pipefail
+          bash harness/verification/container-verification/backend/test-backend-container.sh \
+            docfmt-backend:verification 2>&1 | tee "$RUNNER_TEMP/docfmt-evidence/test.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docfmt-backend-container-evidence
+          path: ${{ runner.temp }}/docfmt-evidence/
+          retention-days: 7
+          if-no-files-found: warn
