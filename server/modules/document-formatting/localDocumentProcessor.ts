@@ -21,20 +21,23 @@ export class LocalDocumentProcessor {
   async formatPage(bytes: Buffer, signal?: AbortSignal): Promise<{
     bytes: Buffer;
     sha256: string;
-    changes: Array<{ property: string; beforeTwips: number; afterTwips: number }>;
+    changes: Array<{ property: string; beforeTwips: number; afterTwips: number; section?: number }>;
+    bodySummary: { formattedParagraphs: number; unclassifiedParagraphs: number;
+      adjustments: { font: number; size: number; spacing: number; indent: number; alignment: number } };
   }> {
     try {
       const result = await processDocxInWorker('applyAdministrativePageLayout', bytes, {}, { signal });
       const output = Buffer.from(result.bytes);
       if (!result.reopened || !result.revalidated || result.sourceSha256 !== sha256(bytes) ||
           result.outputSha256 !== sha256(output) || !Array.isArray(result.actualChanges) ||
-          result.actualChanges.length > 6) {
+          result.actualChanges.length > 48) {
         throw new DocumentProcessorError('OUTPUT_INTEGRITY_FAILED', 'The DOCX output could not be verified.');
       }
-      const changes = result.actualChanges.map((item: { property: string; beforeTwips: number; afterTwips: number }) => ({
+      const changes = result.actualChanges.map((item: { property: string; beforeTwips: number; afterTwips: number; section?: number }) => ({
         property: item.property, beforeTwips: item.beforeTwips, afterTwips: item.afterTwips,
+        ...(item.section === undefined ? {} : { section: item.section }),
       }));
-      return { bytes: output, sha256: result.outputSha256, changes };
+      return { bytes: output, sha256: result.outputSha256, changes, bodySummary: result.bodySummary };
     } catch (error) { return mapFailure(error); }
   }
 

@@ -168,7 +168,35 @@ describe('DOCX package engine on current main', () => {
       expect(digest(outputParts.get(name))).toBe(digest(bytes));
   });
 
-  it('does not alter valid A4 page geometry and rejects multiple sections or landscape', async () => {
+  it('formats explicitly identified body text without changing headings, text or attachments', async () => {
+    const body = '<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>Văn bản nội dung</w:t></w:r></w:p>';
+    const sourceXml = documentXml.replace('<w:p><w:pPr>', `${body}<w:p><w:pPr>`)
+      .replace('<w:pgMar', '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar')
+      .replace('w:top="1440"', 'w:top="1417"').replace('w:bottom="1440"', 'w:bottom="1417"');
+    const source = await makeDocx({ 'word/document.xml': sourceXml });
+    const output = await applyAdministrativePageLayout(source);
+    expect(output.bodySummary).toEqual({ formattedParagraphs: 1, unclassifiedParagraphs: 1,
+      adjustments: { font: 1, size: 1, spacing: 1, indent: 1, alignment: 1 } });
+    const afterXml = (await partsOf(output.bytes)).get('word/document.xml').toString('utf8');
+    expect(afterXml).toContain('<w:pStyle w:val="BodyText"/><w:spacing w:after="120" w:line="360" w:lineRule="auto"/><w:ind w:firstLine="567"/><w:jc w:val="both"/>');
+    expect(afterXml).toContain('<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman" w:cs="Times New Roman"/><w:b/><w:sz w:val="28"/></w:rPr>');
+    expect((await inspect(source)).paragraphs.map(p => p.text)).toEqual((await inspect(output.bytes)).paragraphs.map(p => p.text));
+    expect((await partsOf(output.bytes)).get('word/media/image1.png')).toEqual((await partsOf(source)).get('word/media/image1.png'));
+    const repeat = await applyAdministrativePageLayout(output.bytes);
+    expect(repeat.bytes).toEqual(output.bytes);
+    expect(Object.values(repeat.bodySummary.adjustments).every(count => count === 0)).toBe(true);
+  });
+
+  it('does not guess formatting of body style with nested fields or links', async () => {
+    const source = await makeDocx({ 'word/document.xml': documentXml
+      .replace('<w:p><w:pPr>', '<w:p><w:pPr><w:pStyle w:val="BodyText"/>')
+      .replace('<w:r><w:t>', '<w:hyperlink><w:r><w:t>')
+      .replace('</w:t></w:r>', '</w:t></w:r></w:hyperlink>')
+      .replace('<w:pgMar', '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar') });
+    await expect(applyAdministrativePageLayout(source)).rejects.toMatchObject({ code: 'PACKAGE_NOT_MUTABLE' });
+  });
+
+  it('preserves valid geometry, formats multiple sections, and rejects unsafe layouts', async () => {
     const validXml = documentXml.replace('<w:pgMar',
       '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar')
       .replace('w:top="1440"', 'w:top="1134"')
@@ -187,6 +215,20 @@ describe('DOCX package engine on current main', () => {
     });
     await expect(applyAdministrativePageLayout(mirrored)).rejects.toMatchObject({ code: 'PACKAGE_NOT_MUTABLE' });
     const richSource = await readFile(new URL('./fixtures/24-vietnamese-rich.docx', import.meta.url));
-    await expect(applyAdministrativePageLayout(richSource)).rejects.toMatchObject({ code: 'PACKAGE_NOT_MUTABLE' });
+    const richBefore = await partsOf(richSource);
+    const richOutput = await applyAdministrativePageLayout(richSource);
+    const richAfter = await partsOf(richOutput.bytes);
+    expect(richOutput.actualChanges.some(change => change.section === 1)).toBe(true);
+    expect(richOutput.actualChanges.some(change => change.section === 2)).toBe(true);
+    expect((await inspect(richOutput.bytes)).paragraphs.map(item => item.text))
+      .toEqual((await inspect(richSource)).paragraphs.map(item => item.text));
+    for (const [name, bytes] of richBefore) if (name !== 'word/document.xml')
+      expect(digest(richAfter.get(name))).toBe(digest(bytes));
+    const unsafe = await makeDocx({ 'word/document.xml': validXml.replace('</w:sectPr>',
+      '</w:sectPr><w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr>') });
+    await expect(applyAdministrativePageLayout(unsafe)).rejects.toMatchObject({ code: 'PACKAGE_NOT_MUTABLE' });
+    const deceptive = await makeDocx({ 'word/document.xml': validXml.replace('<w:sectPr>',
+      '<!-- <w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr> --><w:sectPr>') });
+    await expect(applyAdministrativePageLayout(deceptive)).rejects.toMatchObject({ code: 'PACKAGE_NOT_MUTABLE' });
   });
 });

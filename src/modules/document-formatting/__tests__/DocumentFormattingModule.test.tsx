@@ -141,8 +141,10 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
       status: 200,
       headers: new Headers({
         'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'x-document-rule-profile': 'nd30-page-v1',
+        'x-document-rule-profile': 'nd30-safe-v2',
         'x-document-changes': Buffer.from(JSON.stringify(changes)).toString('base64url'),
+        'x-document-body-report': Buffer.from(JSON.stringify({ formattedParagraphs: 1, unclassifiedParagraphs: 2,
+          adjustments: { font: 1, size: 1, spacing: 1, indent: 1, alignment: 1 } })).toString('base64url'),
         'x-document-output-sha256': createHash('sha256').update(bytes).digest('hex'),
       }),
       blob: async () => new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
@@ -154,11 +156,12 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
     const button = Array.from(container.querySelectorAll('button'))
-      .find(item => item.textContent?.includes('Tự động chỉnh khổ và lề'));
+      .find(item => item.textContent?.includes('Tự động định dạng'));
     expect(button).toBeTruthy();
     await act(async () => { button!.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
     expect(authFetchMock.fetch).toHaveBeenCalledWith('/api/document-formatting/automatic', expect.objectContaining({ method: 'POST' }));
     expect(container.textContent).toContain('Lề trái: 24.7 → 30.0 mm');
+    expect(container.textContent).toContain('2 đoạn chưa xác định được vai trò');
     expect(container.textContent).toContain('Tải Word đã xử lý');
   });
 });

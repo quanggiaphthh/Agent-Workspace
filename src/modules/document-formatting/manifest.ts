@@ -8,7 +8,7 @@ export const documentFormattingManifest: ModuleManifest = {
   defaultEnabled: false,
   meta: {
     name: 'Định dạng văn bản',
-    description: 'Tự chỉnh khổ giấy và lề trang cho DOCX một phần; các quy tắc khác đang hoàn thiện.',
+    description: 'Chỉnh khổ giấy, lề và phần thân được đánh dấu rõ trong DOCX; báo phần thể thức cần kiểm tra.',
     icon: 'FileText',
     order: 4,
   },

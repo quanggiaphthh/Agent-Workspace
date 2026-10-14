@@ -30,8 +30,10 @@ type PendingConfirmation = {
   desiredAfter: Alignment;
   idempotencyKey: string;
 };
-type PageChange = { property: string; beforeTwips: number; afterTwips: number };
-type AutomaticResult = { url: string; filename: string; changes: PageChange[] };
+type PageChange = { property: string; beforeTwips: number; afterTwips: number; section?: number };
+type BodySummary = { formattedParagraphs: number; unclassifiedParagraphs: number;
+  adjustments: { font: number; size: number; spacing: number; indent: number; alignment: number } };
+type AutomaticResult = { url: string; filename: string; changes: PageChange[]; bodySummary: BodySummary };
 const PAGE_LABELS: Record<string, string> = {
   'w:pgSz/@w:w': 'Chiều rộng trang',
   'w:pgSz/@w:h': 'Chiều cao trang',
@@ -145,18 +147,29 @@ export function DocumentFormattingModule() {
         signal: controller.signal,
       });
       if (!response.ok) throw new Error(await parseResponseError(response));
-      if (response.headers.get('x-document-rule-profile') !== 'nd30-page-v1' ||
+      if (response.headers.get('x-document-rule-profile') !== 'nd30-safe-v2' ||
           response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() !== DOCX_MIME_TYPE)
         throw new Error('Kết quả định dạng chưa đúng cấu trúc.');
       const encoded = response.headers.get('x-document-changes');
       if (!encoded || !/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error('Thiếu báo cáo thay đổi.');
       const decoded = JSON.parse(atob(encoded.replace(/-/g, '+').replace(/_/g, '/'))) as unknown;
-      if (!Array.isArray(decoded) || decoded.length > 6 ||
+      if (!Array.isArray(decoded) || decoded.length > 48 ||
           decoded.some(item => !item || typeof item !== 'object' ||
             !Object.prototype.hasOwnProperty.call(PAGE_LABELS, (item as PageChange).property) ||
             !Number.isSafeInteger((item as PageChange).beforeTwips) ||
-            !Number.isSafeInteger((item as PageChange).afterTwips)))
+            !Number.isSafeInteger((item as PageChange).afterTwips) ||
+            ((item as PageChange).section !== undefined &&
+              (!Number.isSafeInteger((item as PageChange).section) || (item as PageChange).section! < 1 || (item as PageChange).section! > 8))))
         throw new Error('Báo cáo thay đổi không hợp lệ.');
+      const bodyHeader = response.headers.get('x-document-body-report');
+      if (!bodyHeader || !/^[A-Za-z0-9_-]+$/.test(bodyHeader)) throw new Error('Thiếu báo cáo phần thân văn bản.');
+      const parsedBody = JSON.parse(atob(bodyHeader.replace(/-/g, '+').replace(/_/g, '/'))) as BodySummary;
+      if (!parsedBody || !Number.isSafeInteger(parsedBody.formattedParagraphs) || parsedBody.formattedParagraphs < 0 ||
+          !Number.isSafeInteger(parsedBody.unclassifiedParagraphs) || parsedBody.unclassifiedParagraphs < 0 ||
+          !parsedBody.adjustments ||
+          (['font', 'size', 'spacing', 'indent', 'alignment'] as const).some(key =>
+            !Number.isSafeInteger(parsedBody.adjustments[key]) || parsedBody.adjustments[key] < 0))
+        throw new Error('Báo cáo phần thân văn bản không hợp lệ.');
       const output = await response.blob();
       if (output.size <= 0 || output.size > MAX_FILE_BYTES) throw new Error('Tệp kết quả vượt giới hạn an toàn.');
       const expectedSha = response.headers.get('x-document-output-sha256')?.toLowerCase();
@@ -166,7 +179,7 @@ export function DocumentFormattingModule() {
       if (controller.signal.aborted) throw new Error('Đã hủy xử lý.');
       const url = URL.createObjectURL(output);
       objectUrls.current.add(url);
-      setAutomaticResult({ url, filename: safeOutputFilename(file.name), changes: decoded as PageChange[] });
+      setAutomaticResult({ url, filename: safeOutputFilename(file.name), changes: decoded as PageChange[], bodySummary: parsedBody });
     } catch (caught) {
       setError(controller.signal.aborted ? 'Đã hủy xử lý tệp.' :
         caught instanceof Error ? caught.message : 'Không thể tự động xử lý DOCX.');
@@ -368,7 +381,7 @@ export function DocumentFormattingModule() {
       <Card className="border-blue-200 bg-blue-50/60">
         <CardContent className="flex gap-3 pt-5 text-sm leading-6 text-blue-950">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" />
-          <p>Hiện chỉ tự chỉnh khổ giấy và lề của tài liệu một phần, trình bày dọc. Phông chữ, cỡ chữ, giãn dòng, bảng và các thành phần thể thức khác chưa được tự động kiểm tra hoặc sửa.</p>
+          <p>Ứng dụng chỉnh khổ giấy, lề và các đoạn được đánh dấu rõ là nội dung chính. Tiêu đề, quốc hiệu, nơi nhận, bảng và các đoạn chưa xác định vai trò sẽ giữ nguyên; hãy kiểm tra thể thức trước khi phát hành.</p>
         </CardContent>
       </Card>
 
@@ -391,7 +404,7 @@ export function DocumentFormattingModule() {
           {file && <p className="break-all text-xs text-neutral-500">{file.name} · {(file.size / (1024 * 1024)).toFixed(2)} MiB</p>}
           <Button type="button" onClick={() => void formatPageAutomatically()} disabled={!file || busy !== null}>
             {busy === 'automatic' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-            {busy === 'automatic' ? 'Đang xử lý…' : 'Tự động chỉnh khổ và lề'}
+            {busy === 'automatic' ? 'Đang xử lý…' : 'Tự động định dạng'}
           </Button>
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={() => void inspect()} disabled={!file || busy !== null}>
@@ -411,14 +424,22 @@ export function DocumentFormattingModule() {
           </CardHeader>
           <CardContent className="space-y-3">
             {automaticResult.changes.length === 0 ? (
-              <p className="text-sm text-neutral-700">Khổ giấy và lề trang đã nằm trong khoảng được hỗ trợ; không thay đổi tệp.</p>
+              <p className="text-sm text-neutral-700">Khổ giấy và lề trang đã nằm trong khoảng được hỗ trợ.</p>
             ) : (
               <ul className="list-disc space-y-1 pl-5 text-sm text-neutral-700">
-                {automaticResult.changes.map(change => <li key={change.property}>
-                  {PAGE_LABELS[change.property]}: {millimetres(change.beforeTwips)} → {millimetres(change.afterTwips)} mm
+                {automaticResult.changes.map((change, index) => <li key={`${change.section ?? 1}-${change.property}-${index}`}>
+                  {change.section ? `Phần ${change.section} · ` : ''}{PAGE_LABELS[change.property]}: {millimetres(change.beforeTwips)} → {millimetres(change.afterTwips)} mm
                 </li>)}
               </ul>
             )}
+            {automaticResult.bodySummary.formattedParagraphs > 0 && <p className="text-sm text-neutral-700">
+              Đã kiểm tra {automaticResult.bodySummary.formattedParagraphs} đoạn được đánh dấu là nội dung chính; điều chỉnh phông chữ {automaticResult.bodySummary.adjustments.font} lượt,
+              cỡ chữ {automaticResult.bodySummary.adjustments.size}, giãn dòng/khoảng đoạn {automaticResult.bodySummary.adjustments.spacing},
+              thụt đầu dòng {automaticResult.bodySummary.adjustments.indent}, căn đều {automaticResult.bodySummary.adjustments.alignment}.
+            </p>}
+            {automaticResult.bodySummary.unclassifiedParagraphs > 0 && <p className="text-sm text-amber-800">
+              {automaticResult.bodySummary.unclassifiedParagraphs} đoạn chưa xác định được vai trò nên giữ nguyên; cần kiểm tra thể thức trước khi phát hành.
+            </p>}
             <Button type="button" onClick={downloadAutomatic}><Download className="h-4 w-4" />Tải Word đã xử lý</Button>
           </CardContent>
         </Card>

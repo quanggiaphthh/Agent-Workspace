@@ -200,7 +200,7 @@ function parseXml(bytes, partName, signal, handlers = {}) {
     if (state.isMain && tag.uri === NS.word && tag.local === 'document' && depth === 1) state.sawDocumentRoot = true;
     if (state.isMain && tag.uri === NS.word && tag.local === 'body' && depth === 2) state.sawBody = true;
     if (state.isMain && tag.uri === NS.word && tag.local === 'p' && depth === state.bodyDepth + 1) {
-      state.paragraph = { paragraphId: `p${state.paragraphs.length + 1}`, text: '', directAlignment: null, anchor: null, jcRange: null, jcAttribute: null, pPrCount: 0, pPrDepth: 0, depth };
+      state.paragraph = { paragraphId: `p${state.paragraphs.length + 1}`, text: '', directAlignment: null, anchor: null, jcRange: null, jcAttribute: null, pPrCount: 0, pPrDepth: 0, depth, start: parser.startTagPosition - 1, styleId: null };
     }
     if (state.paragraph && tag.uri === NS.word && tag.local === 'pPr' && depth === state.paragraph.depth + 1) {
       state.paragraph.pPrCount++;
@@ -213,6 +213,11 @@ function parseXml(bytes, partName, signal, handlers = {}) {
       state.paragraph.directAlignment = decodeAlignment[values[0].value];
       state.paragraph.jcRange = [parser.startTagPosition - 1, parser.position];
       state.paragraph.jcAttribute = values[0].name;
+    }
+    if (state.paragraph && state.paragraph.pPrDepth && tag.uri === NS.word && tag.local === 'pStyle' && depth === state.paragraph.pPrDepth + 1) {
+      const values = Object.values(tag.attributes).filter(attribute => attribute.uri === NS.word && attribute.local === 'val');
+      if (values.length !== 1 || state.paragraph.styleId !== null) reject('PACKAGE_NOT_MUTABLE');
+      state.paragraph.styleId = values[0].value;
     }
     for (const attribute of Object.values(tag.attributes)) {
       if (attribute.uri === NS.officeRelationships && ['id', 'embed', 'link'].includes(attribute.local)) state.relationshipRefs.add(attribute.value);
@@ -230,6 +235,7 @@ function parseXml(bytes, partName, signal, handlers = {}) {
     handlers.close?.(tag, state);
     if (state.paragraph && tag?.uri === NS.word && tag.local === 'p' && depth === state.paragraph.depth) {
       if (state.paragraph.pPrCount > 1) reject('PACKAGE_NOT_MUTABLE');
+      state.paragraph.end = parser.position;
       state.paragraph.anchor = sha256(Buffer.from(state.paragraph.text.replace(/\s+/gu, ' ').trim()));
       state.paragraphs.push(state.paragraph);
       state.paragraph = null;
@@ -639,32 +645,83 @@ export async function applyTopMargin(input, { sourceSha256, expectedBeforeTwips,
   } finally { await state.reader.close(); }
 }
 
+// Only an explicitly marked BodyText paragraph can be classified without
+// guessing whether it is a title, motto, signature, table cell or body copy.
+function normalizeBodyTextParagraph(xml) {
+  if (/<!\[CDATA\[|<w:(?:hyperlink|sdt|drawing|fldChar|instrText|object|altChunk|tbl|bookmarkStart)\b/u.test(xml))
+    reject('PACKAGE_NOT_MUTABLE');
+  const pPr = xml.match(/<w:pPr>([\s\S]*?)<\/w:pPr>/u);
+  if (!pPr || !/^<w:pStyle\s+w:val=(['"])BodyText\1\s*\/>\s*(?:<w:spacing\b[^>]*\/>\s*)?(?:<w:ind\b[^>]*\/>\s*)?(?:<w:jc\b[^>]*\/>\s*)?$/u.test(pPr[1]))
+    reject('PACKAGE_NOT_MUTABLE');
+  const pStyle = pPr[1].match(/<w:pStyle\s+w:val=(['"])BodyText\1\s*\/>/u)[0];
+  const spacing = pPr[1].match(/<w:spacing\b[^>]*\/>/u)?.[0];
+  const ind = pPr[1].match(/<w:ind\b[^>]*\/>/u)?.[0];
+  const jc = pPr[1].match(/<w:jc\b[^>]*\/>/u)?.[0];
+  const value = (tag, attr) => tag?.match(new RegExp(`\\bw:${attr}\\s*=\\s*(["'])([^"']+)\\1`, 'u'))?.[2];
+  const validSpacing = spacing && Number(value(spacing, 'after')) >= 120 &&
+    Number(value(spacing, 'line')) >= 240 && Number(value(spacing, 'line')) <= 360 &&
+    value(spacing, 'lineRule') === 'auto' &&
+    !/\bw:(?:afterLines|beforeLines|beforeAutospacing|afterAutospacing)\b/iu.test(spacing);
+  const validIndent = ind && [567, 720].includes(Number(value(ind, 'firstLine'))) &&
+    !/\bw:(?:hanging|firstLineChars|hangingChars)\b/iu.test(ind);
+  const validAlignment = jc && value(jc, 'val') === 'both';
+  const correctedPPr = `<w:pPr>${pStyle}${validSpacing ? spacing : '<w:spacing w:after="120" w:line="360" w:lineRule="auto"/>'}` +
+    `${validIndent ? ind : '<w:ind w:firstLine="567"/>'}${validAlignment ? jc : '<w:jc w:val="both"/>'}</w:pPr>`;
+  let revised = xml.replace(pPr[0], correctedPPr);
+  const counters = { font: 0, size: 0, spacing: validSpacing ? 0 : 1, indent: validIndent ? 0 : 1, alignment: validAlignment ? 0 : 1 };
+  let textRuns = 0;
+  const fontTag = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman" w:cs="Times New Roman"/>';
+  revised = revised.replace(/<w:r>([\s\S]*?)<\/w:r>/gu, (whole, inside) => {
+    if (!/<w:t(?:\s[^>]*)?>/u.test(inside)) return whole;
+    if (/<w:(?:drawing|pict|fldChar|instrText|rStyle|sym)\b/u.test(inside)) reject('PACKAGE_NOT_MUTABLE');
+    textRuns++;
+    const rPr = inside.match(/^<w:rPr>([\s\S]*?)<\/w:rPr>/u);
+    const existingFont = rPr?.[1].match(/<w:rFonts\b[^>]*\/>/u)?.[0];
+    const existingSize = rPr?.[1].match(/<w:sz\s+w:val=(['"])(\d+)\1\s*\/>/u)?.[0];
+    const existingSizeCs = rPr?.[1].match(/<w:szCs\s+w:val=(['"])(\d+)\1\s*\/>/u)?.[0];
+    const validFont = existingFont && ['ascii', 'hAnsi', 'eastAsia', 'cs'].every(key => value(existingFont, key) === 'Times New Roman') &&
+      !/\bw:(?:asciiTheme|hAnsiTheme|eastAsiaTheme|cstheme)\b/iu.test(existingFont);
+    const validSize = existingSize && [26, 27, 28].includes(Number(value(existingSize, 'val'))) &&
+      (!existingSizeCs || [26, 27, 28].includes(Number(value(existingSizeCs, 'val'))));
+    if (!validFont) counters.font++;
+    if (!validSize) counters.size++;
+    if (validFont && validSize) return whole;
+    if (rPr) {
+      let properties = rPr[1];
+      if (!validFont) properties = existingFont ? properties.replace(existingFont, fontTag) : fontTag + properties;
+      if (!validSize) {
+        if (existingSize) properties = properties.replace(existingSize, '<w:sz w:val="28"/>');
+        else properties += '<w:sz w:val="28"/>';
+        if (existingSizeCs) properties = properties.replace(existingSizeCs, '<w:szCs w:val="28"/>');
+      }
+      return `<w:r>${inside.replace(rPr[0], `<w:rPr>${properties}</w:rPr>`)}</w:r>`;
+    }
+    return `<w:r><w:rPr>${fontTag}<w:sz w:val="28"/></w:rPr>${inside}` + '</w:r>';
+  });
+  if (textRuns === 0 || /<w:r\b/u.test(xml) && textRuns < [...xml.matchAll(/<w:r><w:t(?:\s[^>]*)?>/gu)].length)
+    reject('PACKAGE_NOT_MUTABLE');
+  return { revised, counters };
+}
+
 /**
- * Conservative Annex I page rule: one portrait section, explicit page size and
- * margins. Preserve any valid value within the allowed ranges.
+ * Conservative Annex I page rule: up to eight portrait sections with explicit
+ * page size and margins. Preserve any valid value within the allowed ranges.
  */
 export async function applyAdministrativePageLayout(input, signal) {
   const state = await preflight(input, signal);
   try {
     const current = state.parsedParts.get(state.mainPart).document.xml;
-    const sections = [...current.matchAll(/<w:sectPr(?=[\s/>])/gu)];
-    const sizes = [...current.matchAll(/<w:pgSz\b[^>]*\/>/gu)];
-    const margins = [...current.matchAll(/<w:pgMar\b[^>]*\/>/gu)];
-    const sectionEnd = current.indexOf('</w:sectPr>', sections[0]?.index ?? 0);
-    if (sections.length !== 1 || sizes.length !== 1 || margins.length !== 1 ||
-        sectionEnd < 0 || sizes[0].index < sections[0].index ||
-        margins[0].index <= sizes[0].index ||
-        margins[0].index + margins[0][0].length > sectionEnd)
+    // The following exact edits use tag offsets; markup-looking text in comments
+    // or CDATA must never be mistaken for a section or paragraph property.
+    if (/<!--|<!\[CDATA\[/u.test(current)) reject('PACKAGE_NOT_MUTABLE');
+    const sections = [...current.matchAll(/<w:sectPr(?=[\s>])[^>]*>[\s\S]*?<\/w:sectPr>/gu)];
+    if (sections.length < 1 || sections.length > 8 ||
+        [...current.matchAll(/<w:sectPr(?=[\s/>])/gu)].length !== sections.length)
       reject('PACKAGE_NOT_MUTABLE');
     if (state.parsedParts.get(state.mainPart).layoutUnsafe ||
         state.parsedParts.get('word/settings.xml')?.layoutUnsafe)
       reject('PACKAGE_NOT_MUTABLE');
 
-    const sizeTag = sizes[0][0];
-    const marginTag = margins[0][0];
-    if (/\bw:orient\s*=\s*(["'])landscape\1/u.test(sizeTag)) reject('PACKAGE_NOT_MUTABLE');
-    if (/\bw:orient\s*=\s*(["'])(?!portrait\1)[^"']+\1/u.test(sizeTag))
-      reject('PACKAGE_NOT_MUTABLE');
     const attribute = (tag, name) => {
       const matches = [...tag.matchAll(new RegExp(`\\bw:${name}\\s*=\\s*(["'])([0-9]+)\\1`, 'gu'))];
       if (matches.length !== 1) reject('PACKAGE_NOT_MUTABLE');
@@ -672,38 +729,68 @@ export async function applyAdministrativePageLayout(input, signal) {
       if (!Number.isSafeInteger(value) || value < 0 || value > 31680) reject('PACKAGE_NOT_MUTABLE');
       return value;
     };
-    const gutter = [...marginTag.matchAll(/\bw:gutter\s*=\s*(["'])([0-9]+)\1/gu)];
-    if (gutter.length > 1 || (gutter.length === 1 && Number(gutter[0][2]) !== 0))
-      reject('PACKAGE_NOT_MUTABLE');
-    const updates = [];
-    for (const [tag, name, property, target, min, max] of [
-      [sizeTag, 'w', 'w:pgSz/@w:w', 11906, 11905, 11907],
-      [sizeTag, 'h', 'w:pgSz/@w:h', 16838, 16837, 16839],
-      [marginTag, 'top', 'w:pgMar/@w:top', 1417, 1134, 1417],
-      [marginTag, 'bottom', 'w:pgMar/@w:bottom', 1417, 1134, 1417],
-      [marginTag, 'left', 'w:pgMar/@w:left', 1701, 1701, 1984],
-      [marginTag, 'right', 'w:pgMar/@w:right', 1134, 850, 1134],
-    ]) {
-      const before = attribute(tag, name);
-      if (before < min || before > max) updates.push({ tag, name, property, before, after: target });
-    }
-    if (updates.length === 0) return {
-      bytes: Buffer.from(input), sourceSha256: state.sourceSha256,
-      outputSha256: state.sourceSha256, reopened: true, revalidated: true,
-      actualChanges: [],
-    };
-
     const replaceAttributes = (tag, changes) => changes.reduce((text, change) => {
       const expression = new RegExp(`(\\bw:${change.name}\\s*=\\s*["'])${change.before}(["'])`, 'u');
       const replaced = text.replace(expression, (_all, prefix, quote) => `${prefix}${change.after}${quote}`);
       if (replaced === text) reject('PACKAGE_NOT_MUTABLE');
       return replaced;
     }, tag);
-    const newSize = replaceAttributes(sizeTag, updates.filter(item => item.tag === sizeTag));
-    const newMargin = replaceAttributes(marginTag, updates.filter(item => item.tag === marginTag));
-    const revised = current.slice(0, sizes[0].index) + newSize +
-      current.slice(sizes[0].index + sizeTag.length, margins[0].index) + newMargin +
-      current.slice(margins[0].index + marginTag.length);
+    const updates = [];
+    const replacements = [];
+    for (const [index, section] of sections.entries()) {
+      const sizes = [...section[0].matchAll(/<w:pgSz\b[^>]*\/>/gu)];
+      const margins = [...section[0].matchAll(/<w:pgMar\b[^>]*\/>/gu)];
+      if (sizes.length !== 1 || margins.length !== 1 || sizes[0].index >= margins[0].index)
+        reject('PACKAGE_NOT_MUTABLE');
+      const sizeTag = sizes[0][0];
+      const marginTag = margins[0][0];
+      if (/\bw:orient\s*=\s*(["'])(?!portrait\1)[^"']+\1/u.test(sizeTag))
+        reject('PACKAGE_NOT_MUTABLE');
+      const gutter = [...marginTag.matchAll(/\bw:gutter\s*=\s*(["'])([0-9]+)\1/gu)];
+      if (gutter.length > 1 || (gutter.length === 1 && Number(gutter[0][2]) !== 0))
+        reject('PACKAGE_NOT_MUTABLE');
+      const sectionChanges = [];
+      for (const [tag, name, property, target, min, max] of [
+        [sizeTag, 'w', 'w:pgSz/@w:w', 11906, 11905, 11907],
+        [sizeTag, 'h', 'w:pgSz/@w:h', 16838, 16837, 16839],
+        [marginTag, 'top', 'w:pgMar/@w:top', 1417, 1134, 1417],
+        [marginTag, 'bottom', 'w:pgMar/@w:bottom', 1417, 1134, 1417],
+        [marginTag, 'left', 'w:pgMar/@w:left', 1701, 1701, 1984],
+        [marginTag, 'right', 'w:pgMar/@w:right', 1134, 850, 1134],
+      ]) {
+        const before = attribute(tag, name);
+        if (before < min || before > max)
+          sectionChanges.push({ tag, name, property, before, after: target, section: index + 1 });
+      }
+      updates.push(...sectionChanges);
+      if (sectionChanges.length) replacements.push({
+        index: section.index,
+        before: section[0],
+        after: section[0].replace(sizeTag, replaceAttributes(sizeTag, sectionChanges.filter(item => item.tag === sizeTag)))
+          .replace(marginTag, replaceAttributes(marginTag, sectionChanges.filter(item => item.tag === marginTag))),
+      });
+    }
+    const bodySummary = { formattedParagraphs: 0, unclassifiedParagraphs: 0,
+      adjustments: { font: 0, size: 0, spacing: 0, indent: 0, alignment: 0 } };
+    for (const paragraph of state.document.paragraphs) {
+      if (paragraph.styleId !== 'BodyText') {
+        if (paragraph.text.trim()) bodySummary.unclassifiedParagraphs++;
+        continue;
+      }
+      const before = current.slice(paragraph.start, paragraph.end);
+      const body = normalizeBodyTextParagraph(before);
+      bodySummary.formattedParagraphs++;
+      for (const key of Object.keys(bodySummary.adjustments)) bodySummary.adjustments[key] += body.counters[key];
+      if (body.revised !== before) replacements.push({ index: paragraph.start, before, after: body.revised });
+    }
+    if (replacements.length === 0) return {
+      bytes: Buffer.from(input), sourceSha256: state.sourceSha256,
+      outputSha256: state.sourceSha256, reopened: true, revalidated: true,
+      actualChanges: [], bodySummary,
+    };
+
+    const revised = replacements.sort((a, b) => b.index - a.index).reduce((xml, item) =>
+      xml.slice(0, item.index) + item.after + xml.slice(item.index + item.before.length), current);
     const writer = new ZipWriter(new Uint8ArrayWriter(), { zip64: false });
     for (const [name, record] of state.entries) {
       checkCancelled(signal);
@@ -734,8 +821,10 @@ export async function applyAdministrativePageLayout(input, signal) {
       return {
         bytes, sourceSha256: state.sourceSha256, outputSha256: reopened.sourceSha256,
         reopened: true, revalidated: true,
-        actualChanges: updates.map(({ property, before, after }) =>
-          ({ part: state.mainPart, property, beforeTwips: before, afterTwips: after })),
+        actualChanges: updates.map(({ property, before, after, section }) =>
+          ({ part: state.mainPart, property, beforeTwips: before, afterTwips: after,
+            ...(sections.length > 1 ? { section } : {}) })),
+        bodySummary,
       };
     } finally { await reopened.reader.close(); }
   } catch (error) {

@@ -553,6 +553,8 @@ describe('Production Integration & Security Suite', () => {
       const changes = [{ property: 'w:pgMar/@w:left', beforeTwips: 1400, afterTwips: 1701 }];
       const formatter = vi.spyOn(LocalDocumentProcessor.prototype, 'formatPage').mockResolvedValue({
         bytes: Buffer.from(outputBytes), sha256: digest(outputBytes), changes,
+        bodySummary: { formattedParagraphs: 0, unclassifiedParagraphs: 1,
+          adjustments: { font: 0, size: 0, spacing: 0, indent: 0, alignment: 0 } },
       });
       const storeSpy = vi.spyOn(userFileService, 'store');
       const ingestSpy = vi.spyOn(fileIngestionService, 'ingest');
@@ -572,7 +574,8 @@ describe('Production Integration & Security Suite', () => {
       expect(Buffer.from(response.body)).toEqual(outputBytes);
       expect(response.headers['x-document-output-sha256']).toBe(digest(outputBytes));
       expect(JSON.parse(Buffer.from(response.headers['x-document-changes'], 'base64url').toString('utf8'))).toEqual(changes);
-      expect(response.headers['x-document-rule-profile']).toBe('nd30-page-v1');
+      expect(response.headers['x-document-rule-profile']).toBe('nd30-safe-v2');
+      expect(JSON.parse(Buffer.from(response.headers['x-document-body-report'], 'base64url').toString('utf8')).unclassifiedParagraphs).toBe(1);
       expect(formatter).toHaveBeenCalledOnce();
       expect(storeSpy).not.toHaveBeenCalled();
       expect(ingestSpy).not.toHaveBeenCalled();
@@ -615,7 +618,7 @@ describe('Production Integration & Security Suite', () => {
       expect(JSON.stringify(vi.mocked(AuditService.log).mock.calls)).not.toContain('Xin chào Việt Nam');
     });
 
-    it('refuses automatic page changes on a multi-section document without returning DOCX', async () => {
+    it('formats both sections of a real Vietnamese DOCX and reports unchanged paragraph roles', async () => {
       vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
       const source = await readFile(new URL('../../server/modules/document-formatting/fixtures/24-vietnamese-rich.docx', import.meta.url));
       const response = await request(app)
@@ -623,10 +626,19 @@ describe('Production Integration & Security Suite', () => {
         .set('Authorization', 'Bearer token_A')
         .set('Content-Type', DOCX_MIME_TYPE)
         .set('X-File-Name', 'rich.docx')
+        .buffer(true)
+        .parse((rawResponse, callback) => {
+          const chunks: Buffer[] = [];
+          rawResponse.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+          rawResponse.on('end', () => callback(null, Buffer.concat(chunks)));
+        })
         .send(source);
-      expect(response.status).toBe(422);
-      expect(response.body.code).toBe('PACKAGE_NOT_MUTABLE');
-      expect(response.headers['x-document-output-sha256']).toBeUndefined();
+      expect(response.status).toBe(200);
+      expect(response.headers['x-document-output-sha256']).toBe(digest(Buffer.from(response.body)));
+      const report = JSON.parse(Buffer.from(response.headers['x-document-body-report'], 'base64url').toString('utf8'));
+      expect(report.unclassifiedParagraphs).toBeGreaterThan(0);
+      const changes = JSON.parse(Buffer.from(response.headers['x-document-changes'], 'base64url').toString('utf8'));
+      expect(new Set(changes.map((item: { section: number }) => item.section))).toEqual(new Set([1, 2]));
     });
 
     it('rejects /confirm requests when Idempotency-Key is missing or invalid', async () => {

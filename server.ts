@@ -680,8 +680,9 @@ app.post('/api/document-formatting/automatic', expensiveUserLimiter, requirePerm
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
       'X-Document-Output-Sha256': output.sha256,
-      'X-Document-Rule-Profile': 'nd30-page-v1',
+      'X-Document-Rule-Profile': 'nd30-safe-v2',
       'X-Document-Changes': Buffer.from(JSON.stringify(changes)).toString('base64url'),
+      'X-Document-Body-Report': Buffer.from(JSON.stringify(output.bodySummary)).toString('base64url'),
     }).end(output.bytes);
   } catch (error: any) {
     if (cancellation.signal.aborted || isCancellationError(error)) {

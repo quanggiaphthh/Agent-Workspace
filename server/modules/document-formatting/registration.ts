@@ -56,12 +56,20 @@ const AutoFormatOutputSchema = z.object({
   sourceSha256: Sha256Schema,
   outputSha256: Sha256Schema,
   outputSizeBytes: z.number().int().positive().max(MAX_FILE_BYTES),
-  profile: z.literal('nd30-page-v1'),
+  profile: z.literal('nd30-safe-v2'),
   changes: z.array(z.object({
     property: z.string().regex(/^w:pg(?:Sz|Mar)\/@w:[a-z]+$/),
     beforeTwips: z.number().int().nonnegative(),
     afterTwips: z.number().int().nonnegative(),
-  }).strict()).max(6),
+    section: z.number().int().min(1).max(8).optional(),
+  }).strict()).max(48),
+  bodySummary: z.object({
+    formattedParagraphs: z.number().int().nonnegative(),
+    unclassifiedParagraphs: z.number().int().nonnegative(),
+    adjustments: z.object({ font: z.number().int().nonnegative(), size: z.number().int().nonnegative(),
+      spacing: z.number().int().nonnegative(), indent: z.number().int().nonnegative(),
+      alignment: z.number().int().nonnegative() }).strict(),
+  }).strict(),
 }).strict();
 
 export const documentFormattingModuleMetadata: ModuleMetadata = {
@@ -108,7 +116,7 @@ export function createDocumentFormattingCapabilities(dependencies: DocumentForma
     {
       id: 'document.autoFormatPage',
       moduleId: 'document-formatting',
-      description: 'Format only A4 page geometry and margin ranges on a supported one-section DOCX. Return a one-time artifact and actual changes; no document bytes or text are stored.',
+      description: 'Format A4 page geometry, margin ranges and explicitly styled body text on a supported DOCX. Report other paragraphs as unclassified; no document bytes or text are stored.',
       inputSchema: InspectInputSchema,
       outputSchema: AutoFormatOutputSchema,
       risk: 'low' as const,
@@ -124,13 +132,14 @@ export function createDocumentFormattingCapabilities(dependencies: DocumentForma
           const output = await client.formatPage(request.sourceBytes, context.abortSignal);
           if (output.sha256 !== sha256(output.bytes) || sha256(request.sourceBytes) !== input.sourceSha256)
             throw safeCapabilityError('OUTPUT_INTEGRITY_FAILED', 'The DOCX failed integrity verification.');
-          request.output = { bytes: output.bytes, sha256: output.sha256, changes: output.changes };
+          request.output = { bytes: output.bytes, sha256: output.sha256, changes: output.changes, bodySummary: output.bodySummary };
           return {
             sourceSha256: input.sourceSha256,
             outputSha256: output.sha256,
             outputSizeBytes: output.bytes.length,
-            profile: 'nd30-page-v1' as const,
+            profile: 'nd30-safe-v2' as const,
             changes: output.changes,
+            bodySummary: output.bodySummary,
           };
         } catch (error) { return preserveSafeFailure(error); }
       },
