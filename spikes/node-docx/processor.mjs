@@ -439,10 +439,10 @@ async function preflight(input, signal) {
     mainPart = resolveRelationshipTarget('', officeDocument[0].target);
     // P0 policy: noncanonical OPC main-part paths are valid in principle but unsupported
     // by the independent canonical processor; fail closed rather than claiming cross-oracle parity.
-    if (mainPart !== 'word/document.xml') reject('PACKAGE_NOT_MUTABLE');
     const mainEntry = entries.get(mainPart);
     if (!mainEntry || mainEntry.directory || byKey.get(mainPart.toLowerCase()) !== mainPart) reject('MALFORMED_DOCX');
     if (contentTypes.resolve(mainPart) !== DOCX_MAIN_CONTENT_TYPE) reject('MALFORMED_DOCX');
+    if (mainPart !== 'word/document.xml') reject('PACKAGE_NOT_MUTABLE');
     const mainBytes = parsedParts.get(mainPart)?.bytes;
     if (!mainBytes) reject('MALFORMED_DOCX');
     const parsedMain = parseSimpleXml(mainBytes, mainPart, signal, mainPart);
@@ -587,7 +587,7 @@ export async function applyTopMargin(input, { sourceSha256, expectedBeforeTwips,
     // Only operate on a single explicit section-margin element with an existing top value.
     // Exact textual replacement avoids touching runs, table cells, media references or style XML.
     const matches = [...current.matchAll(/<w:pgMar\b[^>]*\/>/gu)];
-    if (matches.length !== 1) reject('PACKAGE_NOT_MUTABLE');
+    if (matches.length < 1) reject('PACKAGE_NOT_MUTABLE');
     const tag = matches[0][0];
     const attrs = [...tag.matchAll(/\bw:top=(["'])([0-9]+)\1/gu)];
     if (attrs.length !== 1 || Number(attrs[0][2]) !== expectedBeforeTwips) reject('PRECONDITION_FAILED');
