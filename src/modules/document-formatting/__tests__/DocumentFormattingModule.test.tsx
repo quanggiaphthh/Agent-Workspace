@@ -2,6 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 
 const authFetchMock = vi.hoisted(() => ({
   fetch: vi.fn(),
@@ -130,5 +131,34 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
     // CRITICAL: The Idempotency-Key passed to /apply must be IDENTICAL to the one passed to /confirm
     expect(applyKey).toBe(confirmKey);
     expect(applyCallHeaders['X-Confirmation-ID']).toBe('confirm-challenge-xyz');
+  });
+
+  it('shows the actual page changes and a download after one automatic request', async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x11]);
+    const changes = [{ property: 'w:pgMar/@w:left', beforeTwips: 1400, afterTwips: 1701 }];
+    authFetchMock.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'x-document-rule-profile': 'nd30-page-v1',
+        'x-document-changes': Buffer.from(JSON.stringify(changes)).toString('base64url'),
+        'x-document-output-sha256': createHash('sha256').update(bytes).digest('hex'),
+      }),
+      blob: async () => new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+    });
+    await act(async () => root.render(<DocumentFormattingModule />));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      Object.defineProperty(input, 'files', { value: [new File([bytes], 'mau.docx')], configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const button = Array.from(container.querySelectorAll('button'))
+      .find(item => item.textContent?.includes('Tự động chỉnh khổ và lề'));
+    expect(button).toBeTruthy();
+    await act(async () => { button!.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(authFetchMock.fetch).toHaveBeenCalledWith('/api/document-formatting/automatic', expect.objectContaining({ method: 'POST' }));
+    expect(container.textContent).toContain('Lề trái: 24.7 → 30.0 mm');
+    expect(container.textContent).toContain('Tải Word đã xử lý');
   });
 });

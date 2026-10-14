@@ -2,16 +2,13 @@ import { createHash } from 'crypto';
 import { z } from 'zod';
 import { ServerCapabilityRegistry } from '../../core/capabilities/serverCapabilityRegistry';
 import { SafeCapabilityExecutionError } from '../../core/capabilities/SafeCapabilityExecutionError';
-import {
-  DocumentProcessorClient,
-  DocumentProcessorError,
-  ProcessorAlignmentSchema,
-} from '../../core/documents/documentProcessorClient';
+import { DocumentProcessorError, ProcessorAlignmentSchema } from '../../core/documents/documentProcessorClient';
 import { currentRequestScopedDocument } from '../../core/documents/requestScopedDocument';
 import type { CapabilityDescriptor } from '../../../shared/contracts/capability';
 import type { ModuleMetadata } from '../../core/modules/moduleCatalog';
 import { DOCX_MIME_TYPE, MAX_FILE_BYTES } from '../../../shared/contracts/fileUploadPolicy';
 import { isDocumentFormattingReleaseReady } from './releaseGate';
+import { LocalDocumentProcessor } from './localDocumentProcessor';
 
 const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const ParagraphIdSchema = z.string().regex(/^p[1-9][0-9]{0,8}$/);
@@ -55,6 +52,18 @@ const ApplyOutputSchema = z.object({
   }).strict(),
 }).strict();
 
+const AutoFormatOutputSchema = z.object({
+  sourceSha256: Sha256Schema,
+  outputSha256: Sha256Schema,
+  outputSizeBytes: z.number().int().positive().max(MAX_FILE_BYTES),
+  profile: z.literal('nd30-page-v1'),
+  changes: z.array(z.object({
+    property: z.string().regex(/^w:pg(?:Sz|Mar)\/@w:[a-z]+$/),
+    beforeTwips: z.number().int().nonnegative(),
+    afterTwips: z.number().int().nonnegative(),
+  }).strict()).max(6),
+}).strict();
+
 export const documentFormattingModuleMetadata: ModuleMetadata = {
   id: 'document-formatting',
   name: 'Định dạng văn bản',
@@ -64,8 +73,8 @@ export const documentFormattingModuleMetadata: ModuleMetadata = {
   isReleaseReady: isDocumentFormattingReleaseReady,
 };
 
-type ProcessorClient = Pick<DocumentProcessorClient, 'inspect' | 'applyAlignment'>;
-export type DocumentFormattingDependencies = { processor?: ProcessorClient };
+type ProcessorClient = Pick<LocalDocumentProcessor, 'inspect' | 'applyAlignment'>;
+export type DocumentFormattingDependencies = { processor?: ProcessorClient; pageProcessor?: Pick<LocalDocumentProcessor, 'formatPage'> };
 
 function safeCapabilityError(code: string, message: string): Error {
   return new SafeCapabilityExecutionError(code, message);
@@ -97,6 +106,36 @@ export function createDocumentFormattingCapabilities(dependencies: DocumentForma
 
   return [
     {
+      id: 'document.autoFormatPage',
+      moduleId: 'document-formatting',
+      description: 'Format only A4 page geometry and margin ranges on a supported one-section DOCX. Return a one-time artifact and actual changes; no document bytes or text are stored.',
+      inputSchema: InspectInputSchema,
+      outputSchema: AutoFormatOutputSchema,
+      risk: 'low' as const,
+      sideEffect: 'none' as const,
+      confirmationPolicy: 'none' as const,
+      allowedSources: ['rest'],
+      permissions: ['files.read', 'files.write'],
+      execute: async (input: z.infer<typeof InspectInputSchema>, context: { user?: { id: string }; abortSignal?: AbortSignal }) => {
+        try {
+          if (!context.user?.id) throw safeCapabilityError('UNAUTHORIZED', 'A verified owner is required.');
+          const request = requireBoundDocument(input.sourceSha256, input.sizeBytes);
+          const client = dependencies.pageProcessor ?? new LocalDocumentProcessor();
+          const output = await client.formatPage(request.sourceBytes, context.abortSignal);
+          if (output.sha256 !== sha256(output.bytes) || sha256(request.sourceBytes) !== input.sourceSha256)
+            throw safeCapabilityError('OUTPUT_INTEGRITY_FAILED', 'The DOCX failed integrity verification.');
+          request.output = { bytes: output.bytes, sha256: output.sha256, changes: output.changes };
+          return {
+            sourceSha256: input.sourceSha256,
+            outputSha256: output.sha256,
+            outputSizeBytes: output.bytes.length,
+            profile: 'nd30-page-v1' as const,
+            changes: output.changes,
+          };
+        } catch (error) { return preserveSafeFailure(error); }
+      },
+    },
+    {
       id: 'document.inspect',
       moduleId: 'document-formatting',
       description: 'Inspect one request-scoped DOCX and return deterministic safety and direct paragraph alignment data through the document route. Makes no legal-compliance claim and stores no document content.',
@@ -111,7 +150,7 @@ export function createDocumentFormattingCapabilities(dependencies: DocumentForma
         try {
           if (!context.user?.id) throw safeCapabilityError('UNAUTHORIZED', 'A verified owner is required.');
           const request = requireBoundDocument(input.sourceSha256, input.sizeBytes);
-          const client = processor ?? new DocumentProcessorClient();
+          const client = processor ?? new LocalDocumentProcessor();
           const inspection = await client.inspect(request.sourceBytes, context.abortSignal);
           if (inspection.sourceSha256 !== input.sourceSha256)
             throw safeCapabilityError('PROCESSOR_INVALID_RESPONSE', 'The document processor source digest did not match.');
@@ -145,7 +184,7 @@ export function createDocumentFormattingCapabilities(dependencies: DocumentForma
         try {
           if (!context.user?.id) throw safeCapabilityError('UNAUTHORIZED', 'A verified owner is required.');
           const request = requireBoundDocument(input.sourceSha256);
-          const client = processor ?? new DocumentProcessorClient();
+          const client = processor ?? new LocalDocumentProcessor();
           const applied = await client.applyAlignment({
             bytes: request.sourceBytes,
             sourceSha256: input.sourceSha256,

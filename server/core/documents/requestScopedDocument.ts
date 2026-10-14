@@ -7,7 +7,7 @@ export interface RequestScopedDocument {
   sourceSha256: string;
   originalName: string;
   inspection?: DocumentInspectionResult;
-  output?: { bytes: Buffer; sha256: string };
+  output?: { bytes: Buffer; sha256: string; changes?: Array<{ property: string; beforeTwips: number; afterTwips: number }> };
 }
 
 const requestStorage = new AsyncLocalStorage<RequestScopedDocument>();

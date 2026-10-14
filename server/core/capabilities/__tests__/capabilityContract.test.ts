@@ -55,19 +55,17 @@ describe('GĐ3 L1 capability contract and registry hardening', () => {
       'system.memory.add','system.memory.query','system.tasks.create','system.tasks.list','system.web.search',
       'ui.openEntity','ui.openModule','ui.refresh','ui.showNotification',
     ];
-    expect(caps.map(c => c.id).sort()).toEqual([...lockedM1Ids, 'system.tasks.delete', 'system.tasks.search', 'system.tasks.update', 'document.inspect', 'document.applyAlignment'].sort());
-    expect(caps).toHaveLength(14);
+    expect(caps.map(c => c.id).sort()).toEqual([...lockedM1Ids, 'system.tasks.delete', 'system.tasks.search', 'system.tasks.update', 'document.inspect', 'document.applyAlignment', 'document.autoFormatPage'].sort());
+    expect(caps).toHaveLength(15);
     expect(caps.every(c => !!c.sideEffect && ['none','mutation','ui-local'].includes(c.sideEffect))).toBe(true);
     expect(caps.every(c => !!c.confirmationPolicy && ['none','required'].includes(c.confirmationPolicy))).toBe(true);
   });
 
   it('keeps document formatting module-bound, disabled with its module, and confirmed before mutation', async () => {
     vi.stubEnv('DOCUMENT_FORMATTING_V1_RELEASE_APPROVED', 'true');
-    vi.stubEnv('DOCUMENT_PROCESSOR_URL', 'https://processor.example');
-    vi.stubEnv('DOCUMENT_PROCESSOR_SHARED_TOKEN', 'test-shared-token-with-at-least-32-bytes');
     bootstrapServer();
     const capabilities = ServerCapabilityRegistry.listAll().filter(capability => capability.moduleId === 'document-formatting');
-    expect(capabilities.map(capability => capability.id).sort()).toEqual(['document.applyAlignment', 'document.inspect']);
+    expect(capabilities.map(capability => capability.id).sort()).toEqual(['document.applyAlignment', 'document.autoFormatPage', 'document.inspect']);
     expect(storage.getData().moduleSettings['document-formatting'].enabled).toBe(false);
     const input = { sourceSha256: 'a'.repeat(64), sizeBytes: 128, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
     const applyInput = { sourceSha256: 'a'.repeat(64), paragraphId: 'p1', expectedBefore: 'LEFT', desiredAfter: 'CENTER' };

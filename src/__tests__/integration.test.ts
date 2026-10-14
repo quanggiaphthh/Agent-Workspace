@@ -10,7 +10,9 @@ import { fileIngestionService } from '../../server/core/files/firebaseFileStores
 import { MAX_FILE_BYTES } from '../../server/core/files/filePolicy';
 import { DOCX_MIME_TYPE } from '../../shared/contracts/fileUploadPolicy';
 import { createHash, randomUUID } from 'crypto';
-import { DocumentProcessorClient } from '../../server/core/documents/documentProcessorClient';
+import { readFile } from 'node:fs/promises';
+import { ZipWriter, TextReader, Uint8ArrayWriter } from '@zip.js/zip.js';
+import { LocalDocumentProcessor } from '../../server/modules/document-formatting/localDocumentProcessor';
 import { CapabilityConfirmationService } from '../../server/core/capabilities/CapabilityConfirmationService';
 import { evaluateConfirmationRecord, hashCapabilityInput } from '../../server/core/capabilities/CapabilityConfirmationPolicy';
 import { CapabilityExecutionIdempotencyService, type MutationExecutionRecord } from '../../server/core/capabilities/CapabilityExecutionService';
@@ -439,8 +441,6 @@ describe('Production Integration & Security Suite', () => {
   });
 
   describe('Document Formatting V1 temporary binary routes', () => {
-    const originalProcessorUrl = process.env.DOCUMENT_PROCESSOR_URL;
-    const originalProcessorToken = process.env.DOCUMENT_PROCESSOR_SHARED_TOKEN;
     const originalReleaseApproval = process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED;
     const inputBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x11, 0x22]);
     const outputBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x33, 0x44]);
@@ -460,8 +460,6 @@ describe('Production Integration & Security Suite', () => {
     }
 
     beforeEach(async () => {
-      process.env.DOCUMENT_PROCESSOR_URL = 'http://127.0.0.1';
-      process.env.DOCUMENT_PROCESSOR_SHARED_TOKEN = 'test-shared-token-with-at-least-32-bytes';
       process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED = 'true';
       await storage.setModuleEnabled('document-formatting', true);
       vi.spyOn(AuditService, 'log').mockResolvedValue({ id: 'doc-audit' } as any);
@@ -477,10 +475,6 @@ describe('Production Integration & Security Suite', () => {
     afterAll(async () => {
       await storage.setModuleEnabled('document-formatting', false);
       CapabilityExecutionIdempotencyService.resetRepositoryForTests();
-      if (originalProcessorUrl === undefined) delete process.env.DOCUMENT_PROCESSOR_URL;
-      else process.env.DOCUMENT_PROCESSOR_URL = originalProcessorUrl;
-      if (originalProcessorToken === undefined) delete process.env.DOCUMENT_PROCESSOR_SHARED_TOKEN;
-      else process.env.DOCUMENT_PROCESSOR_SHARED_TOKEN = originalProcessorToken;
       if (originalReleaseApproval === undefined) delete process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED;
       else process.env.DOCUMENT_FORMATTING_V1_RELEASE_APPROVED = originalReleaseApproval;
     });
@@ -506,7 +500,7 @@ describe('Production Integration & Security Suite', () => {
     it('inspects in request scope and keeps paragraph text out of durable audit and file stores', async () => {
       vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
       const privateText = 'DOCX PRIVATE PARAGRAPH SENTINEL';
-      const inspectSpy = vi.spyOn(DocumentProcessorClient.prototype, 'inspect').mockResolvedValue({
+      const inspectSpy = vi.spyOn(LocalDocumentProcessor.prototype, 'inspect').mockResolvedValue({
         sourceSha256: digest(inputBytes), profile: 'generic-direct-alignment-spike', safeToMutate: true, packagePolicy: 'NORMAL',
         paragraphs: [{ paragraphId: 'p1', text: privateText, directAlignment: 'LEFT', issueId: null }],
         paragraphsTruncated: false, diagnostics: [],
@@ -534,6 +528,105 @@ describe('Production Integration & Security Suite', () => {
       } finally {
         inspectSpy.mockRestore(); ingestSpy.mockRestore(); storeSpy.mockRestore();
       }
+    });
+
+    it('inspects a real Vietnamese DOCX through the HTTP route using the local worker', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
+      const source = await readFile(new URL('../../server/modules/document-formatting/fixtures/24-vietnamese-rich.docx', import.meta.url));
+      const storeSpy = vi.spyOn(userFileService, 'store');
+      const ingestSpy = vi.spyOn(fileIngestionService, 'ingest');
+      const response = await request(app)
+        .post('/api/document-formatting/inspect')
+        .set('Authorization', 'Bearer token_A')
+        .set('Content-Type', DOCX_MIME_TYPE)
+        .set('X-File-Name', 'vietnamese.docx')
+        .send(source);
+      expect(response.status).toBe(200);
+      expect(response.body.inspection.sourceSha256).toBe(digest(source));
+      expect(response.body.inspection.paragraphs.some((paragraph: any) => paragraph.text.includes('Việt'))).toBe(true);
+      expect(storeSpy).not.toHaveBeenCalled();
+      expect(ingestSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns one-time automatic page output and an exact changes report without file storage', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
+      const changes = [{ property: 'w:pgMar/@w:left', beforeTwips: 1400, afterTwips: 1701 }];
+      const formatter = vi.spyOn(LocalDocumentProcessor.prototype, 'formatPage').mockResolvedValue({
+        bytes: Buffer.from(outputBytes), sha256: digest(outputBytes), changes,
+      });
+      const storeSpy = vi.spyOn(userFileService, 'store');
+      const ingestSpy = vi.spyOn(fileIngestionService, 'ingest');
+      const response = await request(app)
+        .post('/api/document-formatting/automatic')
+        .set('Authorization', 'Bearer token_A')
+        .set('Content-Type', DOCX_MIME_TYPE)
+        .set('X-File-Name', 'sample.docx')
+        .buffer(true)
+        .parse((rawResponse, callback) => {
+          const chunks: Buffer[] = [];
+          rawResponse.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+          rawResponse.on('end', () => callback(null, Buffer.concat(chunks)));
+        })
+        .send(inputBytes);
+      expect(response.status).toBe(200);
+      expect(Buffer.from(response.body)).toEqual(outputBytes);
+      expect(response.headers['x-document-output-sha256']).toBe(digest(outputBytes));
+      expect(JSON.parse(Buffer.from(response.headers['x-document-changes'], 'base64url').toString('utf8'))).toEqual(changes);
+      expect(response.headers['x-document-rule-profile']).toBe('nd30-page-v1');
+      expect(formatter).toHaveBeenCalledOnce();
+      expect(storeSpy).not.toHaveBeenCalled();
+      expect(ingestSpy).not.toHaveBeenCalled();
+      expect(formatter.mock.calls[0][0].every(byte => byte === 0)).toBe(true);
+    });
+
+    it('formats a real one-section DOCX through the HTTP route and preserves its Vietnamese text', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
+      const entries = {
+        '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+        '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+        'word/document.xml': '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Xin chào Việt Nam</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1000" w:bottom="1300" w:left="1400" w:right="1134"/></w:sectPr></w:body></w:document>',
+      };
+      const writer = new ZipWriter(new Uint8ArrayWriter(), { zip64: false });
+      for (const [name, xml] of Object.entries(entries)) await writer.add(name, new TextReader(xml), { level: 6 });
+      const source = Buffer.from(await writer.close());
+      const storeSpy = vi.spyOn(userFileService, 'store');
+      const response = await request(app)
+        .post('/api/document-formatting/automatic')
+        .set('Authorization', 'Bearer token_A')
+        .set('Content-Type', DOCX_MIME_TYPE)
+        .set('X-File-Name', 'mau.docx')
+        .buffer(true)
+        .parse((rawResponse, callback) => {
+          const chunks: Buffer[] = [];
+          rawResponse.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+          rawResponse.on('end', () => callback(null, Buffer.concat(chunks)));
+        })
+        .send(source);
+      expect(response.status).toBe(200);
+      const output = Buffer.from(response.body);
+      expect(response.headers['x-document-output-sha256']).toBe(digest(output));
+      const changes = JSON.parse(Buffer.from(response.headers['x-document-changes'], 'base64url').toString('utf8'));
+      expect(changes.map((change: any) => change.property)).toEqual([
+        'w:pgSz/@w:w', 'w:pgSz/@w:h', 'w:pgMar/@w:top', 'w:pgMar/@w:left',
+      ]);
+      const inspection = await new LocalDocumentProcessor().inspect(output);
+      expect(inspection.paragraphs[0].text).toBe('Xin chào Việt Nam');
+      expect(storeSpy).not.toHaveBeenCalled();
+      expect(JSON.stringify(vi.mocked(AuditService.log).mock.calls)).not.toContain('Xin chào Việt Nam');
+    });
+
+    it('refuses automatic page changes on a multi-section document without returning DOCX', async () => {
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({ ...mockUserA, permissions: ['files.read', 'files.write'] } as any);
+      const source = await readFile(new URL('../../server/modules/document-formatting/fixtures/24-vietnamese-rich.docx', import.meta.url));
+      const response = await request(app)
+        .post('/api/document-formatting/automatic')
+        .set('Authorization', 'Bearer token_A')
+        .set('Content-Type', DOCX_MIME_TYPE)
+        .set('X-File-Name', 'rich.docx')
+        .send(source);
+      expect(response.status).toBe(422);
+      expect(response.body.code).toBe('PACKAGE_NOT_MUTABLE');
+      expect(response.headers['x-document-output-sha256']).toBeUndefined();
     });
 
     it('rejects /confirm requests when Idempotency-Key is missing or invalid', async () => {
@@ -605,12 +698,12 @@ describe('Production Integration & Security Suite', () => {
         return { ok: true, confirmationId: options.confirmationId };
       });
 
-      const inspectSpy = vi.spyOn(DocumentProcessorClient.prototype, 'inspect').mockImplementation(async (bytes: Buffer) => ({
+      const inspectSpy = vi.spyOn(LocalDocumentProcessor.prototype, 'inspect').mockImplementation(async (bytes: Buffer) => ({
         sourceSha256: digest(bytes), profile: 'generic-direct-alignment-spike', safeToMutate: true, packagePolicy: 'NORMAL',
         paragraphs: [{ paragraphId: 'p1', text: 'PRIVATE_APPLY_TEXT', directAlignment: bytes.equals(outputBytes) ? 'CENTER' : 'LEFT', issueId: null }],
         paragraphsTruncated: false, diagnostics: [],
       } as any));
-      const applySpy = vi.spyOn(DocumentProcessorClient.prototype, 'applyAlignment').mockResolvedValue({ bytes: Buffer.from(outputBytes), sha256: digest(outputBytes) });
+      const applySpy = vi.spyOn(LocalDocumentProcessor.prototype, 'applyAlignment').mockResolvedValue({ bytes: Buffer.from(outputBytes), sha256: digest(outputBytes) });
       const ingestSpy = vi.spyOn(fileIngestionService, 'ingest');
       const storeSpy = vi.spyOn(userFileService, 'store');
       const auditPayloads: unknown[] = [];

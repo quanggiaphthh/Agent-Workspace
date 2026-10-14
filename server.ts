@@ -649,6 +649,56 @@ app.post('/api/document-formatting/inspect', expensiveUserLimiter, requirePermis
   }
 });
 
+app.post('/api/document-formatting/automatic', expensiveUserLimiter, requirePermission('files.read'), requirePermission('files.write'), express.raw({ type: () => true, limit: MAX_FILE_BYTES }), async (req, res) => {
+  const cancellation = bindRequestCancellation(req, res);
+  let scoped: RequestScopedDocument | undefined;
+  let responseOwnsOutput = false;
+  try {
+    const user = requireAuthenticatedUser(req);
+    const { filename, mimeType } = parseDocumentFilename(req);
+    const bytes = validateDocumentRequestBytes(req);
+    const sourceSha256 = createHash('sha256').update(bytes).digest('hex');
+    scoped = makeDocumentScope(bytes, sourceSha256, filename);
+    const result = await runWithRequestScopedDocument(scoped, () => CapabilityExecutionService.execute(
+      'document.autoFormatPage', { sourceSha256, sizeBytes: bytes.length, mimeType },
+      { user, appContext: { user, availableCapabilities: [] }, confirmed: false, abortSignal: cancellation.signal },
+      { source: 'rest', requestId: req.requestId, abortSignal: cancellation.signal },
+    ));
+    if (!result.success) return documentFailure(res, result);
+    if (!scoped.output) return documentFailure(res, { errorCode: 'EPHEMERAL_OUTPUT_UNAVAILABLE' });
+    const output = scoped.output;
+    const changes = output.changes ?? [];
+    const outputName = `${filename.replace(/\.docx$/i, '') || 'document'}-formatted.docx`;
+    responseOwnsOutput = true;
+    const cleanup = () => { if (scoped) clearRequestScopedDocument(scoped); };
+    res.once('finish', cleanup);
+    res.once('close', cleanup);
+    return res.status(200).set({
+      'Content-Type': DOCX_MIME_TYPE,
+      'Content-Length': String(output.bytes.length),
+      'Content-Disposition': buildSafeContentDisposition(outputName),
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Document-Output-Sha256': output.sha256,
+      'X-Document-Rule-Profile': 'nd30-page-v1',
+      'X-Document-Changes': Buffer.from(JSON.stringify(changes)).toString('base64url'),
+    }).end(output.bytes);
+  } catch (error: any) {
+    if (cancellation.signal.aborted || isCancellationError(error)) {
+      if (!res.headersSent && !res.writableEnded) res.status(499).end();
+      return;
+    }
+    return documentRequestFailure(res, error, 'DOCUMENT_REQUEST_FAILED');
+  } finally {
+    cancellation.cleanup();
+    if (scoped) {
+      clearRequestScopedSource(scoped);
+      scoped.inspection = undefined;
+      if (!responseOwnsOutput) clearRequestScopedOutput(scoped);
+    }
+  }
+});
+
 app.post('/api/document-formatting/confirm', expensiveUserLimiter, requirePermission('files.read'), requirePermission('files.write'), async (req, res) => {
   const parsed = DocumentAlignmentChangeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, error: 'Invalid document alignment confirmation request.', code: 'INVALID_INPUT' });
@@ -1248,7 +1298,7 @@ app.post('/api/capabilities/execute', expensiveUserLimiter, async (req, res) => 
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'Capability ID is required.' });
     }
-    if (id === 'document.inspect' || id === 'document.applyAlignment') {
+    if (id === 'document.inspect' || id === 'document.applyAlignment' || id === 'document.autoFormatPage') {
       return res.status(404).json({ error: 'Document capabilities require their authenticated binary routes.', code: 'DOCUMENT_ROUTE_REQUIRED' });
     }
     if (confirmationId !== undefined && typeof confirmationId !== 'string') {

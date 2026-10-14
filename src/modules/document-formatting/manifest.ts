@@ -8,7 +8,7 @@ export const documentFormattingManifest: ModuleManifest = {
   defaultEnabled: false,
   meta: {
     name: 'Định dạng văn bản',
-    description: 'Bản thử nghiệm căn lề DOCX; chỉ mở sau khi processor và các chốt bảo mật được phê duyệt.',
+    description: 'Tự chỉnh khổ giấy và lề trang cho DOCX một phần; các quy tắc khác đang hoàn thiện.',
     icon: 'FileText',
     order: 4,
   },

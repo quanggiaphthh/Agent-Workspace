@@ -30,6 +30,16 @@ type PendingConfirmation = {
   desiredAfter: Alignment;
   idempotencyKey: string;
 };
+type PageChange = { property: string; beforeTwips: number; afterTwips: number };
+type AutomaticResult = { url: string; filename: string; changes: PageChange[] };
+const PAGE_LABELS: Record<string, string> = {
+  'w:pgSz/@w:w': 'Chiều rộng trang',
+  'w:pgSz/@w:h': 'Chiều cao trang',
+  'w:pgMar/@w:top': 'Lề trên',
+  'w:pgMar/@w:bottom': 'Lề dưới',
+  'w:pgMar/@w:left': 'Lề trái',
+  'w:pgMar/@w:right': 'Lề phải',
+};
 
 const ALIGNMENTS: Alignment[] = ['LEFT', 'CENTER', 'RIGHT', 'JUSTIFY'];
 const ALIGNMENT_LABEL: Record<Alignment, string> = {
@@ -52,6 +62,9 @@ function safeOutputFilename(name: string): string {
   const base = name.replace(/\\/g, '/').split('/').pop()?.replace(/[\u0000-\u001f\u007f]/g, '').trim() || 'document.docx';
   return `${base.replace(/\.docx$/i, '') || 'document'}-formatted.docx`;
 }
+function millimetres(twips: number): string {
+  return (twips * 25.4 / 1440).toFixed(1);
+}
 
 function makeIdempotencyKey(): string {
   const uuid = globalThis.crypto?.randomUUID?.();
@@ -67,7 +80,8 @@ export function DocumentFormattingModule() {
   const [selectedParagraphId, setSelectedParagraphId] = useState('');
   const [desiredAfter, setDesiredAfter] = useState<Alignment | ''>('');
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
-  const [busy, setBusy] = useState<'inspect' | 'prepare' | 'apply' | null>(null);
+  const [busy, setBusy] = useState<'automatic' | 'inspect' | 'prepare' | 'apply' | null>(null);
+  const [automaticResult, setAutomaticResult] = useState<AutomaticResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const requestController = useRef<AbortController | null>(null);
@@ -84,6 +98,11 @@ export function DocumentFormattingModule() {
 
   const chooseFile = (event: React.ChangeEvent<HTMLInputElement>) => {
     const chosen = event.target.files?.[0] || null;
+    if (automaticResult) {
+      URL.revokeObjectURL(automaticResult.url);
+      objectUrls.current.delete(automaticResult.url);
+      setAutomaticResult(null);
+    }
     setInspection(null);
     setSelectedParagraphId('');
     setDesiredAfter('');
@@ -104,6 +123,68 @@ export function DocumentFormattingModule() {
       return;
     }
     setFile(chosen);
+  };
+
+  const formatPageAutomatically = async () => {
+    if (!file || busy) return;
+    const controller = new AbortController();
+    requestController.current = controller;
+    setBusy('automatic');
+    setError(null);
+    setNotice(null);
+    if (automaticResult) {
+      URL.revokeObjectURL(automaticResult.url);
+      objectUrls.current.delete(automaticResult.url);
+    }
+    setAutomaticResult(null);
+    try {
+      const response = await authFetch('/api/document-formatting/automatic', {
+        method: 'POST',
+        headers: { 'Content-Type': DOCX_MIME_TYPE, 'X-File-Name': encodeHeaderValue(file.name) },
+        body: file,
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(await parseResponseError(response));
+      if (response.headers.get('x-document-rule-profile') !== 'nd30-page-v1' ||
+          response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() !== DOCX_MIME_TYPE)
+        throw new Error('Kết quả định dạng chưa đúng cấu trúc.');
+      const encoded = response.headers.get('x-document-changes');
+      if (!encoded || !/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error('Thiếu báo cáo thay đổi.');
+      const decoded = JSON.parse(atob(encoded.replace(/-/g, '+').replace(/_/g, '/'))) as unknown;
+      if (!Array.isArray(decoded) || decoded.length > 6 ||
+          decoded.some(item => !item || typeof item !== 'object' ||
+            !Object.prototype.hasOwnProperty.call(PAGE_LABELS, (item as PageChange).property) ||
+            !Number.isSafeInteger((item as PageChange).beforeTwips) ||
+            !Number.isSafeInteger((item as PageChange).afterTwips)))
+        throw new Error('Báo cáo thay đổi không hợp lệ.');
+      const output = await response.blob();
+      if (output.size <= 0 || output.size > MAX_FILE_BYTES) throw new Error('Tệp kết quả vượt giới hạn an toàn.');
+      const expectedSha = response.headers.get('x-document-output-sha256')?.toLowerCase();
+      const actualSha = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await output.arrayBuffer())),
+        byte => byte.toString(16).padStart(2, '0')).join('');
+      if (!expectedSha || expectedSha !== actualSha) throw new Error('Tệp kết quả không vượt qua kiểm tra toàn vẹn.');
+      if (controller.signal.aborted) throw new Error('Đã hủy xử lý.');
+      const url = URL.createObjectURL(output);
+      objectUrls.current.add(url);
+      setAutomaticResult({ url, filename: safeOutputFilename(file.name), changes: decoded as PageChange[] });
+    } catch (caught) {
+      setError(controller.signal.aborted ? 'Đã hủy xử lý tệp.' :
+        caught instanceof Error ? caught.message : 'Không thể tự động xử lý DOCX.');
+    } finally {
+      if (requestController.current === controller) requestController.current = null;
+      setBusy(null);
+    }
+  };
+
+  const downloadAutomatic = () => {
+    if (!automaticResult) return;
+    const anchor = document.createElement('a');
+    anchor.href = automaticResult.url;
+    anchor.download = automaticResult.filename;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   };
 
   const inspect = async () => {
@@ -272,11 +353,11 @@ export function DocumentFormattingModule() {
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
-            <FileText className="h-4 w-4" /> Document Formatting V1
+            <FileText className="h-4 w-4" /> Văn bản Word
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-neutral-950 sm:text-3xl">Kiểm tra và căn lề DOCX</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-950 sm:text-3xl">Định dạng văn bản Word</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
-            V1 chỉ sửa căn lề trực tiếp của một đoạn văn. Tệp được gửi tạm thời để xử lý và trả về ngay; không tạo fileId hoặc lưu DOCX vào kho tệp của ứng dụng.
+            Chọn DOCX để tự chỉnh khổ A4 và lề trang theo Nghị định 30. Tệp chỉ được xử lý tạm thời và trả về để tải xuống.
           </p>
         </div>
         <div className="inline-flex w-fit items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900">
@@ -287,14 +368,14 @@ export function DocumentFormattingModule() {
       <Card className="border-blue-200 bg-blue-50/60">
         <CardContent className="flex gap-3 pt-5 text-sm leading-6 text-blue-950">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" />
-          <p>Đây chưa phải công cụ chuẩn hóa toàn bộ thể thức hành chính. Không hỗ trợ font, cỡ chữ, giãn dòng, lề trang hoặc định dạng bảng trong V1.</p>
+          <p>Hiện chỉ tự chỉnh khổ giấy và lề của tài liệu một phần, trình bày dọc. Phông chữ, cỡ chữ, giãn dòng, bảng và các thành phần thể thức khác chưa được tự động kiểm tra hoặc sửa.</p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>1. Chọn và kiểm tra tệp</CardTitle>
-          <CardDescription>DOCX tối đa 20 MiB. Việc chọn tệp không tải tệp lên /api/files.</CardDescription>
+          <CardTitle>Chọn tệp Word</CardTitle>
+          <CardDescription>Tệp DOCX tối đa 20 MiB. Tài liệu không được lưu trong kho tệp của ứng dụng.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <label className="block">
@@ -308,6 +389,10 @@ export function DocumentFormattingModule() {
             />
           </label>
           {file && <p className="break-all text-xs text-neutral-500">{file.name} · {(file.size / (1024 * 1024)).toFixed(2)} MiB</p>}
+          <Button type="button" onClick={() => void formatPageAutomatically()} disabled={!file || busy !== null}>
+            {busy === 'automatic' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+            {busy === 'automatic' ? 'Đang xử lý…' : 'Tự động chỉnh khổ và lề'}
+          </Button>
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={() => void inspect()} disabled={!file || busy !== null}>
               {busy === 'inspect' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
@@ -317,6 +402,27 @@ export function DocumentFormattingModule() {
           </div>
         </CardContent>
       </Card>
+
+      {automaticResult && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Kết quả tự động</CardTitle>
+            <CardDescription>Chỉ liệt kê các thuộc tính thực sự đã thay đổi.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {automaticResult.changes.length === 0 ? (
+              <p className="text-sm text-neutral-700">Khổ giấy và lề trang đã nằm trong khoảng được hỗ trợ; không thay đổi tệp.</p>
+            ) : (
+              <ul className="list-disc space-y-1 pl-5 text-sm text-neutral-700">
+                {automaticResult.changes.map(change => <li key={change.property}>
+                  {PAGE_LABELS[change.property]}: {millimetres(change.beforeTwips)} → {millimetres(change.afterTwips)} mm
+                </li>)}
+              </ul>
+            )}
+            <Button type="button" onClick={downloadAutomatic}><Download className="h-4 w-4" />Tải Word đã xử lý</Button>
+          </CardContent>
+        </Card>
+      )}
 
       {inspection && (
         <Card>
