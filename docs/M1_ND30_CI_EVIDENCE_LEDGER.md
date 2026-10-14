@@ -13,7 +13,7 @@
 | Commit workflow ban đầu | `c47200656ebe33637c83e8b64e8a16c6643cfd3e` |
 | Commit đã CI PASS | `7aed1f9a6f67ec037d204a6790b598d6253d62e5` |
 | ND30 rule authority `main` | `078dae21f9e23975676179fa189f5c01b605f49a` |
-| Docs-ND30 | Tham khảo kỹ thuật בלבד; không checkout/build |
+| Docs-ND30 | Chỉ tham khảo kỹ thuật; không checkout/build |
 
 **Đã đóng blocker lỗi thời:** `DOCS_ND30_READ_TOKEN` không còn là điều kiện tiên quyết. Không nghiên cứu lại Nghị định 30 gốc, không lấy Docs-ND30 làm rule authority.
 
