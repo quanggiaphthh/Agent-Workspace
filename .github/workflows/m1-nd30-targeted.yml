@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - task/m1-nd30-ci-evidence-20261014
+    paths-ignore:
+      - 'docs/M1_ND30_CI_EVIDENCE_LEDGER.md'
+      - 'docs/M1_ND30_FINAL_GATE.md'
 permissions:
   contents: read
 jobs:
@@ -46,7 +49,7 @@ jobs:
           node --input-type=module <<'NODE'
           import { Worker } from 'node:worker_threads';
           async function invoke(operation) {
-            const worker = new Worker(new URL('./server/modules/document-formatting/docxWorker.mjs', import.meta.url));
+            const worker = new Worker(new URL('./server/modules/document-formatting/docxWorker.mjs', import.meta.url), {execArgv: []});
             return await new Promise((resolve,reject) => {
               const timer = setTimeout(() => { void worker.terminate(); reject(new Error('timeout')); },5000);
               worker.once('message', result => { clearTimeout(timer); void worker.terminate(); resolve(result); });
