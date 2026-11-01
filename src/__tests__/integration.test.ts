@@ -110,6 +110,27 @@ describe('Production Integration & Security Suite', () => {
     });
   });
 
+  describe('PRODUCTION — DIAGNOSTIC ROUTE', () => {
+    it('returns 404 to the owner and never runs the Firestore diagnostic write in production', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.OWNER_UID = mockUserA.uid;
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValueOnce(mockUserA as any);
+      const collectionSpy = vi.spyOn(adminFirestore, 'collection');
+      try {
+        const response = await request(app)
+          .get('/api/test/firebase-connection')
+          .set('Authorization', 'Bearer owner-token');
+        expect(response.status).toBe(404);
+        expect(response.body.code).toBe('API_ROUTE_NOT_FOUND');
+        expect(collectionSpy).not.toHaveBeenCalledWith('_server_probe');
+      } finally {
+        collectionSpy.mockRestore();
+        process.env.NODE_ENV = 'test';
+        delete process.env.OWNER_UID;
+      }
+    });
+  });
+
   describe('AUTHORIZATION ORDER — CREDENTIAL ROUTES', () => {
     it('rejects unauthenticated model requests before credential resolution', async () => {
       const resolveSpy = vi.spyOn(CredentialService, 'resolveCredential');
