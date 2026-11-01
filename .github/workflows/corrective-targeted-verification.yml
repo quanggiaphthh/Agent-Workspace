@@ -85,6 +85,56 @@ jobs:
             package-lock.json
             advisory-inventory.json
 
+
+  happy-dom-upgrade-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Upgrade test-only dependency in an isolated runner
+        run: |
+          npm install --global npm@11.19.1
+          npm install --save-dev --save-exact happy-dom@21.0.4
+          git diff --check
+          git diff --stat -- package.json package-lock.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const oldLock = JSON.parse(execFileSync('git', ['show', 'HEAD:package-lock.json'], { encoding: 'utf8' }));
+          const newLock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          const changes = [...new Set([...Object.keys(oldLock.packages), ...Object.keys(newLock.packages)])]
+            .filter(path => JSON.stringify(oldLock.packages[path]) !== JSON.stringify(newLock.packages[path]))
+            .map(path => ({ path, before: oldLock.packages[path]?.version ?? null, after: newLock.packages[path]?.version ?? null }));
+          console.log('HAPPY_DOM_CANDIDATE_CHANGES=' + JSON.stringify(changes));
+          NODE
+      - name: Verify affected UI and overall test infrastructure
+        run: |
+          npm run test
+          npm run lint
+          npm run build
+      - name: Record remaining high advisory count
+        run: |
+          npm audit --json > advisory-happy-dom.json || true
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const data = JSON.parse(fs.readFileSync('advisory-happy-dom.json', 'utf8'));
+          console.log('HAPPY_DOM_CANDIDATE_VULNERABILITIES=' + JSON.stringify(data.metadata?.vulnerabilities || {}));
+          console.log('HAPPY_DOM_CANDIDATE_HIGH=' + JSON.stringify(Object.entries(data.vulnerabilities || {}).filter(([,v]) => ['high','critical'].includes(v.severity)).map(([name,v]) => name)));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: happy-dom-compatibility-candidate
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            package.json
+            package-lock.json
+            advisory-happy-dom.json
+
   security-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
