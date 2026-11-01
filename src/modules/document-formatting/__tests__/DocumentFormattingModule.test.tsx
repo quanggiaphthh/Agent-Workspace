@@ -32,6 +32,10 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
     container.remove();
   });
 
+  const flushDigestAndUi = async () => {
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+  };
+
   it('generates one Idempotency-Key during prepareConfirmation and forwards the identical key to applyAndDownload', async () => {
     const inspectedSha = 'a'.repeat(64);
     const mockInspection = {
@@ -138,6 +142,7 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
     // CRITICAL: The Idempotency-Key passed to /apply must be IDENTICAL to the one passed to /confirm
     expect(applyKey).toBe(confirmKey);
     expect(applyCallHeaders['X-Confirmation-ID']).toBe('confirm-challenge-xyz');
+    await flushDigestAndUi();
     expect(container.textContent).toContain('Đã tải DOCX đã chỉnh sửa.');
   });
 
@@ -223,6 +228,7 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
       Object.defineProperty(input, 'files', { value: [new File([bytes], 'bad.docx')], configurable: true });
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    await flushDigestAndUi();
     expect(container.textContent).toContain('không vượt qua kiểm tra toàn vẹn');
     expect(container.textContent).not.toContain('Tải Word đã xử lý');
   });
@@ -268,6 +274,7 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
     await click('Kiểm tra DOCX');
     await click('Chuẩn bị xác nhận');
     await click('Xác nhận và tải DOCX');
+    await flushDigestAndUi();
     expect(authFetchMock.fetch).toHaveBeenCalledTimes(4);
     expect(container.textContent).toContain('không vượt qua kiểm tra toàn vẹn');
     expect(container.textContent).not.toContain('Đã tải DOCX đã chỉnh sửa');
