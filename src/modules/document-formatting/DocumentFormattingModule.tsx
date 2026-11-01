@@ -441,7 +441,7 @@ export function DocumentFormattingModule() {
         <Card>
           <CardHeader>
             <CardTitle>Kết quả tự động</CardTitle>
-            <CardDescription>Chỉ liệt kê các thuộc tính thực sự đã thay đổi.</CardDescription>
+            <CardDescription>Báo cáo thay đổi thực tế trên trang và các đoạn BodyText được hỗ trợ; kết quả này không chứng nhận toàn văn đã đạt ND30/HD05.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {automaticResult.changes.length === 0 ? (
