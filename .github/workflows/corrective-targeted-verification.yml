@@ -49,7 +49,8 @@ jobs:
           cache: npm
       - name: Propose only semver-compatible advisory patches
         run: |
-          npm update --package-lock-only --no-save body-parser re2js seroval vite zod
+          npm install --global npm@11.19.1
+          npm update --package-lock-only body-parser re2js seroval vite zod
           git diff --check
           git diff --stat -- package-lock.json
           if ! git diff --quiet -- package.json; then
