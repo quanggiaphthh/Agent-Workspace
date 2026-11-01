@@ -1,0 +1,54 @@
+name: Corrective Targeted Verification
+
+on:
+  push:
+    branches:
+      - 'corrective/**'
+    paths:
+      - 'server.ts'
+      - 'src/__tests__/integration.test.ts'
+      - 'src/modules/document-formatting/**'
+      - 'docs/CORRECTIVE_2026-11-01_SECURITY_DOCFMT.md'
+      - '.github/workflows/corrective-targeted-verification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VITE_FIREBASE_API_KEY: ci-test-only-not-a-production-key
+
+jobs:
+  affected-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Targeted UI and API tests
+        run: npx vitest run src/modules/document-formatting/__tests__/DocumentFormattingModule.test.tsx src/__tests__/integration.test.ts
+      - name: TypeScript check
+        run: npm run lint
+      - name: Document worker and production build
+        run: npm run build
+
+  security-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Security policy + dependency audit (never allowlisted on expiry)
+        run: |
+          npx vitest run scripts/security-audit-policy.test.mjs
+          node scripts/security-audit.mjs
