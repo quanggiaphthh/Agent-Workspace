@@ -254,8 +254,11 @@ function requirePermission(permission: string) {
   };
 }
 
-// Acceptance test route & Phase 3 Probe
+// Acceptance test route & Phase 3 Probe — never execute diagnostic Firestore writes in production.
 app.get('/api/test/firebase-connection', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'API route not found.', code: 'API_ROUTE_NOT_FOUND' });
+  }
   const user = req.user;
   const sessionId = `probe_${Date.now()}`;
   
