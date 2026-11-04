@@ -1,0 +1,53 @@
+name: CAT Core-Agent-Task verification
+
+on:
+  push:
+    branches:
+      - 'cat/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  VITE_FIREBASE_API_KEY: ci-test-only-not-a-production-key
+
+jobs:
+  correctness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: TypeScript
+        run: npm run lint
+      - name: CAT-01 Core reliability + locked architecture regressions
+        run: npx vitest run src/core/modules/moduleRegistry.reliability.test.ts src/__tests__/architecture.test.ts
+      - name: Complete Vitest suite
+        run: npm run test
+      - name: Production build
+        run: npm run build
+      - name: Source manifest
+        run: node scripts/verify-production-source-manifest.mjs
+
+  security-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Canonical security audit (release-blocking)
+        run: node scripts/security-audit.mjs
+      - name: W11 bounded security QA
+        run: node scripts/qa-w11-security.mjs
