@@ -5,13 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
   uid: 'A' as string | null,
+  ownerA: { uid: 'A' },
+  ownerB: { uid: 'B' },
   loading: false,
   fetch: vi.fn(),
 }));
 
 vi.mock('../../lib/FirebaseAuthProvider', () => ({
   useFirebaseAuth: () => ({
-    user: state.uid ? { uid: state.uid } : null,
+    user: state.uid === 'A' ? state.ownerA : state.uid === 'B' ? state.ownerB : null,
     loading: state.loading,
   }),
 }));
