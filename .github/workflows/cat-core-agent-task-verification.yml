@@ -29,7 +29,7 @@ jobs:
       - name: TypeScript
         run: npm run lint
       - name: CAT-01 Core reliability + locked architecture regressions
-        run: npx vitest run src/core/modules/moduleRegistry.reliability.test.ts src/__tests__/architecture.test.ts
+        run: npx vitest run src/core/modules/moduleRegistry.reliability.test.ts src/core/context/contextStore.identity.test.ts src/__tests__/architecture.test.ts
       - name: Complete Vitest suite
         run: npm run test
       - name: Production build
