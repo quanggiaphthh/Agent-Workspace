@@ -75,7 +75,17 @@ export const useContextStore = create<ContextStoreState>((set, get) => ({
   },
 
   setUser: (user: UserContext) => {
-    set({ user });
+    const previous = get();
+    const identityChanged = previous.user.id !== user.id;
+    // Entity labels, filters and advertised tools are user-scoped Agent context.
+    // Never expose the previous owner's context after logout or account switch.
+    set(identityChanged
+      ? { user, selectedEntity: undefined, currentFilters: {}, availableCapabilities: [] }
+      : { user });
+    if (identityChanged) {
+      if (previous.selectedEntity) eventBus.emit('entity.selected', { entity: null });
+      eventBus.emit('filters.changed', { filters: {} });
+    }
     eventBus.emit('user.changed', { user });
     eventBus.emit('context.changed', get().getAppContext());
   },
