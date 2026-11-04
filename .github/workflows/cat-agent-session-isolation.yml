@@ -1,0 +1,47 @@
+name: CAT Agent Session Isolation
+
+on:
+  push:
+    branches: ['cat/02-*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  VITE_FIREBASE_API_KEY: ci-test-only-not-a-production-key
+
+jobs:
+  correctness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: TypeScript
+        run: npm run lint
+      - name: Agent identity boundary and run lifecycle
+        run: npx vitest run src/agent/ui/AdkRuntimeProvider.identity.test.tsx src/agent/runtime/__tests__/runLifecycle.test.ts
+      - name: Full tests
+        run: npm run test
+      - name: Production build
+        run: npm run build
+      - name: Source manifest
+        run: node scripts/verify-production-source-manifest.mjs
+  security-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Canonical security audit
+        run: node scripts/security-audit.mjs
