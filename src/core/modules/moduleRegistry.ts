@@ -12,6 +12,11 @@ import { authFetch } from '../../lib/authFetch';
 class LocalModuleRegistry {
   private manifests: Map<string, ModuleManifest> = new Map();
   private enabledMap: Map<string, boolean> = new Map();
+  /** Serializes overlapping enable/disable requests for the same module. */
+  private transitions: Map<string, Promise<void>> = new Map();
+  /** Prevents a server sync response from overwriting a newer local mutation. */
+  private mutationVersions: Map<string, number> = new Map();
+  private registryEpoch = 0;
 
   public register(manifest: ModuleManifest): void {
     this.manifests.set(manifest.id, manifest);
@@ -22,10 +27,18 @@ class LocalModuleRegistry {
   public unregister(moduleId: string): void {
     this.manifests.delete(moduleId);
     this.enabledMap.delete(moduleId);
+    this.transitions.delete(moduleId);
+    this.mutationVersions.delete(moduleId);
     eventBus.emit('module.unregistered', { moduleId });
   }
 
-  public reset(): void { this.manifests.clear(); this.enabledMap.clear(); }
+  public reset(): void {
+    this.registryEpoch += 1;
+    this.manifests.clear();
+    this.enabledMap.clear();
+    this.transitions.clear();
+    this.mutationVersions.clear();
+  }
   public async enable(moduleId: string, persist?: () => Promise<void>): Promise<void> { return this.setEnabled(moduleId, true, persist); }
   public async disable(moduleId: string, persist?: () => Promise<void>): Promise<void> { return this.setEnabled(moduleId, false, persist); }
 
@@ -34,13 +47,34 @@ class LocalModuleRegistry {
       console.warn(`Core module "${moduleId}" cannot be disabled.`);
       return;
     }
-    const manifest = this.manifests.get(moduleId);
-    if (!manifest || this.isEnabled(moduleId) === enabled) return;
-    const lifecycle = enabled ? manifest.lifecycle?.onEnable : manifest.lifecycle?.onDisable;
-    await lifecycle?.();
-    await persist?.();
-    this.enabledMap.set(moduleId, enabled);
-    eventBus.emit('module.statusChanged', { moduleId, enabled });
+    if (!this.manifests.has(moduleId)) return;
+
+    const previous = this.transitions.get(moduleId);
+    if (!previous && this.isEnabled(moduleId) === enabled) return;
+    this.mutationVersions.set(moduleId, (this.mutationVersions.get(moduleId) ?? 0) + 1);
+    const epoch = this.registryEpoch;
+
+    const transition = async () => {
+      const manifest = this.manifests.get(moduleId);
+      if (!manifest || this.isEnabled(moduleId) === enabled || this.registryEpoch !== epoch) return;
+      const lifecycle = enabled ? manifest.lifecycle?.onEnable : manifest.lifecycle?.onDisable;
+      await lifecycle?.();
+      // An unregistered/replaced module must not persist or publish a stale transition.
+      if (this.registryEpoch !== epoch || this.manifests.get(moduleId) !== manifest) return;
+      await persist?.();
+      if (this.registryEpoch !== epoch || this.manifests.get(moduleId) !== manifest) return;
+      this.enabledMap.set(moduleId, enabled);
+      eventBus.emit('module.statusChanged', { moduleId, enabled });
+    };
+
+    // A failed request must not poison later requests for the same module.
+    const operation = previous ? previous.catch(() => undefined).then(transition) : transition();
+    this.transitions.set(moduleId, operation);
+    try {
+      await operation;
+    } finally {
+      if (this.transitions.get(moduleId) === operation) this.transitions.delete(moduleId);
+    }
   }
 
   public isEnabled(moduleId: string): boolean { return this.enabledMap.get(moduleId) ?? false; }
@@ -52,9 +86,11 @@ class LocalModuleRegistry {
 
   public resolveModuleByPath(pathname: string): string {
     const routes = this.getRoutes();
-    const match = routes.find(r => r.path === pathname || (r.path !== '/' && pathname.startsWith(r.path)));
+    const match = routes
+      .filter(r => r.path === pathname || (r.path !== '/' && pathname.startsWith(r.path.endsWith('/') ? r.path : `${r.path}/`)))
+      .sort((a, b) => b.path.length - a.path.length)[0];
     if (match) {
-      for (const mod of this.listAll()) {
+      for (const mod of this.listEnabled()) {
         if (mod.routes?.some(r => r.path === match.path)) return mod.id;
       }
     }
@@ -99,11 +135,20 @@ class LocalModuleRegistry {
   }
 
   public async syncWithServer(): Promise<void> {
+    const epoch = this.registryEpoch;
+    const mutationVersionsAtRequest = new Map(this.mutationVersions);
     try {
       const res = await authFetch('/api/modules');
       if (res.ok) {
         const list: Array<{ id: string; enabled: boolean }> = await res.json();
-        list.forEach(item => { if (this.manifests.has(item.id)) this.enabledMap.set(item.id, item.enabled); });
+        if (this.registryEpoch !== epoch) return;
+        list.forEach(item => {
+          if (this.manifests.has(item.id)
+            && !this.transitions.has(item.id)
+            && this.mutationVersions.get(item.id) === mutationVersionsAtRequest.get(item.id)) {
+            this.enabledMap.set(item.id, item.enabled);
+          }
+        });
         eventBus.emit('modules.synced', {});
       }
     } catch (err) {
