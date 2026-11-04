@@ -145,6 +145,29 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
   const [isHydratingHistory, setIsHydratingHistory] = useState(false);
   const prefix = user ? `uid_${user.uid}_` : '';
   const isLoaded = useRef(false);
+  const runGate = useRef(new AgentRunGate());
+
+  const cancelRun = useCallback(() => {
+    runGate.current.cancel();
+    setIsRunning(false);
+    setIsLoading(false);
+  }, []);
+
+  // Identity changes are an Agent-session boundary: never retain another
+  // account's transcript, pending confirmation, or in-flight run.
+  const lastIdentityRef = useRef<string | null>(user?.uid ?? null);
+  useEffect(() => {
+    const uid = user?.uid ?? null;
+    if (lastIdentityRef.current === uid) return;
+    lastIdentityRef.current = uid;
+    cancelRun();
+    isLoaded.current = false;
+    setMessages([]);
+    setToolConfirmations([]);
+    setActiveSessionId('');
+    setHistoryError(undefined);
+    setTemporaryModeState(false);
+  }, [user?.uid, cancelRun]);
 
   useEffect(() => {
     let disposed = false;
@@ -203,14 +226,6 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
     try { localStorage.setItem(`${prefix}adk_active_session_id`, activeSessionId); }
     catch (e) { console.warn('Failed to save active Agent session pointer', e); }
   }, [activeSessionId, temporaryMode, prefix]);
-
-  const runGate = useRef(new AgentRunGate());
-
-  const cancelRun = useCallback(() => {
-    runGate.current.cancel();
-    setIsRunning(false);
-    setIsLoading(false);
-  }, []);
 
   const setTemporaryMode = useCallback((mode: boolean) => {
     if (mode === temporaryMode) return;
