@@ -90,7 +90,7 @@ describe('CAT-T01 Task owner render boundary', () => {
     try {
       await act(async () => { root.render(<TasksModule />); });
       await vi.waitFor(() => expect(container.textContent).toContain('Private task A'));
-      await act(async () => { container.querySelector('[data-testid="board"] button')?.click(); });
+      await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="board"] button')?.click(); });
       await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="save-detail"]')?.click(); });
       expect(releaseSave).toBeTypeOf('function');
       state.uid = 'B';
