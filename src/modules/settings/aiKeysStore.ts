@@ -62,7 +62,7 @@ export interface AIKeysState {
   setAISettingsHydrated: (value: boolean) => void;
   setProviderDefaultModel: (providerId: string, model: string) => void;
   setProviderLoadedModels: (providerId: string, models: { id: string; name: string }[]) => void;
-  syncKeys: () => Promise<boolean>;
+  syncKeys: (isCurrent?: () => boolean) => Promise<boolean>;
 
   // Gets active personal credentialId, or 'system' only for Google.
   getActiveCredentialId: (providerId: string) => string | null;
@@ -245,13 +245,16 @@ export const useAIKeysStore = create<AIKeysState>()(
         providerLoadedModels: { ...state.providerLoadedModels, [providerId]: models },
       })),
 
-      syncKeys: async () => {
+      syncKeys: async (isCurrent) => {
+        const active = () => isCurrent?.() !== false;
+        if (!active()) return false;
         set({ aiSettingsHydrated: false });
         try {
           const [res, agentOptionsRes] = await Promise.all([
             authFetch('/api/ai/credentials'),
             authFetch('/api/ai/credentials/agent-options'),
           ]);
+          if (!active()) return false;
           if (!res.ok || !agentOptionsRes.ok) {
             set({
               systemCredentialAvailable: null,
@@ -262,6 +265,7 @@ export const useAIKeysStore = create<AIKeysState>()(
           }
           const keysPayload = await res.json();
           const agentOptions = await agentOptionsRes.json();
+          if (!active()) return false;
           const keys = keysPayload.map((key: any) => ({ ...key, status: normalizeCredentialStatus(key.status) }));
           const systemCredentialAvailable = agentOptions.systemAvailable === true;
           set((state) => ({
@@ -277,6 +281,7 @@ export const useAIKeysStore = create<AIKeysState>()(
           }));
           return true;
         } catch {
+          if (!active()) return false;
           console.error('Failed to sync credential metadata.');
           set({
             systemCredentialAvailable: null,

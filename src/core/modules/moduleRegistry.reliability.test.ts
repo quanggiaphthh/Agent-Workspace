@@ -140,4 +140,42 @@ describe('CAT-01 module registry reliability', () => {
     await moduleRegistry.syncWithServer();
     expect(moduleRegistry.isEnabled('tasks')).toBe(false);
   });
+  it('keeps newest server sync when two responses arrive out of order', async () => {
+    register('tasks', '/tasks');
+    let first!: (value: unknown) => void;
+    let second!: (value: unknown) => void;
+    authFetchMock
+      .mockImplementationOnce(() => new Promise(resolve => { first = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { second = resolve; }));
+    const sync1 = moduleRegistry.syncWithServer();
+    const sync2 = moduleRegistry.syncWithServer();
+    second({ ok: true, json: async () => [{ id: 'tasks', enabled: false }] });
+    await sync2;
+    first({ ok: true, json: async () => [{ id: 'tasks', enabled: true }] });
+    await sync1;
+    expect(moduleRegistry.isEnabled('tasks')).toBe(false);
+  });
+
+  it('rejects a stale sync response bound to a different owner', async () => {
+    register('tasks', '/tasks');
+    let respond!: (value: unknown) => void;
+    authFetchMock.mockImplementationOnce(() => new Promise(resolve => { respond = resolve; }));
+    const syncing = moduleRegistry.syncWithServer('owner-A');
+    respond({ ok: true, json: async () => [{ id: 'tasks', enabled: false }] });
+    await syncing;
+    expect(moduleRegistry.isEnabled('tasks')).toBe(true);
+  });
+
+  it('does not apply a snapshot to a re-registered module', async () => {
+    register('tasks', '/tasks');
+    let respond!: (value: unknown) => void;
+    authFetchMock.mockImplementationOnce(() => new Promise(resolve => { respond = resolve; }));
+    const syncing = moduleRegistry.syncWithServer();
+    moduleRegistry.unregister('tasks');
+    register('tasks', '/tasks');
+    respond({ ok: true, json: async () => [{ id: 'tasks', enabled: false }] });
+    await syncing;
+    expect(moduleRegistry.isEnabled('tasks')).toBe(true);
+  });
+
 });

@@ -8,6 +8,7 @@ import {
 import { UserContext } from '../../../shared/contracts/capability';
 import { eventBus } from '../events/eventBus';
 import { authFetch } from '../../lib/authFetch';
+import { useContextStore } from '../context/contextStore';
 
 class LocalModuleRegistry {
   private manifests: Map<string, ModuleManifest> = new Map();
@@ -17,14 +18,17 @@ class LocalModuleRegistry {
   /** Prevents a server sync response from overwriting a newer local mutation. */
   private mutationVersions: Map<string, number> = new Map();
   private registryEpoch = 0;
+  private syncGeneration = 0;
 
   public register(manifest: ModuleManifest): void {
+    this.registryEpoch += 1;
     this.manifests.set(manifest.id, manifest);
     if (!this.enabledMap.has(manifest.id)) this.enabledMap.set(manifest.id, manifest.defaultEnabled ?? true);
     eventBus.emit('module.registered', { moduleId: manifest.id });
   }
 
   public unregister(moduleId: string): void {
+    this.registryEpoch += 1;
     this.manifests.delete(moduleId);
     this.enabledMap.delete(moduleId);
     this.transitions.delete(moduleId);
@@ -34,6 +38,7 @@ class LocalModuleRegistry {
 
   public reset(): void {
     this.registryEpoch += 1;
+    this.syncGeneration += 1;
     this.manifests.clear();
     this.enabledMap.clear();
     this.transitions.clear();
@@ -134,16 +139,21 @@ class LocalModuleRegistry {
     );
   }
 
-  public async syncWithServer(): Promise<void> {
+  public async syncWithServer(ownerUid = useContextStore.getState().user.id): Promise<void> {
     const epoch = this.registryEpoch;
+    const generation = ++this.syncGeneration;
     const mutationVersionsAtRequest = new Map(this.mutationVersions);
     try {
       const res = await authFetch('/api/modules');
       if (res.ok) {
         const list: Array<{ id: string; enabled: boolean }> = await res.json();
-        if (this.registryEpoch !== epoch) return;
+        if (this.registryEpoch !== epoch
+          || this.syncGeneration !== generation
+          || useContextStore.getState().user.id !== ownerUid
+          || !Array.isArray(list)) return;
         list.forEach(item => {
-          if (this.manifests.has(item.id)
+          if (item && typeof item.id === 'string' && typeof item.enabled === 'boolean'
+            && this.manifests.has(item.id)
             && !this.transitions.has(item.id)
             && this.mutationVersions.get(item.id) === mutationVersionsAtRequest.get(item.id)) {
             this.enabledMap.set(item.id, item.enabled);

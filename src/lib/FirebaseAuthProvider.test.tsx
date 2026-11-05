@@ -100,9 +100,9 @@ describe('FirebaseAuthProvider authentication and hydration lifecycle', () => {
     expect(authMocks.authStateListener).toBeTypeOf('function');
   }
 
-  function makeUser() {
+  function makeUser(uid = 'owner-1') {
     return {
-      uid: 'owner-1',
+      uid,
       email: 'owner@example.test',
       displayName: 'Owner',
       getIdTokenResult: vi.fn().mockResolvedValue({ claims: { roles: ['user'] } }),
@@ -192,4 +192,44 @@ describe('FirebaseAuthProvider authentication and hydration lifecycle', () => {
     expect(warning.mock.calls.flat().join(' ')).not.toContain('private metadata detail');
     warning.mockRestore();
   });
+  it('ignores delayed claims for A after B has completed auth', async () => {
+    let finishA!: (value: { claims: { roles: string[] } }) => void;
+    const ownerA = makeUser('owner-A');
+    ownerA.getIdTokenResult.mockImplementation(() => new Promise(resolve => { finishA = resolve; }));
+    const ownerB = makeUser('owner-B');
+    await render();
+    await act(async () => { authMocks.authStateListener!(ownerA); await Promise.resolve(); });
+    await vi.waitFor(() => expect(ownerA.getIdTokenResult).toHaveBeenCalledOnce());
+    await act(async () => { authMocks.authStateListener!(ownerB); await Promise.resolve(); });
+    await vi.waitFor(() => expect(authMocks.setUser).toHaveBeenCalledWith(expect.objectContaining({ id: 'owner-B' })));
+    await act(async () => { finishA({ claims: { roles: ['admin'] } }); await Promise.resolve(); });
+    expect(authMocks.setUser).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'owner-A' }));
+    expect(authMocks.setUser.mock.lastCall?.[0].id).toBe('owner-B');
+    expect(context!.loading).toBe(false);
+  });
+
+  it('blocks late credential reconciliation after logout', async () => {
+    let finishA!: (value: boolean) => void;
+    authMocks.syncKeys.mockImplementation(() => new Promise(resolve => { finishA = resolve; }));
+    await render();
+    await act(async () => { authMocks.authStateListener!(makeUser('owner-A')); await Promise.resolve(); });
+    await vi.waitFor(() => expect(authMocks.syncKeys).toHaveBeenCalledOnce());
+    await act(async () => { authMocks.authStateListener!(null); await Promise.resolve(); });
+    expect(authMocks.setUser.mock.lastCall?.[0].id).toBe('guest');
+    await act(async () => { finishA(true); await Promise.resolve(); });
+    expect(authMocks.setUser.mock.lastCall?.[0].id).toBe('guest');
+    expect(authMocks.syncModules).not.toHaveBeenCalled();
+    expect(context!.loading).toBe(false);
+  });
+
+  it('does not clear shared context on a claims refresh for the same uid', async () => {
+    await render();
+    const owner = makeUser();
+    await act(async () => { authMocks.authStateListener!(owner); await Promise.resolve(); });
+    const guestResets = authMocks.setUser.mock.calls.filter(([value]) => value.id === 'guest').length;
+    await act(async () => { authMocks.authStateListener!(owner); await Promise.resolve(); });
+    expect(authMocks.setUser.mock.calls.filter(([value]) => value.id === 'guest').length).toBe(guestResets);
+    expect(authMocks.setUser.mock.lastCall?.[0].id).toBe('owner-1');
+  });
+
 });

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import {
   User,
   onAuthStateChanged,
@@ -24,9 +24,20 @@ const FirebaseAuthContext = createContext<FirebaseAuthContextValue | null>(null)
 export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const authGeneration = useRef(0);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (nextUser) => {
+    let mounted = true;
+    let previousUid: string | null = null;
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      const generation = ++authGeneration.current;
+      const isCurrent = () => mounted && authGeneration.current === generation;
+      const nextUid = nextUser?.uid ?? null;
+      // Clear the previous owner's shared context before asynchronous hydration.
+      if (previousUid !== null && previousUid !== nextUid) {
+        useContextStore.getState().setUser(DEFAULT_USER);
+      }
+      previousUid = nextUid;
       void (async () => {
         setLoading(true);
         setUser(nextUser);
@@ -39,13 +50,15 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
         try {
           if (nextUser) {
             await useAIKeysStore.persist.rehydrate();
-            // Reconcile persisted credentialId against server-owned metadata before
-            // Agent runtime is allowed to consume the hydrated AI settings.
-            await useAIKeysStore.getState().syncKeys();
+            if (!isCurrent()) return;
+            // Guard writes inside the store, not only after the awaited call.
+            await useAIKeysStore.getState().syncKeys(isCurrent);
+            if (!isCurrent()) return;
           }
         } catch {
-          console.warn('Failed to rehydrate user-scoped AI settings.');
+          if (isCurrent()) console.warn('Failed to rehydrate user-scoped AI settings.');
         }
+        if (!isCurrent()) return;
 
         if (!nextUser) {
           useContextStore.getState().setUser(DEFAULT_USER);
@@ -57,6 +70,7 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
           // Client claims are used only for UI affordances. Server-side authorization
           // independently verifies the ID token and never trusts this client state.
           const tokenResult = await nextUser.getIdTokenResult();
+          if (!isCurrent()) return;
           const claims = tokenResult.claims as Record<string, unknown>;
           const claimRoles = Array.isArray(claims.roles)
             ? claims.roles.filter((role): role is string => typeof role === 'string')
@@ -78,10 +92,11 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
           });
 
           // Sync module settings with server after login
-          void moduleRegistry.syncWithServer().catch(err => {
+          void moduleRegistry.syncWithServer(nextUser.uid).catch(err => {
             console.warn('Failed to sync module state after login:', err);
           });
         } catch (err) {
+          if (!isCurrent()) return;
           console.warn('Failed to load Firebase claims for UI context', err);
           useContextStore.getState().setUser({
             id: nextUser.uid,
@@ -91,10 +106,15 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
             permissions: resolveVerifiedPermissions({ roles: ['user'] }),
           });
         } finally {
-          setLoading(false);
+          if (isCurrent()) setLoading(false);
         }
       })();
     });
+    return () => {
+      mounted = false;
+      authGeneration.current += 1;
+      unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
