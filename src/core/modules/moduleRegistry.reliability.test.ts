@@ -178,4 +178,57 @@ describe('CAT-01 module registry reliability', () => {
     expect(moduleRegistry.isEnabled('tasks')).toBe(true);
   });
 
+  it('does not persist or emit a successful toggle when onEnable fails', async () => {
+    const persist = vi.fn(async () => undefined);
+    const onEnable = vi.fn(async () => { throw new Error('lifecycle failed'); });
+    moduleRegistry.register({
+      id: 'blocked-module',
+      version: '1.0.0',
+      defaultEnabled: false,
+      meta: { name: 'Blocked' },
+      routes: [],
+      lifecycle: { onEnable },
+    });
+    const events: boolean[] = [];
+    const off = eventBus.on<{ moduleId: string; enabled: boolean }>('module.statusChanged', event => {
+      if (event.moduleId === 'blocked-module') events.push(event.enabled);
+    });
+    try {
+      await expect(moduleRegistry.enable('blocked-module', persist)).rejects.toThrow('lifecycle failed');
+      expect(moduleRegistry.isEnabled('blocked-module')).toBe(false);
+      expect(persist).not.toHaveBeenCalled();
+      expect(events).toEqual([]);
+    } finally {
+      off();
+    }
+  });
+
+  it('does not commit a completed hook belonging to an unregistered manifest', async () => {
+    let releaseDisable!: () => void;
+    const persist = vi.fn(async () => undefined);
+    moduleRegistry.register({
+      id: 'replaceable-module',
+      version: '1.0.0',
+      meta: { name: 'Old module' },
+      routes: [],
+      lifecycle: { onDisable: () => new Promise<void>(resolve => { releaseDisable = resolve; }) },
+    });
+    const events: boolean[] = [];
+    const off = eventBus.on<{ moduleId: string; enabled: boolean }>('module.statusChanged', event => {
+      if (event.moduleId === 'replaceable-module') events.push(event.enabled);
+    });
+    try {
+      const oldDisable = moduleRegistry.disable('replaceable-module', persist);
+      moduleRegistry.unregister('replaceable-module');
+      register('replaceable-module');
+      releaseDisable();
+      await oldDisable;
+      expect(moduleRegistry.isEnabled('replaceable-module')).toBe(true);
+      expect(persist).not.toHaveBeenCalled();
+      expect(events).toEqual([]);
+    } finally {
+      off();
+    }
+  });
+
 });

@@ -232,4 +232,20 @@ describe('FirebaseAuthProvider authentication and hydration lifecycle', () => {
     expect(authMocks.setUser.mock.lastCall?.[0].id).toBe('owner-1');
   });
 
+  it('drops a pending rehydrate result after provider unmount', async () => {
+    let releaseRehydrate!: () => void;
+    authMocks.rehydrate.mockImplementationOnce(() => new Promise<void>(resolve => {
+      releaseRehydrate = resolve;
+    }));
+    await render();
+    await act(async () => { authMocks.authStateListener!(makeUser('owner-A')); await Promise.resolve(); });
+    await vi.waitFor(() => expect(authMocks.rehydrate).toHaveBeenCalledOnce());
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => { releaseRehydrate(); await Promise.resolve(); });
+    expect(authMocks.syncKeys).not.toHaveBeenCalled();
+    expect(authMocks.setUser).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'owner-A' }));
+    expect(authMocks.syncModules).not.toHaveBeenCalled();
+  });
+
 });
