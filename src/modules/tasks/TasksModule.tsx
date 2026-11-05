@@ -36,7 +36,14 @@ const priorityRank: Record<TaskItem['priority'], number> = { high: 0, medium: 1,
 const statusLabel: Record<TaskItem['status'], string> = { todo: 'Cần làm', 'in-progress': 'Đang thực hiện', completed: 'Hoàn thành' };
 const priorityLabel: Record<TaskItem['priority'], string> = { high: 'Cao', medium: 'Trung bình', low: 'Thấp' };
 
+// A Task workspace's React state belongs to exactly one authenticated owner.
+// Remount synchronously on account changes so an old Board cannot paint on B.
 export function TasksModule() {
+  const { user } = useFirebaseAuth();
+  return <OwnerScopedTasksModule key={user?.uid ?? 'guest'} />;
+}
+
+function OwnerScopedTasksModule() {
   const selectedEntity = useContextStore((state) => state.selectedEntity);
   const setSelectedEntity = useContextStore((state) => state.setSelectedEntity);
   const appUser = useContextStore((state) => state.user);
@@ -50,6 +57,16 @@ export function TasksModule() {
   const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());
   const pending = useRef(createTaskPendingOperations());
   const fetchAuthority = useRef(createTaskRequestAuthority());
+  const ownerActive = useRef(true);
+  // Async CRUD completion from an unmounted owner may not publish UI, alerts
+  // or selected-entity changes into the new account's workspace.
+  useEffect(() => {
+    ownerActive.current = true;
+    return () => {
+      ownerActive.current = false;
+      fetchAuthority.current.invalidate();
+    };
+  }, []);
   const [clockTick, setClockTick] = useState(0);
   const beginOperation = (id: string) => {
     if (!pending.current.begin(id)) return false;
@@ -97,16 +114,16 @@ export function TasksModule() {
       const response = await authFetch('/api/tasks?status=all');
       if (!response.ok) throw new Error('load');
       const data = await response.json();
-      if (!fetchAuthority.current.isCurrent(token)) return;
+      if (!ownerActive.current || !fetchAuthority.current.isCurrent(token)) return;
       const loadedTasks = Array.isArray(data.tasks) ? data.tasks as TaskItem[] : [];
       setTasks(loadedTasks);
       syncSelectedTaskContext(loadedTasks);
     } catch (err) {
-      if (!fetchAuthority.current.isCurrent(token)) return;
+      if (!ownerActive.current || !fetchAuthority.current.isCurrent(token)) return;
       console.error('Failed to fetch tasks:', err);
       setError('Chưa thể tải danh sách công việc. Vui lòng thử lại.');
     } finally {
-      if (fetchAuthority.current.isCurrent(token)) setLoading(false);
+      if (ownerActive.current && fetchAuthority.current.isCurrent(token)) setLoading(false);
     }
   };
 
@@ -139,14 +156,16 @@ export function TasksModule() {
       const response = await authFetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
       if (!response.ok) throw new Error('save');
       const data = await response.json();
+      if (!ownerActive.current) return;
       fetchAuthority.current.invalidate();
       if (data.task) setTasks((current) => [data.task, ...current]); else await fetchTasks();
       setIsFormOpen(false);
     } catch (err) {
+      if (!ownerActive.current) return;
       console.error('Failed to create task:', err);
       setFormError('Chưa thể tạo công việc. Vui lòng kiểm tra thông tin và thử lại.');
       throw err;
-    } finally { endOperation('new'); }
+    } finally { if (ownerActive.current) endOperation('new'); }
   };
 
   const saveTask = async (value: TaskFormValue): Promise<TaskItem | void> => {
@@ -158,6 +177,7 @@ export function TasksModule() {
       const response = await authFetch(`/api/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
       if (!response.ok) throw new Error('save');
       const data = await response.json();
+      if (!ownerActive.current) return;
       fetchAuthority.current.invalidate();
       if (data.task) {
         const savedTask = data.task as TaskItem;
@@ -170,9 +190,10 @@ export function TasksModule() {
       }
       await fetchTasks();
     } catch (err) {
+      if (!ownerActive.current) return;
       console.error('Failed to save task:', err);
       setFormError('Chưa thể lưu công việc. Vui lòng kiểm tra thông tin và thử lại.');
-    } finally { endOperation(id); }
+    } finally { if (ownerActive.current) endOperation(id); }
   };
 
   const updateTaskStatus = async (task: TaskItem, nextStatus: TaskItem['status']) => {
@@ -187,6 +208,7 @@ export function TasksModule() {
       const response = await authFetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus }) });
       if (!response.ok) throw new Error('status');
       const data = await response.json();
+      if (!ownerActive.current) return;
       fetchAuthority.current.invalidate();
       if (data.task) {
         const updatedTask = data.task as TaskItem;
@@ -194,9 +216,10 @@ export function TasksModule() {
         if (editingTask?.id === task.id) setEditingTask(updatedTask);
       } else await fetchTasks();
     } catch (err) {
+      if (!ownerActive.current) return;
       console.error('Failed to update task status:', err);
       setError('Chưa thể cập nhật trạng thái công việc. Vui lòng thử lại.');
-    } finally { endOperation(task.id); }
+    } finally { if (ownerActive.current) endOperation(task.id); }
   };
 
   const setCompletion = async (task: TaskItem) => {
@@ -211,15 +234,17 @@ export function TasksModule() {
       setError(null);
       const response = await authFetch(`/api/tasks/${encodeURIComponent(deletingId)}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('delete');
+      if (!ownerActive.current) return;
       fetchAuthority.current.invalidate();
       setTasks((current) => current.filter((task) => task.id !== deletingId));
       if (selectedEntity?.moduleId === 'tasks' && selectedEntity.entityId === deletingId) setSelectedEntity(null);
       if (editingTask?.id === deletingId) { setEditingTask(null); setDetailDirty(false); }
       setDeleteTask(null);
     } catch (err) {
+      if (!ownerActive.current) return;
       console.error('Failed to delete task:', err);
       setError('Chưa thể xóa công việc. Vui lòng thử lại.');
-    } finally { endOperation(deletingId); }
+    } finally { if (ownerActive.current) endOperation(deletingId); }
   };
 
   const visibleTasks = useMemo(() => tasks.filter((task) => {

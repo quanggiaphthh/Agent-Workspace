@@ -254,8 +254,11 @@ function requirePermission(permission: string) {
   };
 }
 
-// Acceptance test route & Phase 3 Probe
+// Acceptance test route & Phase 3 Probe — never execute diagnostic Firestore writes in production.
 app.get('/api/test/firebase-connection', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'API route not found.', code: 'API_ROUTE_NOT_FOUND' });
+  }
   const user = req.user;
   const sessionId = `probe_${Date.now()}`;
   
@@ -512,7 +515,11 @@ const TaskCreateSchema = z.object({
   dueDate: z.string().max(10).refine(isValidTaskDueDate, 'dueDate must be YYYY-MM-DD or an empty string.').optional(),
   dueTime: z.string().max(5).refine(isValidTaskDueTime, 'dueTime must be HH:mm or an empty string.').optional(),
 }).strict();
-const TaskPatchSchema = TaskCreateSchema.partial().strict();
+// Match Agent taskUpdateInputSchema: an empty REST PATCH must not mutate updatedAt.
+const TaskPatchSchema = TaskCreateSchema.partial().strict().refine(
+  patch => Object.values(patch).some(value => value !== undefined),
+  { message: 'At least one task field must be updated.' },
+);
 const MemoryCreateSchema = z.object({
   content: z.string().trim().min(1).max(10000),
   category: z.string().trim().min(1).max(100).optional(),

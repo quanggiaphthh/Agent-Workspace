@@ -17,6 +17,7 @@ import { CapabilityConfirmationService } from '../../server/core/capabilities/Ca
 import { evaluateConfirmationRecord, hashCapabilityInput } from '../../server/core/capabilities/CapabilityConfirmationPolicy';
 import { CapabilityExecutionIdempotencyService, type MutationExecutionRecord } from '../../server/core/capabilities/CapabilityExecutionService';
 import { storage } from '../../server/infrastructure/storage';
+import { UserDataService } from '../../server/core/data/UserDataService';
 import { userFileService } from '../../server/core/files/firebaseFileStores';
 
 const testMocks = vi.hoisted(() => ({
@@ -107,6 +108,61 @@ describe('Production Integration & Security Suite', () => {
       expect(res.status).toBe(503);
       expect(res.body.status).toBe('error');
       expect(res.body.components.session.status).toBe('error');
+    });
+  });
+
+  describe('CAT-03 — TASK REST/AGENT PATCH parity', () => {
+    it('rejects an empty REST task patch without reaching the canonical data service', async () => {
+      process.env.OWNER_UID = mockUserA.uid;
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValueOnce(mockUserA as any);
+      const updateSpy = vi.spyOn(UserDataService, 'updateTask');
+      try {
+        const result = await request(app)
+          .patch('/api/tasks/task-1')
+          .set('Authorization', 'Bearer owner-token')
+          .send({});
+        expect(result.status).toBe(400);
+        expect(updateSpy).not.toHaveBeenCalled();
+      } finally {
+        updateSpy.mockRestore();
+      }
+    });
+
+    it('allows a deliberate empty-string dueDate patch to clear a Task deadline', async () => {
+      process.env.OWNER_UID = mockUserA.uid;
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValueOnce(mockUserA as any);
+      const updateSpy = vi.spyOn(UserDataService, 'updateTask').mockResolvedValue({ id: 'task-1', dueDate: '' } as any);
+      try {
+        const result = await request(app)
+          .patch('/api/tasks/task-1')
+          .set('Authorization', 'Bearer owner-token')
+          .send({ dueDate: '' });
+        expect(result.status).toBe(200);
+        expect(updateSpy).toHaveBeenCalledWith(mockUserA.uid, 'task-1', { dueDate: '' });
+      } finally {
+        updateSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('CAT-00 — PRODUCTION DIAGNOSTIC ROUTE', () => {
+    it('returns 404 and never writes a Firestore probe when an owner calls it in production', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.OWNER_UID = mockUserA.uid;
+      vi.mocked(adminAuth.verifyIdToken).mockResolvedValueOnce(mockUserA as any);
+      const collectionSpy = vi.spyOn(adminFirestore, 'collection');
+      try {
+        const response = await request(app)
+          .get('/api/test/firebase-connection')
+          .set('Authorization', 'Bearer owner-token');
+        expect(response.status).toBe(404);
+        expect(response.body.code).toBe('API_ROUTE_NOT_FOUND');
+        expect(collectionSpy).not.toHaveBeenCalledWith('_server_probe');
+      } finally {
+        collectionSpy.mockRestore();
+        process.env.NODE_ENV = 'test';
+        delete process.env.OWNER_UID;
+      }
     });
   });
 
