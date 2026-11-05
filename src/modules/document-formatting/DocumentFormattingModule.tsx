@@ -68,6 +68,14 @@ function millimetres(twips: number): string {
   return (twips * 25.4 / 1440).toFixed(1);
 }
 
+async function verifyDocxOutputIntegrity(response: Response, output: Blob): Promise<void> {
+  const expectedSha = response.headers.get('x-document-output-sha256')?.toLowerCase();
+  const actualSha = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await output.arrayBuffer())),
+    byte => byte.toString(16).padStart(2, '0')).join('');
+  if (!expectedSha || !/^[a-f0-9]{64}$/.test(expectedSha) || expectedSha !== actualSha)
+    throw new Error('Tệp kết quả không vượt qua kiểm tra toàn vẹn.');
+}
+
 function makeIdempotencyKey(): string {
   const uuid = globalThis.crypto?.randomUUID?.();
   if (uuid) return `docfmt:${uuid}`;
@@ -89,6 +97,15 @@ export function DocumentFormattingModule() {
   const requestController = useRef<AbortController | null>(null);
   const objectUrls = useRef(new Set<string>());
 
+  const isCurrentRequest = (controller: AbortController) =>
+    requestController.current === controller && !controller.signal.aborted;
+  const finishRequest = (controller: AbortController) => {
+    if (requestController.current === controller) {
+      requestController.current = null;
+      setBusy(null);
+    }
+  };
+
   useEffect(() => () => {
     requestController.current?.abort();
     objectUrls.current.forEach(url => URL.revokeObjectURL(url));
@@ -99,6 +116,9 @@ export function DocumentFormattingModule() {
   const canApply = Boolean(file && inspection?.safeToMutate && inspection.packagePolicy === 'NORMAL' && selectedParagraph?.directAlignment && desiredAfter && desiredAfter !== selectedParagraph.directAlignment);
 
   const chooseFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    requestController.current?.abort();
+    requestController.current = null;
+    setBusy(null);
     const chosen = event.target.files?.[0] || null;
     if (automaticResult) {
       URL.revokeObjectURL(automaticResult.url);
@@ -147,6 +167,7 @@ export function DocumentFormattingModule() {
         body: selectedFile,
         signal: controller.signal,
       });
+      if (!isCurrentRequest(controller)) return;
       if (!response.ok) throw new Error(await parseResponseError(response));
       if (response.headers.get('x-document-rule-profile') !== 'nd30-safe-v2' ||
           response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() !== DOCX_MIME_TYPE)
@@ -173,20 +194,15 @@ export function DocumentFormattingModule() {
         throw new Error('Báo cáo phần thân văn bản không hợp lệ.');
       const output = await response.blob();
       if (output.size <= 0 || output.size > MAX_FILE_BYTES) throw new Error('Tệp kết quả vượt giới hạn an toàn.');
-      const expectedSha = response.headers.get('x-document-output-sha256')?.toLowerCase();
-      const actualSha = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await output.arrayBuffer())),
-        byte => byte.toString(16).padStart(2, '0')).join('');
-      if (!expectedSha || expectedSha !== actualSha) throw new Error('Tệp kết quả không vượt qua kiểm tra toàn vẹn.');
-      if (controller.signal.aborted) throw new Error('Đã hủy xử lý.');
+      await verifyDocxOutputIntegrity(response, output);
+      if (!isCurrentRequest(controller)) return;
       const url = URL.createObjectURL(output);
       objectUrls.current.add(url);
       setAutomaticResult({ url, filename: safeOutputFilename(selectedFile.name), changes: decoded as PageChange[], bodySummary: parsedBody });
     } catch (caught) {
-      setError(controller.signal.aborted ? 'Đã hủy xử lý tệp.' :
-        caught instanceof Error ? caught.message : 'Không thể tự động xử lý DOCX.');
+      if (isCurrentRequest(controller)) setError(caught instanceof Error ? caught.message : 'Không thể tự động xử lý DOCX.');
     } finally {
-      if (requestController.current === controller) requestController.current = null;
-      setBusy(null);
+      finishRequest(controller);
     }
   };
 
@@ -217,8 +233,10 @@ export function DocumentFormattingModule() {
         body: file,
         signal: controller.signal,
       });
+      if (!isCurrentRequest(controller)) return;
       if (!response.ok) throw new Error(await parseResponseError(response));
       const payload = await response.json() as { inspection?: Inspection };
+      if (!isCurrentRequest(controller)) return;
       if (!payload.inspection || !Array.isArray(payload.inspection.paragraphs)) throw new Error('Kết quả kiểm tra DOCX không hợp lệ.');
       setInspection(payload.inspection);
       const firstEditable = payload.inspection.paragraphs.find(paragraph => paragraph.directAlignment !== null);
@@ -228,11 +246,9 @@ export function DocumentFormattingModule() {
       }
       setNotice('Đã kiểm tra DOCX trong phiên này. Tệp không được lưu vào kho tệp của ứng dụng.');
     } catch (caught) {
-      if (controller.signal.aborted) setError('Đã hủy thao tác. Hãy kiểm tra lại tệp trước khi tiếp tục.');
-      else setError(caught instanceof Error ? caught.message : 'Không thể kiểm tra DOCX.');
+      if (isCurrentRequest(controller)) setError(caught instanceof Error ? caught.message : 'Không thể kiểm tra DOCX.');
     } finally {
-      if (requestController.current === controller) requestController.current = null;
-      setBusy(null);
+      finishRequest(controller);
     }
   };
 
@@ -260,6 +276,7 @@ export function DocumentFormattingModule() {
         signal: controller.signal,
       });
       const payload = await response.json() as { confirmationId?: string; confirmationExpiresAt?: string; error?: string };
+      if (!isCurrentRequest(controller)) return;
       if (response.status !== 409 || !payload.confirmationId || !payload.confirmationExpiresAt) {
         throw new Error(payload.error || `Không thể chuẩn bị bước xác nhận (HTTP ${response.status}).`);
       }
@@ -273,11 +290,9 @@ export function DocumentFormattingModule() {
         idempotencyKey,
       });
     } catch (caught) {
-      if (controller.signal.aborted) setError('Đã hủy thao tác xác nhận.');
-      else setError(caught instanceof Error ? caught.message : 'Không thể chuẩn bị bước xác nhận.');
+      if (isCurrentRequest(controller)) setError(caught instanceof Error ? caught.message : 'Không thể chuẩn bị bước xác nhận.');
     } finally {
-      if (requestController.current === controller) requestController.current = null;
-      setBusy(null);
+      finishRequest(controller);
     }
   };
 
@@ -309,6 +324,7 @@ export function DocumentFormattingModule() {
         body: file,
         signal: controller.signal,
       });
+      if (!isCurrentRequest(controller)) return;
       if (!response.ok) {
         setPendingConfirmation(null);
         setInspection(null);
@@ -321,6 +337,8 @@ export function DocumentFormattingModule() {
       }
       const output = await response.blob();
       if (output.size <= 0 || output.size > MAX_FILE_BYTES) throw new Error('Tệp kết quả vượt giới hạn an toàn.');
+      await verifyDocxOutputIntegrity(response, output);
+      if (!isCurrentRequest(controller)) return;
       const objectUrl = URL.createObjectURL(output);
       objectUrls.current.add(objectUrl);
       const anchor = document.createElement('a');
@@ -337,15 +355,15 @@ export function DocumentFormattingModule() {
       setDesiredAfter('');
       setNotice('Đã tải DOCX đã chỉnh sửa. Hãy mở tệp tải xuống để kiểm tra kết quả.');
     } catch (caught) {
-      setPendingConfirmation(null);
-      setInspection(null);
-      setSelectedParagraphId('');
-      setDesiredAfter('');
-      if (controller.signal.aborted) setError('Đã hủy thao tác. Hãy kiểm tra lại DOCX trước khi thử lần nữa.');
-      else setError(caught instanceof Error ? caught.message : 'Không thể áp dụng căn lề.');
+      if (isCurrentRequest(controller)) {
+        setPendingConfirmation(null);
+        setInspection(null);
+        setSelectedParagraphId('');
+        setDesiredAfter('');
+        setError(caught instanceof Error ? caught.message : 'Không thể áp dụng căn lề.');
+      }
     } finally {
-      if (requestController.current === controller) requestController.current = null;
-      setBusy(null);
+      finishRequest(controller);
     }
   };
 
@@ -354,6 +372,8 @@ export function DocumentFormattingModule() {
     requestController.current?.abort();
     requestController.current = null;
     setBusy(null);
+    setError(null);
+    setNotice('Đã hủy thao tác.');
     setPendingConfirmation(null);
     if (cancellingApply) {
       setInspection(null);
@@ -421,7 +441,7 @@ export function DocumentFormattingModule() {
         <Card>
           <CardHeader>
             <CardTitle>Kết quả tự động</CardTitle>
-            <CardDescription>Chỉ liệt kê các thuộc tính thực sự đã thay đổi.</CardDescription>
+            <CardDescription>Báo cáo thay đổi thực tế trên trang và các đoạn BodyText được hỗ trợ; kết quả này không chứng nhận toàn văn đã đạt ND30/HD05.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {automaticResult.changes.length === 0 ? (
