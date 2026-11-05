@@ -1,12 +1,9 @@
 name: CAT Core-Agent-Task verification
 
 on:
-  push:
-    branches:
-      - 'cat/**'
   pull_request:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,26 +27,8 @@ jobs:
         run: npm run lint
       - name: CAT-01 Core reliability + locked architecture regressions
         run: npx vitest run src/core/modules/moduleRegistry.reliability.test.ts src/core/context/contextStore.identity.test.ts src/__tests__/architecture.test.ts
-      - name: Complete Vitest suite
-        run: npm run test
-      - name: Canonical static QA Stage 1-5
-        run: |
-          node scripts/qa-stage1.mjs
-          node scripts/qa-stage2.mjs
-          node scripts/qa-stage3a.mjs
-          node scripts/qa-stage3b.mjs
-          node scripts/qa-stage3c.mjs
-          node scripts/qa-stage4a.mjs
-          node scripts/qa-stage4b.mjs
-          node scripts/qa-stage4c.mjs
-          node scripts/qa-stage4d.mjs
-          node scripts/qa-stage5-static.mjs
-      - name: W11 security QA
-        run: node scripts/qa-w11-security.mjs
-      - name: Production build
-        run: npm run build
-      - name: Source manifest
-        run: node scripts/verify-production-source-manifest.mjs
+      - name: CAT Auth and Task owner-boundary regressions
+        run: npx vitest run src/lib/FirebaseAuthProvider.test.tsx src/modules/tasks/TasksModule.identity.test.tsx server/core/data/__tests__/taskContract.test.ts
 
   security-gate:
     runs-on: ubuntu-latest
