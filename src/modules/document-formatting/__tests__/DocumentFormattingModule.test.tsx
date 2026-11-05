@@ -32,6 +32,10 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
     container.remove();
   });
 
+  const flushDigestAndUi = async () => {
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+  };
+
   it('generates one Idempotency-Key during prepareConfirmation and forwards the identical key to applyAndDownload', async () => {
     const inspectedSha = 'a'.repeat(64);
     const mockInspection = {
@@ -75,6 +79,7 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
         headers: new Headers({
           'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           'content-disposition': 'attachment; filename="test-formatted.docx"',
+          'x-document-output-sha256': createHash('sha256').update(Buffer.from('PK\x03\x04test')).digest('hex'),
         }),
         blob: async () => new Blob(['PK\x03\x04test'], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
       });
@@ -137,6 +142,8 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
     // CRITICAL: The Idempotency-Key passed to /apply must be IDENTICAL to the one passed to /confirm
     expect(applyKey).toBe(confirmKey);
     expect(applyCallHeaders['X-Confirmation-ID']).toBe('confirm-challenge-xyz');
+    await flushDigestAndUi();
+    expect(container.textContent).toContain('Đã tải DOCX đã chỉnh sửa.');
   });
 
   it('shows the actual page changes and a download after one automatic request', async () => {
@@ -168,4 +175,109 @@ describe('DocumentFormattingModule Idempotency-Key binding', () => {
     expect(container.textContent).toContain('2 đoạn chưa xác định được vai trò');
     expect(container.textContent).toContain('Tải Word đã xử lý');
   });
+
+  it('ignores the late result from a cancelled file after a newer file was processed', async () => {
+    let resolveFirst!: (response: unknown) => void;
+    authFetchMock.fetch
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce({ ok: false, status: 422, json: async () => ({ error: 'Kết quả file B' }) });
+    await act(async () => root.render(<DocumentFormattingModule />));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const first = new File(['first'], 'a.docx');
+    const second = new File(['second'], 'b.docx');
+    await act(async () => {
+      Object.defineProperty(input, 'files', { value: [first], configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(authFetchMock.fetch).toHaveBeenCalledTimes(1);
+    const cancel = Array.from(container.querySelectorAll('button')).find(button => button.textContent?.includes('Hủy thao tác'));
+    expect(cancel).toBeTruthy();
+    await act(async () => cancel!.click());
+    await act(async () => {
+      Object.defineProperty(input, 'files', { value: [second], configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(authFetchMock.fetch).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Kết quả file B');
+    await act(async () => {
+      resolveFirst({ ok: false, status: 422, json: async () => ({ error: 'Không được hiển thị file A' }) });
+    });
+    expect(container.textContent).toContain('Kết quả file B');
+    expect(container.textContent).not.toContain('Không được hiển thị file A');
+    expect(container.textContent).not.toContain('Đang xử lý…');
+  });
+
+  it('rejects an automatic DOCX when the returned SHA-256 does not match the bytes', async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x11]);
+    authFetchMock.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'x-document-rule-profile': 'nd30-safe-v2',
+        'x-document-changes': Buffer.from('[]').toString('base64url'),
+        'x-document-body-report': Buffer.from(JSON.stringify({ formattedParagraphs: 0, unclassifiedParagraphs: 0,
+          adjustments: { font: 0, size: 0, spacing: 0, indent: 0, alignment: 0 } })).toString('base64url'),
+        'x-document-output-sha256': '0'.repeat(64),
+      }),
+      blob: async () => new Blob([bytes]),
+    });
+    await act(async () => root.render(<DocumentFormattingModule />));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      Object.defineProperty(input, 'files', { value: [new File([bytes], 'bad.docx')], configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flushDigestAndUi();
+    expect(container.textContent).toContain('không vượt qua kiểm tra toàn vẹn');
+    expect(container.textContent).not.toContain('Tải Word đã xử lý');
+  });
+
+
+  it('never downloads a confirmed DOCX with mismatched output SHA-256', async () => {
+    const inspection = {
+      sourceSha256: 'a'.repeat(64),
+      profile: 'generic-direct-alignment-spike',
+      safeToMutate: true,
+      packagePolicy: 'NORMAL',
+      paragraphs: [{ paragraphId: 'p1', text: 'Test', directAlignment: 'LEFT', issueId: null }],
+      paragraphsTruncated: false,
+      diagnostics: [],
+    };
+    authFetchMock.fetch
+      .mockResolvedValueOnce({ ok: false, status: 422, json: async () => ({ error: 'Use inspection' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ inspection }) })
+      .mockResolvedValueOnce({
+        ok: false, status: 409,
+        json: async () => ({ confirmationId: 'confirm-digest', confirmationExpiresAt: new Date(Date.now() + 60_000).toISOString() }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({
+          'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'x-document-output-sha256': '0'.repeat(64),
+        }),
+        blob: async () => new Blob(['PK\x03\x04tampered']),
+      });
+
+    await act(async () => root.render(<DocumentFormattingModule />));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      Object.defineProperty(input, 'files', { value: [new File(['document'], 'tampered.docx')], configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const click = async (label: string) => {
+      const button = Array.from(container.querySelectorAll('button')).find(item => item.textContent?.includes(label));
+      expect(button, 'Missing action: ' + label).toBeTruthy();
+      await act(async () => button!.click());
+    };
+    await click('Kiểm tra DOCX');
+    await click('Chuẩn bị xác nhận');
+    await click('Xác nhận và tải DOCX');
+    await flushDigestAndUi();
+    expect(authFetchMock.fetch).toHaveBeenCalledTimes(4);
+    expect(container.textContent).toContain('không vượt qua kiểm tra toàn vẹn');
+    expect(container.textContent).not.toContain('Đã tải DOCX đã chỉnh sửa');
+  });
+
 });
