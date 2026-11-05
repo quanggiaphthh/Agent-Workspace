@@ -25,11 +25,14 @@ vi.mock('../../core/context/contextStore', () => {
   return { useContextStore: Object.assign((selector: (value: unknown) => unknown) => selector(getState()), { getState }) };
 });
 vi.mock('./TaskBoard', () => ({
-  TaskBoard: ({ tasks }: { tasks: Array<{ title: string }> }) =>
-    <div data-testid="board">{tasks.map(task => task.title).join(',')}</div>,
+  TaskBoard: ({ tasks, onOpenTask }: { tasks: Array<{ title: string }>; onOpenTask: (task: unknown) => void }) =>
+    <div data-testid="board">{tasks.map(task => <button key={task.title} onClick={() => onOpenTask(task)}>{task.title}</button>)}</div>,
 }));
 vi.mock('./TaskFormModal', () => ({ TaskFormModal: () => null }));
-vi.mock('./TaskDetailPanel', () => ({ TaskDetailPanel: () => null }));
+vi.mock('./TaskDetailPanel', () => ({
+  TaskDetailPanel: ({ task, onSave }: { task: { title: string } | null; onSave: (value: unknown) => Promise<unknown> }) =>
+    task ? <button data-testid="save-detail" onClick={() => { void onSave({ title: task.title }); }}>Save detail</button> : null,
+}));
 
 import { TasksModule } from './TasksModule';
 
@@ -67,4 +70,36 @@ describe('CAT-T01 Task owner render boundary', () => {
     flushSync(() => root.render(<TasksModule />));
     expect(container.textContent).not.toContain('Private task A');
   });
+  it('ignores an old owner save completion and does not send its success toast to B', async () => {
+    let releaseSave!: () => void;
+    state.fetch.mockImplementation((url: string, init?: { method?: string }) => {
+      if (url === '/api/tasks?status=all') {
+        const uid = state.uid ?? 'guest';
+        return Promise.resolve({ ok: true, json: async () => ({ tasks: [task(uid)] }) });
+      }
+      if (url === '/api/tasks/task-A' && init?.method === 'PATCH') {
+        return new Promise(resolve => {
+          releaseSave = () => resolve({ ok: true, json: async () => ({ task: task('A') }) });
+        });
+      }
+      throw new Error('Unexpected Task request');
+    });
+    const { eventBus } = await import('../../core/events/eventBus');
+    const notifications: string[] = [];
+    const unsubscribe = eventBus.on<{ message: string }>('notification.show', payload => notifications.push(payload.message));
+    try {
+      await act(async () => { root.render(<TasksModule />); });
+      await vi.waitFor(() => expect(container.textContent).toContain('Private task A'));
+      await act(async () => { container.querySelector('button')?.click(); });
+      await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="save-detail"]')?.click(); });
+      expect(releaseSave).toBeTypeOf('function');
+      state.uid = 'B';
+      flushSync(() => root.render(<TasksModule />));
+      await act(async () => { releaseSave(); await Promise.resolve(); });
+      expect(notifications).not.toContain('Đã lưu');
+    } finally {
+      unsubscribe();
+    }
+  });
+
 });
