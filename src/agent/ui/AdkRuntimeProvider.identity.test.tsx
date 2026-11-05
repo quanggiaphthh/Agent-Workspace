@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
@@ -147,4 +148,19 @@ describe('CAT-02 Agent session identity boundary', () => {
     expect(runtime!.threadState.messages).toEqual([]);
     expect(runtime!.threadState.isRunning).toBe(false);
   });
+  it('excludes owner A transcript from the first synchronous render of B', async () => {
+    await loginA();
+    expect(container.textContent).toContain('private-A');
+    state.uid = 'B';
+    flushSync(() => root.render(app()));
+    expect(container.textContent).not.toContain('private-A');
+    expect(runtime!.threadState.messages).toEqual([]);
+  });
+
+  it('does not remount or erase history for a same-owner rerender', async () => {
+    await loginA();
+    await act(async () => { root.render(app()); });
+    expect(runtime!.threadState.messages.map(message => message.id)).toEqual(['private-A']);
+  });
+
 });

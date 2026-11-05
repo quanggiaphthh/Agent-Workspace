@@ -130,7 +130,14 @@ function canReplayUserMessage(message: ChatMessage | undefined): boolean {
   return Boolean(message && message.role === 'user' && message.replaySafe !== false && !(message.attachments?.length));
 }
 
+// Keying the stateful scope by verified owner prevents an old transcript from
+// surviving even the first render of a different account (before effects).
 export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
+  const { user } = useFirebaseAuth();
+  return <OwnerScopedAdkRuntimeProvider key={user?.uid ?? 'guest'}>{children}</OwnerScopedAdkRuntimeProvider>;
+}
+
+function OwnerScopedAdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
   const getAppContext = useContextStore((state) => state.getAppContext);
   const { user, loading: authLoading } = useFirebaseAuth();
   const aiSettingsHydrated = useAIKeysStore((state) => state.aiSettingsHydrated);
@@ -146,6 +153,7 @@ export function AdkRuntimeProvider({ children }: AdkRuntimeProviderProps) {
   const prefix = user ? `uid_${user.uid}_` : '';
   const isLoaded = useRef(false);
   const runGate = useRef(new AgentRunGate());
+  useEffect(() => () => { runGate.current.cancel(); }, []);
 
   const cancelRun = useCallback(() => {
     runGate.current.cancel();
