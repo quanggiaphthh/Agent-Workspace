@@ -16,7 +16,7 @@ async function xmlOf(bytes: Buffer) {
   try {
     const parts = await zip.getEntries();
     const doc = parts.find(part => part.filename === 'word/document.xml');
-    if (!doc) throw new Error('DOCX document.xml missing');
+    if (!doc || !('getData' in doc)) throw new Error('DOCX document.xml missing or not a file');
     return Buffer.from(await doc.getData(new Uint8ArrayWriter(), { checkCrc32: true })).toString('utf8');
   } finally { await zip.close(); }
 }
@@ -79,6 +79,8 @@ describe('M1 targeted negative evidence: DOCX worker boundaries', () => {
     const inputHash = digest(bytes);
     const beforeXml = await xmlOf(bytes);
     const output = await applyAdministrativePageLayout(bytes);
+    expect(output).toBeDefined();
+    if (!output) throw new Error('DOCX page layout returned no output');
     const afterXml = await xmlOf(output.bytes);
     const texts = (xml: string) => Array.from(xml.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/gu), match => match[1]);
     expect(texts(beforeXml).length).toBeGreaterThan(0);
