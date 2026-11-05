@@ -6,12 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
   uid: 'A' as string | null,
+  ownerA: { uid: 'A' },
+  ownerB: { uid: 'B' },
   fetch: vi.fn(),
   setSelectedEntity: vi.fn(),
 }));
 
 vi.mock('../../lib/FirebaseAuthProvider', () => ({
-  useFirebaseAuth: () => ({ user: state.uid ? { uid: state.uid } : null }),
+  useFirebaseAuth: () => ({ user: state.uid === 'A' ? state.ownerA : state.uid === 'B' ? state.ownerB : null }),
 }));
 vi.mock('../../lib/authFetch', () => ({ authFetch: state.fetch }));
 vi.mock('../../core/context/contextStore', () => {
